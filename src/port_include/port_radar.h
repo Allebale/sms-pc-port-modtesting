@@ -16,8 +16,11 @@ struct TRect;
 // (default 2500, 25 m). SMS_RADAR_SIZE: its size, percent (default 100).
 extern "C" int port_radar;
 
-// With the HUD, after its own pieces; viewport is the HUD's.
-void RadarDraw(const JDrama::TRect& viewport);
+// SMS_RADAR_PLACE: how it makes room for the life meter (corner, yield,
+// beside, below, bottom_left; src/radar.cpp's Place).
+// With the HUD, after its own pieces; viewport is the HUD's, and life the
+// life meter's place this frame in its 2D units (all 0 while it is hidden).
+void RadarDraw(const JDrama::TRect& viewport, float lifeX1, float lifeY1, float lifeX2, float lifeY2);
 
 // sms_gx's side (gx_radar_maps.cpp)
 struct PortRadarMap {

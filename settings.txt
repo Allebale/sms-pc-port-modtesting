@@ -107,10 +107,15 @@ frame_rate = 60
 # disc). radar_zoom is how far it reaches from Mario, in the game's units
 # (100 a metre), and D-pad up steps it through 100%, 50%, 25% and 200% of
 # that; radar_size is its size in percent. M, or a controller's Back button,
-# opens the full map (MAP in bindings.txt).
+# opens the full map (MAP in bindings.txt). radar_place is how it makes room
+# for the life meter, which comes down at the same top right: yield (moves
+# down under the meter while it is there), beside (a little smaller, to the
+# meter's left while it is there), below (always under the meter's place),
+# bottom_left (across from the FLUDD gauge), or corner (stays, under it).
 # radar = off
 # radar_zoom = 2500
 # radar_size = 100
+# radar_place = yield
 # The buttons shown in the game's text and on the FLUDD gauge: gamecube (the
 # game's own), xbox, playstation, steamdeck, keyboard, or auto (keyboard and
 # mouse, or the controller in use). Other than gamecube, they need the images

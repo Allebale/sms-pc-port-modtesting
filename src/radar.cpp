@@ -21,6 +21,9 @@
 // The HUD draws it last (patch zzzz-radar-01) while a stage plays (not in
 // cutscenes, conversations or the pause menu), fading in and out, and with
 // SMS_WIDESCREEN_HUD=edges it moves to the right edge with the HUD's pieces.
+// The life meter comes down at the same top right when Mario is hurt or under
+// water; the HUD gives the radar its place each frame, and SMS_RADAR_PLACE
+// says how the radar makes room for it (Place).
 //
 // D-pad up steps the radar's zoom through kZoomSteps, with the menus' cursor
 // sound and its reach shown under it for a moment. MAP (M, or a controller's
@@ -100,6 +103,24 @@ f32 sZoom     = 2500.0f; // the same, at the zoom step chosen
 int sZoomStep;
 int sZoomShown; // frames left to show the zoom under the radar
 f32 sRadius   = kRadius;
+
+// SMS_RADAR_PLACE (radar_place): how the radar and the life meter share the
+// top right
+enum Place {
+	kCorner,     // corner: the top right, under the meter when it comes
+	kYield,      // yield: the top right, pushed down under the meter while it is there
+	kBeside,     // beside: the top right, a little smaller to the meter's left while it is there
+	kBelow,      // below: always under the meter's place, so neither moves
+	kBottomLeft, // bottom_left: the bottom left, across from the FLUDD gauge
+};
+Place sPlace = kYield;
+// the life meter's place at rest (its back, l_ba, in the HUD's 2D units)
+const f32 kLifeX1 = 500.0f, kLifeY1 = 50.0f, kLifeX2 = 574.0f, kLifeY2 = 121.0f;
+const f32 kLifeRays    = 1.2f;  // its rays reach past its back: its round width, as a part of the back's
+const f32 kPlaceGap    = 6.0f;  // between the radar and the meter
+const f32 kBesideScale = 0.8f;  // the radar's size beside the meter
+const f32 kPlaceEase  = 0.25f; // the part of the way to its place it goes each frame
+f32 sPlaceX, sPlaceY, sPlaceR; // where it is now: its centre and radius, 0 before it is placed
 
 // the full map: open, how far faded in, and the overview in GX textures
 bool sFullOpen;
@@ -832,7 +853,7 @@ void drawFullMap(const JDrama::TRect& viewport, f32 mx, f32 mz)
 
 } // namespace
 
-void RadarDraw(const JDrama::TRect& viewport)
+void RadarDraw(const JDrama::TRect& viewport, f32 lifeX1, f32 lifeY1, f32 lifeX2, f32 lifeY2)
 {
 	if (!port_radar)
 		return;
@@ -847,6 +868,12 @@ void RadarDraw(const JDrama::TRect& viewport)
 		if (const char* s = getenv("SMS_RADAR_SIZE"))
 			if (atof(s) >= 40.0f && atof(s) <= 250.0f)
 				sRadius = kRadius * (f32)atof(s) / 100.0f;
+		if (const char* p = getenv("SMS_RADAR_PLACE")) {
+			static const char* const names[] = { "corner", "yield", "beside", "below", "bottom_left" };
+			for (int i = 0; i < (int)(sizeof names / sizeof names[0]); i++)
+				if (!strcmp(p, names[i]))
+					sPlace = (Place)i;
+		}
 		sDisc   = (u8*)port_low_alloc(kTex * kTex * 4);
 		sBorder = (u8*)port_low_alloc(kTex * kTex * 4);
 		if (sBorder)
@@ -892,8 +919,46 @@ void RadarDraw(const JDrama::TRect& viewport)
 		sLastZ = mz;
 	}
 
-	// at the top right of the frame, clear of the HUD's lives counter
-	const f32 R = sRadius, cx = viewport.x2 - kMargin - R, cy = viewport.y1 + kMargin + 6.0f + R;
+	// its place (Place): at the top right of the frame, clear of the HUD's
+	// lives counter, unless the life meter needs it
+	f32 R = sRadius, cx = viewport.x2 - kMargin - R, cy = viewport.y1 + kMargin + 6.0f + R;
+	// the meter in the radar's way: on screen and over its place (not in the
+	// middle of the frame, where it first comes in)
+	const bool life = lifeY2 > 0.0f && lifeY2 > lifeY1 && lifeX2 > cx - R && lifeX1 < cx + R && lifeY1 < cy + R;
+	switch (sPlace) {
+	case kCorner:
+		break;
+	case kYield: // riding down and up under it as it comes and goes
+		if (life && lifeY2 + kPlaceGap + R > cy)
+			cy = lifeY2 + kPlaceGap + R;
+		break;
+	case kBeside: // beside its place at rest, the rays clear
+		if (life) {
+			R *= kBesideScale;
+			cx = (kLifeX1 + kLifeX2) * 0.5f - (kLifeX2 - kLifeX1) * 0.5f * kLifeRays - kPlaceGap - R;
+			cy = (kLifeY1 + kLifeY2) * 0.5f;
+		}
+		break;
+	case kBelow:
+		cy = kLifeY2 + kPlaceGap + R;
+		break;
+	case kBottomLeft:
+		cx = viewport.x1 + kMargin + R;
+		cy = viewport.y2 - kMargin - 10.0f - R;
+		break;
+	}
+	if (sPlaceR <= 0.0f || sAlpha <= 0.125f) { // shown again: straight there
+		sPlaceX = cx;
+		sPlaceY = cy;
+		sPlaceR = R;
+	} else {
+		sPlaceX += (cx - sPlaceX) * kPlaceEase;
+		sPlaceY += (cy - sPlaceY) * kPlaceEase;
+		sPlaceR += (R - sPlaceR) * kPlaceEase;
+	}
+	R  = sPlaceR;
+	cx = sPlaceX;
+	cy = sPlaceY;
 	const f32 mapR  = R * kMapR / (kTex * 0.5f); // the map's radius on screen
 	const f32 scale = mapR / sZoom;              // 2D units per world unit (x right, z down)
 
