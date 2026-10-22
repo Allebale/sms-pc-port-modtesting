@@ -351,6 +351,7 @@ bool cancellable(uint32_t type)
 	case SMS_EV_SAVE_STATE_REQUEST:
 	case SMS_EV_PLAYER_STATUS:
 	case SMS_EV_PLAYER_DAMAGE:
+	case SMS_EV_PLAYER_NOZZLE:
 		return true;
 	default:
 		return type >= SMS_EV_CUSTOM_BASE;
@@ -455,6 +456,15 @@ int dispatchTo(uint32_t type, void* data, uint32_t size, SmsMod* only)
 }
 
 // ------------------------------------------------------------------ settings
+
+// "1.5", or "1.5 beta 2" (SMS_MOD_API_PRERELEASE)
+std::string apiName(unsigned minor, unsigned prerelease)
+{
+	std::string s = std::to_string(SMS_MOD_API_MAJOR) + "." + std::to_string(minor);
+	if (prerelease)
+		s += " beta " + std::to_string(prerelease);
+	return s;
+}
 
 std::string dataRoot()
 {
@@ -950,6 +960,7 @@ int apiPlayerGet(SmsPlayer* out)
 const SmsPlayerApi s_player = {
 	sizeof(SmsPlayerApi),          apiPlayerGet,          modg_player_set_position, modg_player_set_velocity,
 	modg_player_set_forward_speed, modg_player_set_health, modg_player_set_water,   modg_player_set_status,
+	modg_player_set_nozzle,        modg_player_set_fludd,  modg_player_set_outfit,
 };
 
 // This frame's camera, read once a frame for the projections.
@@ -1476,8 +1487,9 @@ void start()
 			m->error = "a server mod: it runs when this game hosts multiplayer";
 		}
 	order();
-	port_log("[mods] API %d.%d: %zu native mod(s) in %s (%s); settings in %s\n", SMS_MOD_API_MAJOR, SMS_MOD_API_MINOR,
-	         g_mods.size(), s_root.c_str(), platformDir(), dataRoot().c_str());
+	port_log("[mods] API %s: %zu native mod(s) in %s (%s); settings in %s\n",
+	         apiName(SMS_MOD_API_MINOR, SMS_MOD_API_PRERELEASE).c_str(), g_mods.size(), s_root.c_str(), platformDir(),
+	         dataRoot().c_str());
 	// native mods first, then the script mods their runtimes run
 	s_booting = true;
 	for (int scripts = 0; scripts < 2; scripts++)
@@ -1545,7 +1557,7 @@ namespace modhost {
 const SmsApi g_api = {
 	sizeof(SmsApi), SMS_MOD_API_MAJOR, SMS_MOD_API_MINOR, &s_core,   &s_game,  &s_player,
 	&s_camera,      &g_drawApi,        &s_input,          &s_config, &s_audio, &s_native,
-	&s_netTable,    &s_world,
+	&s_netTable,    &s_world,          SMS_MOD_API_PRERELEASE,
 };
 
 void log(SmsMod* mod, int level, const char* fmt, ...)
@@ -1663,6 +1675,14 @@ bool loadMod(SmsMod* m)
 	if ((v & 0xFFFF) > SMS_MOD_API_MINOR)
 		log(m, SMS_LOG_INFO, "made for mod API 1.%u (this game has 1.%u): it should check SMS_API_HAS",
 		    (unsigned)(v & 0xFFFF), (unsigned)SMS_MOD_API_MINOR);
+	// Built against a beta (API 1.5's sms_mod_api_prerelease) other than this
+	// game's, or than the release this game has: what it uses may have changed.
+	SmsModVersionFn pre  = (SmsModVersionFn)libSym(m->handle, "sms_mod_api_prerelease");
+	const uint32_t modPre = pre ? pre() : 0;
+	if (modPre && ((v & 0xFFFF) != SMS_MOD_API_MINOR || modPre != SMS_MOD_API_PRERELEASE))
+		log(m, SMS_LOG_WARN,
+		    "made for mod API %s (what a beta adds may change before its release); this game has %s: rebuild it",
+		    apiName(v & 0xFFFF, modPre).c_str(), apiName(SMS_MOD_API_MINOR, SMS_MOD_API_PRERELEASE).c_str());
 	m->state = SmsMod::LOADED; // its subscriptions in sms_mod_load are taken
 	m->error.clear();
 	if (m->order < 0)
