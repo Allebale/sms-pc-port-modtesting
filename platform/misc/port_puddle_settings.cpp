@@ -33,8 +33,8 @@ bool s_loaded;
 int s_index;       // into kScales: Original until chosen
 int s_reflections; // Puddle Reflections: 0 Mario only (as the game has it), 1 everything
 int s_surface;     // Reflections by Surface: 0 every puddle alike (as the game has it), 1 by its floor
-const int kDistances[] = {250, 500, 1000, 2000, 3000, 5000};
-const char* const kDistanceNames[] = {"0.25x", "0.5x", "Original", "2x", "3x", "5x"};
+const int kDistances[] = {500, 750, 1000, 2000, 3000, 5000};
+const char* const kDistanceNames[] = {"0.5x", "0.75x", "Original", "2x", "3x", "5x"};
 const int kDistanceCount = int(sizeof kDistances / sizeof kDistances[0]);
 const int kDistanceOriginal = 2;      // 1000, the game's
 int s_distance = kDistanceOriginal;   // Reflection Distance: into kDistances
@@ -149,7 +149,7 @@ void save() {
     fprintf(f, "reflections = %d\n", s_reflections);
     fprintf(f, "# surface: 1 puddles reflect more or less by the floor under them, 0 all alike.\n");
     fprintf(f, "surface = %d\n", s_surface);
-    fprintf(f, "# distance: how far from Mario reflections are drawn: 250, 500, 1000 (Original), 2000, 3000 or 5000.\n");
+    fprintf(f, "# distance: how far from Mario reflections are drawn: 500, 750, 1000 (Original), 2000, 3000 or 5000.\n");
     fprintf(f, "distance = %d\n", kDistances[s_distance]);
     fclose(f);
 }

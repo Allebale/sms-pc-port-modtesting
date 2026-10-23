@@ -168,12 +168,12 @@ u8 floorAlpha(unsigned type, unsigned material)
 	}
 }
 
-// What a puddle is masked with: the floor's strength at three quarters, every floor alike, so
-// that puddles reflect more softly than the game's own (which are all full) while keeping the
-// floors' differences.
+// What a puddle is masked with: the floor's strength scaled to nine sixteenths (three quarters,
+// twice: tuned by eye in Delfino Plaza), every floor alike, so that puddles reflect more softly
+// than the game's own (which are all full) while keeping the floors' differences.
 u8 surfaceAlpha(unsigned type, unsigned material)
 {
-	return (u8)(floorAlpha(type, material) * 3 / 4);
+	return (u8)(floorAlpha(type, material) * 9 / 16);
 }
 
 // While Reflections by Surface is on: the floor under Mario, logged each time it changes and
