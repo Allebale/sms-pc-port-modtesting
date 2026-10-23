@@ -1,0 +1,30 @@
+Reason: extensions and mods hide parts of the HUD (port_hud_draw, ext/core/game/port_hud.cpp) for its draw only, so its own logic, animations and sounds never see them hidden
+
+--- a/src/GC2D/GCConsole2.cpp
++++ b/src/GC2D/GCConsole2.cpp
+@@ -4857,7 +4857,10 @@
+ 	graphics->setScissor(graphics->mViewportRect);
+ 	graph.setup2D();
+ 
+-	if (gpMarioOriginal->mYoshi->onYoshi()) {
++	// port: the juice gauge (Yoshi's) is drawn by hand, apart from the panes:
++	// left out with the water gauge when that is hidden (port_hud_draw)
++	if (gpMarioOriginal->mYoshi->onYoshi()
++	    && !(port_hud_hidden() & PORT_HUD_WATER)) {
+ 		switch (gpModelWaterManager->unk5D5F) {
+ 		case 1:
+ 			console->drawJuice(graph, (console->unkA2.r << 24)
+@@ -4930,6 +4933,12 @@
+ 	if (flags & 2)
+ 		updateBalloon(this);
+ 
+-	if (flags & 8)
++	if (flags & 8) {
++		// port: the HUD's hidden parts (port_ext.h, "the HUD") are left out of
++		// this draw only and put back after it, so the HUD's own logic never
++		// sees them hidden
++		port_hud_draw(this, 0);
+ 		drawConsole(this, graphics);
++		port_hud_draw(this, 1);
++	}
+ }
