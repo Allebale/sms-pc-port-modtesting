@@ -20,15 +20,29 @@
 #include <JSystem/J2D/J2DPane.hpp>
 #include <JSystem/J2D/J2DPicture.hpp>
 #include <JSystem/JParticle/JPAEmitter.hpp>
+#include <System/MarDirector.hpp>
 
 namespace {
 
 unsigned s_hidden[PORT_HUD_OWNERS];
 unsigned s_mask; // the union of s_hidden
 
+// Whether the pause menu is up (the settings menu opens in it). gpMarDirector is null
+// outside a stage.
+bool pauseMenu()
+{
+	return gpMarDirector && gpMarDirector->mState == TMarDirector::STATE_PAUSE_MENU;
+}
+
 // Every owner's parts, and the settings menu's HUD page's (port_hud_settings.h), asked fresh:
 // it changes from the menu and the HUD_TOGGLE key, and is read from its file on first use.
-unsigned hiddenNow() { return s_mask | port_hud_settings_mask(); }
+// The page's are shown while the pause menu is up, so the counters can be read there, and
+// hidden again as it closes; a mod's or a server's stay hidden, as they asked.
+unsigned hiddenNow()
+{
+	const unsigned settings = port_hud_settings_mask();
+	return s_mask | (settings && !pauseMenu() ? settings : 0);
+}
 
 // The panes hidden for this draw and how each was, to put back after it.
 enum { kMaxPanes = 32 };
