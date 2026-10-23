@@ -1,6 +1,8 @@
-// Puddle Lifetime, on the settings menu's Graphics page (port_puddles.h): how many times longer
-// the puddles FLUDD's water leaves last. The game's water asks port_puddle_life_scale every tick
-// (zzzzz-ext-24-puddle-lifetime); Original is the game as it was.
+// FLUDD's puddles, on the settings menu's Graphics page (port_puddles.h). Puddle Lifetime: how many
+// times longer they last; the game's water asks port_puddle_life_scale every tick
+// (zzzzz-ext-24-puddle-lifetime), and Original is the game as it was. Puddle Reflections: characters
+// and objects in them too, not only Mario (ext/core/game/port_reflections.cpp), from the next area;
+// Mario Only is the game as it was.
 //
 // The launcher has no word for it, so it is kept in a file of its own, puddles.txt in the game's
 // data folder (beside the memory card's, card-a), and lasts from one game to the next. Its id is
@@ -27,7 +29,8 @@ const char* const kNames[] = {"Original", "2x", "4x", "8x"};
 const int kCount = int(sizeof kScales / sizeof kScales[0]);
 
 bool s_loaded;
-int s_index;  // into kScales: Original until chosen
+int s_index;       // into kScales: Original until chosen
+int s_reflections; // Puddle Reflections: 0 Mario only (as the game has it), 1 everything
 
 // ------------------------------------------------------------------ the file
 // <data>/sms-port/puddles.txt, where <data> is as the memory card's: SMS_SAVE_DIR's parent when
@@ -87,12 +90,17 @@ void load() {
     char line[128];
     int value;
     while (fgets(line, sizeof line, f)) {
-        if (line[0] == '#' || sscanf(line, " lifetime = %d", &value) != 1) continue;
-        for (int i = 0; i < kCount; i++)
-            if (kScales[i] == value) s_index = i;
+        if (line[0] == '#') continue;
+        if (sscanf(line, " lifetime = %d", &value) == 1) {
+            for (int i = 0; i < kCount; i++)
+                if (kScales[i] == value) s_index = i;
+        } else if (sscanf(line, " reflections = %d", &value) == 1) {
+            s_reflections = value != 0;
+        }
     }
     fclose(f);
     if (s_index) port_log("[puddles] FLUDD's puddles last %dx as long\n", kScales[s_index]);
+    if (s_reflections) port_log("[puddles] characters and objects are reflected in them\n");
 }
 
 void save() {
@@ -103,9 +111,11 @@ void save() {
         told = true;
         return;
     }
-    fprintf(f, "# FLUDD's puddles (the pause menu's Settings, Graphics, Puddle Lifetime).\n");
+    fprintf(f, "# FLUDD's puddles (the pause menu's Settings, Graphics).\n");
     fprintf(f, "# lifetime: 1 (Original), 2, 4 or 8 times as long.\n");
     fprintf(f, "lifetime = %d\n", kScales[s_index]);
+    fprintf(f, "# reflections: 1 characters and objects in the puddles too, 0 Mario only.\n");
+    fprintf(f, "reflections = %d\n", s_reflections);
     fclose(f);
 }
 
@@ -123,11 +133,28 @@ int set(int i) {
     return 1;
 }
 
+int reflectionsCount() { return 2; }
+const char* reflectionsName(int i) { return i ? "Everything" : "Mario Only"; }
+int reflectionsGet() {
+    load();
+    return s_reflections;
+}
+int reflectionsSet(int i) {
+    if (i < 0 || i > 1) return 0;
+    load();
+    s_reflections = i;
+    save();
+    return 1;
+}
+
 // Name and hint: plain letters, digits, spaces and . , - ( ) ' only (port_settings.h).
 const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 95, "Puddle Lifetime",
      "How long FLUDD's puddles last. Goop and objects react as in the original game.", 0, nullptr, count,
      name, get, set},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 96, "Puddle Reflections",
+     "Characters and objects in FLUDD's puddles too, from the next area.", 1, nullptr, reflectionsCount,
+     reflectionsName, reflectionsGet, reflectionsSet},
 };
 
 }  // namespace
@@ -142,6 +169,11 @@ const PortSetting* port_puddle_settings(int* n) {
 int port_puddle_life_scale(void) {
     load();
     return kScales[s_index];
+}
+
+int port_puddle_reflections(void) {
+    load();
+    return s_reflections;
 }
 
 }  // extern "C"

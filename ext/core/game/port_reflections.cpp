@@ -1,0 +1,150 @@
+// Puddle Reflections (port_puddles.h, the settings menu's Graphics page): characters and objects
+// reflected in FLUDD's puddles, not only Mario. Game code, with the game's flags and headers.
+//
+// The game reflects in puddles what has a TMirrorActor that may be "in the mirror" with no mirror
+// near (flags 4 and 0x20: Mario, FLUDD, his cap, Yoshi): a copy of its model, drawn mirrored about
+// the floor under Mario, through the puddles. As a stage is set up (port_ext.h stageSetup, the
+// stage's heap current), each of its actors with a model gets such a copy, unless it has one. A
+// copy is drawn only while there are puddles, its actor is near Mario and is neither dead, hidden
+// nor clipped out (no ghost of an enemy beaten or a coin taken), and the setting is on.
+#include "port_ext.h"
+#include "port_puddles.h"
+
+#include <Enemy/Conductor.hpp>
+#include <JSystem/J3D/J3DGraphAnimator/J3DModel.hpp>
+#include <JSystem/JDrama/JDRNameRefGen.hpp>
+#include <JSystem/JDrama/JDRViewObjPtrList.hpp>
+#include <JSystem/JKernel/JKRHeap.hpp>
+#include <M3DUtil/MActor.hpp>
+#include <M3DUtil/SDLModel.hpp>
+#include <Player/MarioAccess.hpp>
+#include <Player/ModelWaterManager.hpp>
+#include <Strategic/LiveActor.hpp>
+#include <Strategic/LiveManager.hpp>
+#include <Strategic/MirrorActor.hpp>
+
+#include <stdio.h>
+#include <string.h>
+
+namespace {
+
+// "鏡シーン" (the mirror scene) in Shift-JIS, as the game names it, written as bytes so that it is
+// the same with every compiler's execution character set.
+const char kMirrorScene[] = "\x8B\xBE\x83\x56\x81\x5B\x83\x93";
+
+// Room left on the stage's heap: the port's stages have tens of MB spare, and multiplayer's
+// puppets and spawns want 1 to 2 MB of it after this.
+const s32 kHeapRoom = 4 * 1024 * 1024;
+
+// As far from Mario as a reflection is drawn: puddles go 5000 units from him (TModelWaterManager).
+const f32 kNear = 5000.0f;
+
+const int kMostModels = 2048;  // the models that have a copy, the game's and ours
+
+class TPortMirrorActor : public TMirrorActor {
+public:
+	explicit TPortMirrorActor(TLiveActor* owner)
+	    : TMirrorActor("port puddle reflection")
+	    , mOwner(owner)
+	{
+	}
+
+	virtual void perform(u32 cue, JDrama::TGraphics* graphics)
+	{
+		if (shown())
+			TMirrorActor::perform(cue, graphics);
+	}
+
+private:
+	bool shown() const
+	{
+		if (!port_puddle_reflections() || !gpModelWaterManager || !gpModelWaterManager->getParticleCount())
+			return false;
+		if (mOwner->checkLiveFlag(LIVE_FLAG_DEAD | LIVE_FLAG_HIDDEN | LIVE_FLAG_CLIPPED_OUT))
+			return false;
+		if (!gpMarioPos)
+			return false;
+		const f32 dx = mOwner->mPosition.x - gpMarioPos->x;
+		const f32 dz = mOwner->mPosition.z - gpMarioPos->z;
+		return dx * dx + dz * dz < kNear * kNear;
+	}
+
+	TLiveActor* mOwner;
+};
+
+const J3DModel* s_models[kMostModels];
+int s_modelCount;
+
+bool known(const J3DModel* model)
+{
+	for (int i = 0; i < s_modelCount; i++)
+		if (s_models[i] == model)
+			return true;
+	return false;
+}
+
+void remember(const J3DModel* model)
+{
+	if (s_modelCount < kMostModels)
+		s_models[s_modelCount++] = model;
+}
+
+void stageSetup()
+{
+	if (!port_puddle_reflections() || !gpConductor)
+		return;
+	JDrama::TViewObjPtrListT<JDrama::TViewObj>* scene
+	    = JDrama::TNameRefGen::search<JDrama::TViewObjPtrListT<JDrama::TViewObj> >(kMirrorScene);
+	if (!scene)
+		return;
+
+	// the models the game gave a copy already (Mario, FLUDD, Yoshi, coins...)
+	s_modelCount = 0;
+	JGadget::TList_pointer<JDrama::TViewObj*>& children = scene->getChildren();
+	for (JGadget::TList_pointer<JDrama::TViewObj*>::iterator it = children.begin(); it != children.end(); ++it)
+		if (TMirrorActor* mirror = dynamic_cast<TMirrorActor*>(*it))
+			remember(mirror->getUnk10());
+
+	JKRHeap* heap   = JKRHeap::getCurrentHeap();
+	const s32 start = heap ? heap->getTotalFreeSize() : 0;
+	int made        = 0;
+	bool full       = false;
+	for (JGadget::TList<TLiveManager*>::iterator it = gpConductor->unk10.begin();
+	     !full && it != gpConductor->unk10.end(); ++it)
+		for (int i = 0; *it && i < (*it)->getObjNum(); i++) {
+			TLiveActor* actor = (*it)->getObj(i);
+			if (!actor || !actor->getMActor())
+				continue;
+			J3DModel* model = actor->getMActor()->getModel();
+			if (!model || known(model))
+				continue;
+			if (!heap || heap->getTotalFreeSize() < kHeapRoom || s_modelCount >= kMostModels) {
+				full = true;
+				break;
+			}
+			// 0x20: in puddles, by its own place; 8: an SDLModel, copied as one
+			const u16 flags = (u16)(0x20 | (dynamic_cast<SDLModel*>(model) ? 8 : 0));
+			TPortMirrorActor* mirror = new TPortMirrorActor(actor);
+			mirror->init(model, flags);
+			remember(model);
+			made++;
+		}
+	fprintf(stderr, "[puddles] reflections for %d characters and objects (%d KB)%s\n", made,
+	        heap ? (int)((start - heap->getTotalFreeSize()) / 1024) : 0,
+	        full ? "; the stage's memory is low, so not for all of them" : "");
+}
+
+// Filled by name: a hook added to PortExtension anywhere never shifts it.
+PortExtension s_extension;
+
+struct Register {
+	Register()
+	{
+		memset(&s_extension, 0, sizeof s_extension);
+		s_extension.name       = "reflections";
+		s_extension.stageSetup = stageSetup;
+		port_ext_register(&s_extension);
+	}
+} s_register;
+
+} // namespace
