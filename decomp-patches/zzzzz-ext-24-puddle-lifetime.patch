@@ -1,4 +1,4 @@
-Reason: Puddle Lifetime (port_puddles.h, the settings menu's Graphics page): FLUDD's puddles dry 2, 4 or 8 times slower; what a puddle does to the game while it lasts (goop cleaned under it, the object under it sprayed) is done on every scale-th tick only, so each does as much of it as in the original game; when the water's slots are full, new water takes the driest puddle's. Original is the game as it was
+Reason: Puddle Lifetime (port_puddles.h, the settings menu's Graphics page): FLUDD's puddles dry 2, 4 or 8 times slower; what a puddle does to the game while it lasts (goop cleaned under it, the object under it sprayed) is done on every scale-th tick only, so each does as much of it as in the original game; when the water's slots are full, new water takes the driest puddle's. they are always darkened the full way, as their wider spread would otherwise draw them fainter. Original is the game as it was
 
 --- a/src/Player/ModelWaterManager.cpp
 +++ b/src/Player/ModelWaterManager.cpp
@@ -142,3 +142,22 @@ Reason: Puddle Lifetime (port_puddles.h, the settings menu's Graphics page): FLU
  						mStaticHitActor.mPosition = mParticlePositionSOA[i];
  						mStaticHitActor.mParticleIndex = i;
  						THitActor* hit            = (THitActor*)r27->mActor;
+@@ -1202,7 +1279,18 @@
+ 		}
+ 	}
+ 
++#ifdef TARGET_PC
++	// port: Puddle Lifetime. Puddles that last spread over a wider area than
++	// the game's cut-off for darkening them with one box around them all
++	// (unk5D88[3]: the GameCube's fill rate), and past it the game draws them
++	// the cheaper, fainter way. They are removed 5000 units from Mario and the
++	// camera sees 300000 far, so the box always fits: with longer puddles it
++	// is always drawn. At Original, as ever.
++	if ((unk5D7C.x - unk5D70.x) + (unk5D7C.z - unk5D70.z) < unk5D88[3]
++	    || portPuddleScale() > 1) {
++#else
+ 	if ((unk5D7C.x - unk5D70.x) + (unk5D7C.z - unk5D70.z) < unk5D88[3]) {
++#endif
+ 		GXSetCurrentMtx(GX_PNMTX0);
+ 		GXLoadPosMtxImm(param_1, GX_PNMTX0);
+ 		GXClearVtxDesc();
