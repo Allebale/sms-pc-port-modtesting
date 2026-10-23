@@ -12,6 +12,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <string>
 #ifdef _WIN32
 #include <direct.h>
@@ -62,6 +63,15 @@ FILE* openFile(const wchar_t* mode) {
 }
 #define READ L"r"
 #define WRITE L"w"
+// The file's path, for the log (UTF-8).
+std::string pathForLog() {
+    const std::wstring w = folder() + L"/puddles.txt";
+    const int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    std::string out(size_t(n > 0 ? n : 1), '\0');
+    if (n > 0) WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, &out[0], n, nullptr, nullptr);
+    out.resize(strlen(out.c_str()));
+    return out;
+}
 #else
 std::string folder() {
     if (const char* d = getenv("SMS_SAVE_DIR")) {
@@ -81,13 +91,23 @@ FILE* openFile(const char* mode) {
 }
 #define READ "r"
 #define WRITE "w"
+std::string pathForLog() { return folder() + "/puddles.txt"; }
 #endif
+
+// The settings in force, for the log.
+void logSettings(const char* why) {
+    port_log("[puddles] %s: lifetime %dx, reflections %s, by surface %s (%s)\n", why, kScales[s_index],
+             s_reflections ? "everything" : "Mario only", s_surface ? "on" : "off", pathForLog().c_str());
+}
 
 void load() {
     if (s_loaded) return;
     s_loaded = true;
     FILE* f = openFile(READ);
-    if (!f) return;  // none yet: Original
+    if (!f) {  // none yet: Original
+        logSettings("no settings file yet, so the game's own");
+        return;
+    }
     char line[128];
     int value;
     while (fgets(line, sizeof line, f)) {
@@ -102,8 +122,7 @@ void load() {
         }
     }
     fclose(f);
-    if (s_index) port_log("[puddles] FLUDD's puddles last %dx as long\n", kScales[s_index]);
-    if (s_reflections) port_log("[puddles] characters and objects are reflected in them\n");
+    logSettings("settings read");
 }
 
 void save() {
@@ -135,6 +154,7 @@ int set(int i) {
     load();
     s_index = i;
     save();
+    logSettings("Puddle Lifetime changed");
     return 1;
 }
 
@@ -149,6 +169,7 @@ int reflectionsSet(int i) {
     load();
     s_reflections = i;
     save();
+    logSettings("Puddle Reflections changed");
     return 1;
 }
 
@@ -163,6 +184,7 @@ int surfaceSet(int i) {
     load();
     s_surface = i;
     save();
+    logSettings("Reflections by Surface changed");
     return 1;
 }
 
