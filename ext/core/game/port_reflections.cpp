@@ -18,6 +18,7 @@
 #include <JSystem/JKernel/JKRHeap.hpp>
 #include <M3DUtil/MActor.hpp>
 #include <M3DUtil/SDLModel.hpp>
+#include <MoveBG/Item.hpp>
 #include <MoveBG/MapObjBase.hpp>
 #include <Player/MarioAccess.hpp>
 #include <Player/ModelWaterManager.hpp>
@@ -59,6 +60,7 @@ public:
 	    : TMirrorActor("port puddle reflection")
 	    , mOwner(owner)
 	    , mMapObj(dynamic_cast<TMapObjBase*>(owner))
+	    , mNozzleBox(dynamic_cast<TNozzleBox*>(owner))
 	{
 	}
 
@@ -120,6 +122,11 @@ private:
 			if (mMapObj->checkLiveFlag(LIVE_FLAG_UNK4000))  // asleep (TMapObjBase::sleep)
 				return false;
 		}
+		// A nozzle box whose nozzle Mario has not got back yet stands in its place as a faint
+		// ghost (TNozzleBox::makeModelInvalid: an animation of its look). A copy has the model's
+		// shape but not that look, so it would show a solid box: not reflected until it is real.
+		if (mNozzleBox && !mNozzleBox->unk15C)
+			return false;
 		J3DModel* model = const_cast<TPortMirrorActor*>(this)->getUnk10();
 		if (model && model->getModelData() && model->getModelData()->getShapeNum() > 0
 		    && !model->getShapePacket(0)->isVisible())
@@ -134,6 +141,7 @@ private:
 
 	TLiveActor* mOwner;
 	TMapObjBase* mMapObj;
+	TNozzleBox* mNozzleBox;
 };
 
 const J3DModel* s_models[kMostModels];
