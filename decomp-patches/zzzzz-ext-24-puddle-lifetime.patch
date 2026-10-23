@@ -1,4 +1,4 @@
-Reason: Puddle Lifetime (port_puddles.h, the settings menu's Graphics page): FLUDD's puddles dry 2, 4 or 8 times slower; what a puddle does to the game while it lasts (goop cleaned under it, the object under it sprayed) is done on every scale-th tick only, so each does as much of it as in the original game; when the water's slots are full, new water takes the driest puddle's. they are always darkened the full way, as their wider spread would otherwise draw them fainter. With Reflections by Surface, each puddle is masked as strongly as its floor reflects. Reflection Distance widens the disc around Mario the reflection is drawn over. Original and Off are the game as it was
+Reason: Puddle Lifetime (port_puddles.h, the settings menu's Graphics page): FLUDD's puddles dry 2, 4 or 8 times slower; what a puddle does to the game while it lasts (goop cleaned under it, the object under it sprayed) is done on every scale-th tick only, so each does as much of it as in the original game; when the water's slots are full, new water takes the driest puddle's. they are always darkened the full way, as their wider spread would otherwise draw them fainter. With Reflections by Surface, each puddle is masked as strongly as its floor reflects. Reflection Distance narrows or widens the disc around Mario the reflection is drawn over. Original and Off are the game as it was
 
 --- a/src/Player/ModelWaterManager.cpp
 +++ b/src/Player/ModelWaterManager.cpp
@@ -190,7 +190,7 @@ Reason: Puddle Lifetime (port_puddles.h, the settings menu's Graphics page): FLU
 +#ifdef TARGET_PC
 +	// port: Reflection Distance (port_puddles.h). The reflection is drawn
 +	// over a disc around Mario, fading out to its edge: 1000 units in the
-+	// game, wider here. At Original, as ever.
++	// game, narrower or wider here. At Original, as ever.
 +	const f32 portRadius = port_puddle_reflection_distance();
 +#else
 +	const f32 portRadius = 1000.0f;
