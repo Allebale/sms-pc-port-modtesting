@@ -19,7 +19,7 @@ extern "C" void port_log(const char* fmt, ...);
 
 namespace {
 
-const char* const kPageNames[PORT_SETTINGS_PAGE_COUNT] = {"Graphics", "Display", "Gameplay", "Controls"};
+const char* const kPageNames[PORT_SETTINGS_PAGE_COUNT] = {"Graphics", "Display", "Gameplay", "Controls", "Other"};
 
 // ------------------------------------------------------------------ presets
 // The launcher's Low, Medium, High and Ultra (sms-launcher src/presets.js): the settings each

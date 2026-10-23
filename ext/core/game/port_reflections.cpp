@@ -136,41 +136,46 @@ void stageSetup()
 }
 
 // ------------------------------------------------------------------ Reflections by Surface
-// How strongly a puddle reflects, by the floor it lies on: its type (mBGType, without the shadow
-// and camera flags) and the sound material its triangle carries (unk6, what Mario's steps and
-// bumps sound like), in percent of the game's own (where every puddle is full). What each
-// material number means is in the game's sound data, not its code: these were told apart by
-// walking Delfino Plaza with the log below, and the strengths tuned there by eye. A floor that
-// is not listed reflects as smooth stone (0x00: the plaza's tiles, and its carpets, which are
-// pictures on the same floor).
-int floorPercent(unsigned type, unsigned material)
+// The surface a puddle lies on, by its floor's type (mBGType, without the shadow and camera
+// flags) and the sound material its triangle carries (unk6, what Mario's steps and bumps sound
+// like). What each material number means is in the game's sound data, not its code: these were
+// told apart by walking Delfino Plaza with the log below. A floor not listed counts as smooth
+// stone (0x00: the plaza's tiles, and its carpets, which are pictures on the same floor). How
+// strongly each reflects is set on the settings menu's Other page (port_puddles.h).
+int surfaceOf(unsigned type, unsigned material)
 {
 	switch (type & 0x3FFF) {
 	case BG_TYPE_SAND:
 	case BG_TYPE_SEA_FLOOR:
-		return 10; // sand soaks it up (its material, 0x05, too)
+		return PORT_PUDDLE_SAND;
 	case BG_TYPE_WET_GROUND:
 	case BG_TYPE_HYDROPHOBIC:
-		return 56; // already wet and smooth
+		return PORT_PUDDLE_WET;
 	default:
 		break;
 	}
 	switch (material) {
-	case 0x05: return 10; // sand
-	case 0x07: return 33; // painted wood (the boardwalks)
-	case 0x0C: return 50; // metal (the corrugated roofs)
-	case 0x0D: return 50; // painted metal (manhole covers)
-	case 0x10: return 5;  // grass
-	case 0x12: return 41; // clay roof tiles
-	case 0x17: return 10; // canvas (the bouncy awnings)
-	case 0x1C: return 33; // the game's "soft" surface (MSound::getWallSound)
-	default: return 45;   // smooth stone and the rest
+	case 0x05: return PORT_PUDDLE_SAND;
+	case 0x07: return PORT_PUDDLE_WOOD;   // painted wood (the boardwalks)
+	case 0x0C:                             // metal (the corrugated roofs)
+	case 0x0D: return PORT_PUDDLE_METAL;  // painted metal (manhole covers)
+	case 0x10: return PORT_PUDDLE_GRASS;
+	case 0x12: return PORT_PUDDLE_CLAY;   // clay roof tiles
+	case 0x17: return PORT_PUDDLE_CANVAS; // the bouncy awnings
+	default: return PORT_PUDDLE_STONE;
 	}
+}
+
+// Tenths of a percent of the game's own strength.
+int floorStrength(unsigned type, unsigned material)
+{
+	return port_puddle_surface_strength(surfaceOf(type, material));
 }
 
 u8 surfaceAlpha(unsigned type, unsigned material)
 {
-	return (u8)((floorPercent(type, material) * 255 + 50) / 100);
+	const int tenths = floorStrength(type, material);
+	return (u8)((tenths < 0 ? 0 : tenths > 1000 ? 1000 : tenths) * 255 / 1000);
 }
 
 // While Reflections by Surface is on: the floor under Mario, logged each time it changes and
@@ -193,8 +198,9 @@ void afterMovement()
 	if (++s_steady != 15 || key == s_logged)  // a moment: 15 ticks
 		return;
 	s_logged = key;
-	fprintf(stderr, "[puddles] Mario stands on: floor type 0x%04X, material 0x%02X (reflects %d%%)\n",
-	        floor->mBGType, floor->unk6, floorPercent(floor->mBGType, floor->unk6));
+	const int tenths = floorStrength(floor->mBGType, floor->unk6);
+	fprintf(stderr, "[puddles] Mario stands on: floor type 0x%04X, material 0x%02X (reflects %d.%d%%)\n",
+	        floor->mBGType, floor->unk6, tenths / 10, tenths % 10);
 }
 
 // Filled by name: a hook added to PortExtension anywhere never shifts it.
