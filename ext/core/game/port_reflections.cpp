@@ -138,14 +138,16 @@ void stageSetup()
 // ------------------------------------------------------------------ Reflections by Surface
 // How strongly a puddle reflects, by the floor it lies on: its type (mBGType, without the shadow
 // and camera flags) and the sound material its triangle carries (unk6, what Mario's steps and
-// bumps sound like). What each material number means is in the game's sound data, not its code,
-// so the table grows as surfaces are told apart (the log below names them as Mario walks).
+// bumps sound like). What each material number means is in the game's sound data, not its code:
+// these were told apart by walking Delfino Plaza with the log below. A floor that is not listed
+// reflects fully, as the game has it (smooth stone, 0x00, is the plaza's tiles and also its
+// carpets, which are pictures on the same floor).
 u8 surfaceAlpha(unsigned type, unsigned material)
 {
 	switch (type & 0x3FFF) {
 	case BG_TYPE_SAND:
 	case BG_TYPE_SEA_FLOOR:
-		return 90;  // soaks it up
+		return 90;  // 35%: sand soaks it up (its material, 0x05, too)
 	case BG_TYPE_WET_GROUND:
 	case BG_TYPE_HYDROPHOBIC:
 		return 255; // already wet and smooth
@@ -153,10 +155,15 @@ u8 surfaceAlpha(unsigned type, unsigned material)
 		break;
 	}
 	switch (material) {
-	case 0x1C:
-		return 150; // the game's "soft" surface (MSound::getWallSound)
-	default:
-		return 255; // as the game has it
+	case 0x05: return 90;  // 35%: sand
+	case 0x07: return 153; // 60%: painted wood (the boardwalks)
+	case 0x0C: return 230; // 90%: metal (the corrugated roofs)
+	case 0x0D: return 230; // 90%: painted metal (manhole covers)
+	case 0x10: return 64;  // 25%: grass
+	case 0x12: return 191; // 75%: clay roof tiles
+	case 0x17: return 51;  // 20%: canvas (the bouncy awnings)
+	case 0x1C: return 150; // 60%: the game's "soft" surface (MSound::getWallSound)
+	default: return 255;   // smooth stone and the rest: as the game has it
 	}
 }
 

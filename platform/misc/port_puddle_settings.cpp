@@ -197,7 +197,7 @@ const PortSetting kPuddleSettings[] = {
      "Characters and objects in FLUDD's puddles too, from the next area.", 1, nullptr, reflectionsCount,
      reflectionsName, reflectionsGet, reflectionsSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 97, "Reflections by Surface",
-     "Puddles reflect less on sand and soft floors, fully on smooth ones.", 0, nullptr, offOnCount, offOnName,
+     "Puddles reflect fully on stone, less on wood, grass, sand and cloth.", 0, nullptr, offOnCount, offOnName,
      surfaceGet, surfaceSet},
 };
 
