@@ -45,9 +45,11 @@ const f32 kNear = 5000.0f;
 // plane under Mario, and what stands on it sits a little into it.
 const f32 kBelow = 20.0f;
 
-// The reflections first shown on a stage are logged (up to kMostLogged): what is reflected,
-// and where, so that one that should not be can be found.
+// The reflections seen near Mario are logged, each once a stage (up to kMostLogged): whose
+// copy it is (the game's or ours), what of, and where, so that one that should not be there
+// can be found. kLogNear: how near Mario, across the ground.
 const int kMostLogged = 64;
+const f32 kLogNear    = 1500.0f;
 
 const int kMostModels = 2048;  // the models that have a copy, the game's and ours
 
@@ -57,7 +59,6 @@ public:
 	    : TMirrorActor("port puddle reflection")
 	    , mOwner(owner)
 	    , mMapObj(dynamic_cast<TMapObjBase*>(owner))
-	    , mLogged(false)
 	{
 	}
 
@@ -67,7 +68,8 @@ public:
 			TMirrorActor::perform(cue, graphics);
 	}
 
-private:
+	TLiveActor* owner() const { return mOwner; }
+
 	bool shown() const
 	{
 		if (!port_puddle_reflections() || !gpModelWaterManager || !gpModelWaterManager->getParticleCount())
@@ -104,27 +106,19 @@ private:
 			    || !above(n, d, root[0][3], root[1][3], root[2][3]))
 				return false;
 		}
-		if (!mLogged && s_logCount < kMostLogged) {
-			mLogged = true;
-			s_logCount++;
-			fprintf(stderr, "[puddles] reflecting %s at %.0f %.0f %.0f (Mario at %.0f %.0f %.0f)\n",
-			        mOwner->getName() ? mOwner->getName() : "?", mOwner->mPosition.x, mOwner->mPosition.y,
-			        mOwner->mPosition.z, gpMarioPos->x, gpMarioPos->y, gpMarioPos->z);
-		}
 		return true;
 	}
 
+private:
 	// Whether the object itself is drawn now. Besides being hidden or clipped out (the flags
 	// above), an object waiting for its moment can be put to sleep (a map object: drawn no more
-	// until it is woken), kept out of the draw list, or have its model's parts switched off,
+	// until it is woken) or have its model's parts switched off,
 	// while it stays where it will appear. Its reflection follows suit.
 	bool drawn() const
 	{
 		if (mMapObj) {
 			if (mMapObj->checkLiveFlag(LIVE_FLAG_UNK4000))  // asleep (TMapObjBase::sleep)
 				return false;
-			if (mMapObj->checkMapObjFlag(TMapObjBase::MAP_OBJ_FLAG_UNK800 | TMapObjBase::MAP_OBJ_FLAG_UNK1000))
-				return false;  // kept out of the draw list (TMapObjBase::perform)
 		}
 		J3DModel* model = const_cast<TPortMirrorActor*>(this)->getUnk10();
 		if (model && model->getModelData() && model->getModelData()->getShapeNum() > 0
@@ -140,13 +134,7 @@ private:
 
 	TLiveActor* mOwner;
 	TMapObjBase* mMapObj;
-	mutable bool mLogged;
-
-public:
-	static int s_logCount;
 };
-
-int TPortMirrorActor::s_logCount;
 
 const J3DModel* s_models[kMostModels];
 int s_modelCount;
@@ -165,6 +153,53 @@ void remember(const J3DModel* model)
 		s_models[s_modelCount++] = model;
 }
 
+const TMirrorActor* s_logged[kMostLogged];
+int s_loggedCount;
+
+bool logged(const TMirrorActor* mirror)
+{
+	for (int i = 0; i < s_loggedCount; i++)
+		if (s_logged[i] == mirror)
+			return true;
+	return false;
+}
+
+// Each copy in the mirror scene that is on and near Mario, logged once a stage.
+void logReflections()
+{
+	if (s_loggedCount >= kMostLogged || !gpMarioPos)
+		return;
+	JDrama::TViewObjPtrListT<JDrama::TViewObj>* scene
+	    = JDrama::TNameRefGen::search<JDrama::TViewObjPtrListT<JDrama::TViewObj> >(kMirrorScene);
+	if (!scene)
+		return;
+	JGadget::TList_pointer<JDrama::TViewObj*>& children = scene->getChildren();
+	for (JGadget::TList_pointer<JDrama::TViewObj*>::iterator it = children.begin();
+	     it != children.end() && s_loggedCount < kMostLogged; ++it) {
+		TMirrorActor* mirror = dynamic_cast<TMirrorActor*>(*it);
+		if (!mirror || !mirror->getUnk10() || logged(mirror))
+			continue;
+		TPortMirrorActor* ours = dynamic_cast<TPortMirrorActor*>(mirror);
+		if (ours ? !ours->shown() : !mirror->unk18)
+			continue;
+		MtxPtr root  = mirror->getUnk10()->getAnmMtx(0);
+		const f32 dx = root[0][3] - gpMarioPos->x;
+		const f32 dz = root[2][3] - gpMarioPos->z;
+		if (dx * dx + dz * dz >= kLogNear * kLogNear)
+			continue;
+		s_logged[s_loggedCount++] = mirror;
+		const char* name = ours ? ours->owner()->getName() : mirror->getName();
+		char hex[64]     = "";
+		for (int i = 0; name && name[i] && i < 24; i++)
+			snprintf(hex + i * 2, 3, "%02X", (unsigned char)name[i]);
+		fprintf(stderr,
+		        "[puddles] reflection near Mario: %s copy of \"%s\" (%s), flags 0x%02X, at %.0f %.0f %.0f"
+		        " (Mario at %.0f %.0f %.0f)\n",
+		        ours ? "our" : "the game's", name ? name : "?", hex, (unsigned)mirror->unk1A, root[0][3],
+		        root[1][3], root[2][3], gpMarioPos->x, gpMarioPos->y, gpMarioPos->z);
+	}
+}
+
 void stageSetup()
 {
 	if (!port_puddle_reflections() || !gpConductor)
@@ -174,7 +209,7 @@ void stageSetup()
 	if (!scene)
 		return;
 
-	TPortMirrorActor::s_logCount = 0;
+	s_loggedCount = 0;
 
 	// the models the game gave a copy already (Mario, FLUDD, Yoshi, coins...)
 	s_modelCount = 0;
@@ -259,7 +294,12 @@ u8 surfaceAlpha(unsigned type, unsigned material)
 // stays changed a moment, so that the material numbers can be told apart by walking.
 void afterMovement()
 {
-	static unsigned s_logged = 0xFFFFFFFFu, s_seen = 0xFFFFFFFFu;
+	static int s_tick;
+	if (port_puddle_reflections() && gpModelWaterManager && gpModelWaterManager->getParticleCount()
+	    && ++s_tick % 30 == 0)
+		logReflections();
+
+	static unsigned s_floorLogged = 0xFFFFFFFFu, s_seen = 0xFFFFFFFFu;
 	static int s_steady;
 	if (!port_puddle_surface() || !gpMarioGroundPlane || !*gpMarioGroundPlane)
 		return;
@@ -272,9 +312,9 @@ void afterMovement()
 		s_steady = 0;
 		return;
 	}
-	if (++s_steady != 15 || key == s_logged)  // a moment: 15 ticks
+	if (++s_steady != 15 || key == s_floorLogged)  // a moment: 15 ticks
 		return;
-	s_logged = key;
+	s_floorLogged = key;
 	const int tenths = floorStrength(floor->mBGType, floor->unk6);
 	fprintf(stderr, "[puddles] Mario stands on: floor type 0x%04X, material 0x%02X (reflects %d.%d%%)\n",
 	        floor->mBGType, floor->unk6, tenths / 10, tenths % 10);
