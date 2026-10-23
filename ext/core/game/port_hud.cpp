@@ -9,7 +9,8 @@
 // a part hidden, and showing a part again is immediate and exactly as the game
 // has it. The counters' sparkles are particles drawn in another pass: their
 // emitters are kept from drawing (STATUS_STOP_DRAW, which the HUD itself never
-// uses) while their counter is hidden.
+// uses) while their counter is hidden. The bursts a counter's digits give off as
+// they change are not made while it is hidden (zzzzz-ext-23-hud-draw, port_hud_hidden).
 #include "port_ext.h"
 #include "port_hud_settings.h"
 
