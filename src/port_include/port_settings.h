@@ -61,6 +61,7 @@ const PortSetting* gx_port_settings_extra(int* count);  // widescreen, HDR, prom
 const PortSetting* port_pad_settings(int* count);
 const PortSetting* port_audio_settings(int* count);
 const PortSetting* port_runtime_settings(int* count);
+const PortSetting* port_puddle_settings(int* count);   // Puddle Lifetime (port_puddle_settings.cpp)
 
 // The menu's view (platform/port_settings.cpp): the pages in order, and on each the available
 // options in `order`.
