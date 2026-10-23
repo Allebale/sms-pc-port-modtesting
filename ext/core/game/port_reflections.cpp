@@ -40,6 +40,10 @@ const s32 kHeapRoom = 4 * 1024 * 1024;
 // As far from Mario as a reflection is drawn: puddles go 5000 units from him (TModelWaterManager).
 const f32 kNear = 5000.0f;
 
+// How far below the reflecting floor an object may stand and still be reflected: the floor is a
+// plane under Mario, and what stands on it sits a little into it.
+const f32 kBelow = 20.0f;
+
 const int kMostModels = 2048;  // the models that have a copy, the game's and ours
 
 class TPortMirrorActor : public TMirrorActor {
@@ -67,7 +71,18 @@ private:
 			return false;
 		const f32 dx = mOwner->mPosition.x - gpMarioPos->x;
 		const f32 dz = mOwner->mPosition.z - gpMarioPos->z;
-		return dx * dx + dz * dz < kNear * kNear;
+		if (dx * dx + dz * dz >= kNear * kNear)
+			return false;
+		// Reflections are mirrored about the floor under Mario (TMirrorModelManager), so what is
+		// below it would come up mirrored: objects a stage keeps under its floor until they are
+		// wanted, those on lower ground. Only what is at the floor or above it is reflected.
+		const TBGCheckData* floor = gpMarioGroundPlane ? *gpMarioGroundPlane : nullptr;
+		if (!floor || !floor->isLegal())
+			return false;
+		const JGeometry::TVec3<f32>& n = floor->getNormal();
+		const f32 above = n.x * mOwner->mPosition.x + n.y * mOwner->mPosition.y + n.z * mOwner->mPosition.z
+		                  + floor->getPlaneDistance();
+		return above >= -kBelow;
 	}
 
 	TLiveActor* mOwner;
