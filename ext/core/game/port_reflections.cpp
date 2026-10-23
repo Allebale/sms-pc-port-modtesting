@@ -18,6 +18,7 @@
 #include <JSystem/JKernel/JKRHeap.hpp>
 #include <M3DUtil/MActor.hpp>
 #include <M3DUtil/SDLModel.hpp>
+#include <MoveBG/MapObjBase.hpp>
 #include <Player/MarioAccess.hpp>
 #include <Player/ModelWaterManager.hpp>
 #include <Strategic/LiveActor.hpp>
@@ -44,6 +45,10 @@ const f32 kNear = 5000.0f;
 // plane under Mario, and what stands on it sits a little into it.
 const f32 kBelow = 20.0f;
 
+// The reflections first shown on a stage are logged (up to kMostLogged): what is reflected,
+// and where, so that one that should not be can be found.
+const int kMostLogged = 64;
+
 const int kMostModels = 2048;  // the models that have a copy, the game's and ours
 
 class TPortMirrorActor : public TMirrorActor {
@@ -51,6 +56,8 @@ public:
 	explicit TPortMirrorActor(TLiveActor* owner)
 	    : TMirrorActor("port puddle reflection")
 	    , mOwner(owner)
+	    , mMapObj(dynamic_cast<TMapObjBase*>(owner))
+	    , mLogged(false)
 	{
 	}
 
@@ -66,6 +73,8 @@ private:
 		if (!port_puddle_reflections() || !gpModelWaterManager || !gpModelWaterManager->getParticleCount())
 			return false;
 		if (mOwner->checkLiveFlag(LIVE_FLAG_DEAD | LIVE_FLAG_HIDDEN | LIVE_FLAG_CLIPPED_OUT))
+			return false;
+		if (mOwner->checkLiveFlag(LIVE_FLAG_UNK200) || !drawn())
 			return false;
 		if (!gpMarioPos)
 			return false;
@@ -95,6 +104,32 @@ private:
 			    || !above(n, d, root[0][3], root[1][3], root[2][3]))
 				return false;
 		}
+		if (!mLogged && s_logCount < kMostLogged) {
+			mLogged = true;
+			s_logCount++;
+			fprintf(stderr, "[puddles] reflecting %s at %.0f %.0f %.0f (Mario at %.0f %.0f %.0f)\n",
+			        mOwner->getName() ? mOwner->getName() : "?", mOwner->mPosition.x, mOwner->mPosition.y,
+			        mOwner->mPosition.z, gpMarioPos->x, gpMarioPos->y, gpMarioPos->z);
+		}
+		return true;
+	}
+
+	// Whether the object itself is drawn now. Besides being hidden or clipped out (the flags
+	// above), an object waiting for its moment can be put to sleep (a map object: drawn no more
+	// until it is woken), kept out of the draw list, or have its model's parts switched off,
+	// while it stays where it will appear. Its reflection follows suit.
+	bool drawn() const
+	{
+		if (mMapObj) {
+			if (mMapObj->checkLiveFlag(LIVE_FLAG_UNK4000))  // asleep (TMapObjBase::sleep)
+				return false;
+			if (mMapObj->checkMapObjFlag(TMapObjBase::MAP_OBJ_FLAG_UNK800 | TMapObjBase::MAP_OBJ_FLAG_UNK1000))
+				return false;  // kept out of the draw list (TMapObjBase::perform)
+		}
+		J3DModel* model = const_cast<TPortMirrorActor*>(this)->getUnk10();
+		if (model && model->getModelData() && model->getModelData()->getShapeNum() > 0
+		    && !model->getShapePacket(0)->isVisible())
+			return false;  // its parts switched off (SMS_HideAllShapePacket)
 		return true;
 	}
 
@@ -104,7 +139,14 @@ private:
 	}
 
 	TLiveActor* mOwner;
+	TMapObjBase* mMapObj;
+	mutable bool mLogged;
+
+public:
+	static int s_logCount;
 };
+
+int TPortMirrorActor::s_logCount;
 
 const J3DModel* s_models[kMostModels];
 int s_modelCount;
@@ -131,6 +173,8 @@ void stageSetup()
 	    = JDrama::TNameRefGen::search<JDrama::TViewObjPtrListT<JDrama::TViewObj> >(kMirrorScene);
 	if (!scene)
 		return;
+
+	TPortMirrorActor::s_logCount = 0;
 
 	// the models the game gave a copy already (Mario, FLUDD, Yoshi, coins...)
 	s_modelCount = 0;
