@@ -142,7 +142,8 @@ void stageSetup()
 // these were told apart by walking Delfino Plaza with the log below. A floor that is not listed
 // reflects fully, as the game has it (smooth stone, 0x00, is the plaza's tiles and also its
 // carpets, which are pictures on the same floor).
-u8 surfaceAlpha(unsigned type, unsigned material)
+// The floor's own strength, before the whole table is scaled (surfaceAlpha).
+u8 floorAlpha(unsigned type, unsigned material)
 {
 	switch (type & 0x3FFF) {
 	case BG_TYPE_SAND:
@@ -165,6 +166,14 @@ u8 surfaceAlpha(unsigned type, unsigned material)
 	case 0x1C: return 150; // 60%: the game's "soft" surface (MSound::getWallSound)
 	default: return 255;   // smooth stone and the rest: as the game has it
 	}
+}
+
+// What a puddle is masked with: the floor's strength at three quarters, every floor alike, so
+// that puddles reflect more softly than the game's own (which are all full) while keeping the
+// floors' differences.
+u8 surfaceAlpha(unsigned type, unsigned material)
+{
+	return (u8)(floorAlpha(type, material) * 3 / 4);
 }
 
 // While Reflections by Surface is on: the floor under Mario, logged each time it changes and

@@ -33,6 +33,10 @@ bool s_loaded;
 int s_index;       // into kScales: Original until chosen
 int s_reflections; // Puddle Reflections: 0 Mario only (as the game has it), 1 everything
 int s_surface;     // Reflections by Surface: 0 every puddle alike (as the game has it), 1 by its floor
+const int kDistances[] = {1000, 2000, 3000, 5000};
+const char* const kDistanceNames[] = {"Original", "2x", "3x", "5x"};
+const int kDistanceCount = int(sizeof kDistances / sizeof kDistances[0]);
+int s_distance;    // Reflection Distance: into kDistances, Original until chosen
 
 // ------------------------------------------------------------------ the file
 // <data>/sms-port/puddles.txt, where <data> is as the memory card's: SMS_SAVE_DIR's parent when
@@ -96,8 +100,9 @@ std::string pathForLog() { return folder() + "/puddles.txt"; }
 
 // The settings in force, for the log.
 void logSettings(const char* why) {
-    port_log("[puddles] %s: lifetime %dx, reflections %s, by surface %s (%s)\n", why, kScales[s_index],
-             s_reflections ? "everything" : "Mario only", s_surface ? "on" : "off", pathForLog().c_str());
+    port_log("[puddles] %s: lifetime %dx, reflections %s, by surface %s, distance %d (%s)\n", why,
+             kScales[s_index], s_reflections ? "everything" : "Mario only", s_surface ? "on" : "off",
+             kDistances[s_distance], pathForLog().c_str());
 }
 
 void load() {
@@ -119,6 +124,9 @@ void load() {
             s_reflections = value != 0;
         } else if (sscanf(line, " surface = %d", &value) == 1) {
             s_surface = value != 0;
+        } else if (sscanf(line, " distance = %d", &value) == 1) {
+            for (int i = 0; i < kDistanceCount; i++)
+                if (kDistances[i] == value) s_distance = i;
         }
     }
     fclose(f);
@@ -140,6 +148,8 @@ void save() {
     fprintf(f, "reflections = %d\n", s_reflections);
     fprintf(f, "# surface: 1 puddles reflect more or less by the floor under them, 0 all alike.\n");
     fprintf(f, "surface = %d\n", s_surface);
+    fprintf(f, "# distance: how far from Mario reflections are drawn, 1000 (Original), 2000, 3000 or 5000.\n");
+    fprintf(f, "distance = %d\n", kDistances[s_distance]);
     fclose(f);
 }
 
@@ -188,6 +198,21 @@ int surfaceSet(int i) {
     return 1;
 }
 
+int distanceCount() { return kDistanceCount; }
+const char* distanceName(int i) { return i >= 0 && i < kDistanceCount ? kDistanceNames[i] : kDistanceNames[0]; }
+int distanceGet() {
+    load();
+    return s_distance;
+}
+int distanceSet(int i) {
+    if (i < 0 || i >= kDistanceCount) return 0;
+    load();
+    s_distance = i;
+    save();
+    logSettings("Reflection Distance changed");
+    return 1;
+}
+
 // Name and hint: plain letters, digits, spaces and . , - ( ) ' only (port_settings.h).
 const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 95, "Puddle Lifetime",
@@ -197,8 +222,11 @@ const PortSetting kPuddleSettings[] = {
      "Characters and objects in FLUDD's puddles too, from the next area.", 1, nullptr, reflectionsCount,
      reflectionsName, reflectionsGet, reflectionsSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 97, "Reflections by Surface",
-     "Puddles reflect fully on stone, less on wood, grass, sand and cloth.", 0, nullptr, offOnCount, offOnName,
+     "Puddles reflect most on stone, less on wood, grass, sand and cloth.", 0, nullptr, offOnCount, offOnName,
      surfaceGet, surfaceSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 98, "Reflection Distance",
+     "How far from Mario puddles show reflections, fading out at the edge.", 0, nullptr, distanceCount,
+     distanceName, distanceGet, distanceSet},
 };
 
 }  // namespace
@@ -223,6 +251,11 @@ int port_puddle_reflections(void) {
 int port_puddle_surface(void) {
     load();
     return s_surface;
+}
+
+float port_puddle_reflection_distance(void) {
+    load();
+    return (float)kDistances[s_distance];
 }
 
 }  // extern "C"
