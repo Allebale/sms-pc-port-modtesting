@@ -31,6 +31,7 @@ const int kCount = int(sizeof kScales / sizeof kScales[0]);
 bool s_loaded;
 int s_index;       // into kScales: Original until chosen
 int s_reflections; // Puddle Reflections: 0 Mario only (as the game has it), 1 everything
+int s_surface;     // Reflections by Surface: 0 every puddle alike (as the game has it), 1 by its floor
 
 // ------------------------------------------------------------------ the file
 // <data>/sms-port/puddles.txt, where <data> is as the memory card's: SMS_SAVE_DIR's parent when
@@ -96,6 +97,8 @@ void load() {
                 if (kScales[i] == value) s_index = i;
         } else if (sscanf(line, " reflections = %d", &value) == 1) {
             s_reflections = value != 0;
+        } else if (sscanf(line, " surface = %d", &value) == 1) {
+            s_surface = value != 0;
         }
     }
     fclose(f);
@@ -116,6 +119,8 @@ void save() {
     fprintf(f, "lifetime = %d\n", kScales[s_index]);
     fprintf(f, "# reflections: 1 characters and objects in the puddles too, 0 Mario only.\n");
     fprintf(f, "reflections = %d\n", s_reflections);
+    fprintf(f, "# surface: 1 puddles reflect more or less by the floor under them, 0 all alike.\n");
+    fprintf(f, "surface = %d\n", s_surface);
     fclose(f);
 }
 
@@ -147,6 +152,20 @@ int reflectionsSet(int i) {
     return 1;
 }
 
+int offOnCount() { return 2; }
+const char* offOnName(int i) { return i ? "On" : "Off"; }
+int surfaceGet() {
+    load();
+    return s_surface;
+}
+int surfaceSet(int i) {
+    if (i < 0 || i > 1) return 0;
+    load();
+    s_surface = i;
+    save();
+    return 1;
+}
+
 // Name and hint: plain letters, digits, spaces and . , - ( ) ' only (port_settings.h).
 const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 95, "Puddle Lifetime",
@@ -155,6 +174,9 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 96, "Puddle Reflections",
      "Characters and objects in FLUDD's puddles too, from the next area.", 1, nullptr, reflectionsCount,
      reflectionsName, reflectionsGet, reflectionsSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 97, "Reflections by Surface",
+     "Puddles reflect less on sand and soft floors, fully on smooth ones.", 0, nullptr, offOnCount, offOnName,
+     surfaceGet, surfaceSet},
 };
 
 }  // namespace
@@ -174,6 +196,11 @@ int port_puddle_life_scale(void) {
 int port_puddle_reflections(void) {
     load();
     return s_reflections;
+}
+
+int port_puddle_surface(void) {
+    load();
+    return s_surface;
 }
 
 }  // extern "C"

@@ -1,4 +1,4 @@
-Reason: Puddle Lifetime (port_puddles.h, the settings menu's Graphics page): FLUDD's puddles dry 2, 4 or 8 times slower; what a puddle does to the game while it lasts (goop cleaned under it, the object under it sprayed) is done on every scale-th tick only, so each does as much of it as in the original game; when the water's slots are full, new water takes the driest puddle's. they are always darkened the full way, as their wider spread would otherwise draw them fainter. Original is the game as it was
+Reason: Puddle Lifetime (port_puddles.h, the settings menu's Graphics page): FLUDD's puddles dry 2, 4 or 8 times slower; what a puddle does to the game while it lasts (goop cleaned under it, the object under it sprayed) is done on every scale-th tick only, so each does as much of it as in the original game; when the water's slots are full, new water takes the driest puddle's. they are always darkened the full way, as their wider spread would otherwise draw them fainter. With Reflections by Surface, each puddle is masked as strongly as its floor reflects. Original and Off are the game as it was
 
 --- a/src/Player/ModelWaterManager.cpp
 +++ b/src/Player/ModelWaterManager.cpp
@@ -161,3 +161,25 @@ Reason: Puddle Lifetime (port_puddles.h, the settings menu's Graphics page): FLU
  		GXSetCurrentMtx(GX_PNMTX0);
  		GXLoadPosMtxImm(param_1, GX_PNMTX0);
  		GXClearVtxDesc();
+@@ -1340,9 +1428,21 @@
+ 	const TBGCheckData* pTVar4 = SMS_GetMarioGroundPlane();
+ 	f32 fVar1                  = pTVar4->getPlaneDistance();
+ 	const JGeometry::TVec3<f32>& n = pTVar4->getNormal();
++#ifdef TARGET_PC
++	// port: Reflections by Surface (port_puddles.h). The mask the reflection
++	// is drawn through takes each puddle as strongly as its floor reflects,
++	// not every one fully. Off, as ever.
++	const bool portSurface = port_puddle_surface() != 0;
++#endif
+ 	for (int i = 0; i < mParticleCount; ++i) {
+ 		if ((mParticleFlagSOA[i] & 0xf) == 2
+ 		    && SMS_GetMarioGroundPlane()->isLegal()) {
++#ifdef TARGET_PC
++			if (portSurface && unk2914[i]) {
++				const u8 strength = (u8)port_puddle_surface_alpha(unk2914[i]->mBGType, unk2914[i]->unk6);
++				GXSetChanMatColor(GX_COLOR0A0, (GXColor) { 0xff, 0xff, 0xff, strength });
++			}
++#endif
+ 			GXLoadPosMtxImm(unk2D14[i], GX_PNMTX0);
+ 			SMS_DrawShape(unk5D54, 0);
+ 		}

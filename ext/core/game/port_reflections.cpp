@@ -11,6 +11,7 @@
 #include "port_puddles.h"
 
 #include <Enemy/Conductor.hpp>
+#include <Map/MapData.hpp>
 #include <JSystem/J3D/J3DGraphAnimator/J3DModel.hpp>
 #include <JSystem/JDrama/JDRNameRefGen.hpp>
 #include <JSystem/JDrama/JDRViewObjPtrList.hpp>
@@ -134,6 +135,55 @@ void stageSetup()
 	        full ? "; the stage's memory is low, so not for all of them" : "");
 }
 
+// ------------------------------------------------------------------ Reflections by Surface
+// How strongly a puddle reflects, by the floor it lies on: its type (mBGType, without the shadow
+// and camera flags) and the sound material its triangle carries (unk6, what Mario's steps and
+// bumps sound like). What each material number means is in the game's sound data, not its code,
+// so the table grows as surfaces are told apart (the log below names them as Mario walks).
+u8 surfaceAlpha(unsigned type, unsigned material)
+{
+	switch (type & 0x3FFF) {
+	case BG_TYPE_SAND:
+	case BG_TYPE_SEA_FLOOR:
+		return 90;  // soaks it up
+	case BG_TYPE_WET_GROUND:
+	case BG_TYPE_HYDROPHOBIC:
+		return 255; // already wet and smooth
+	default:
+		break;
+	}
+	switch (material) {
+	case 0x1C:
+		return 150; // the game's "soft" surface (MSound::getWallSound)
+	default:
+		return 255; // as the game has it
+	}
+}
+
+// While Reflections by Surface is on: the floor under Mario, logged each time it changes and
+// stays changed a moment, so that the material numbers can be told apart by walking.
+void afterMovement()
+{
+	static unsigned s_logged = 0xFFFFFFFFu, s_seen = 0xFFFFFFFFu;
+	static int s_steady;
+	if (!port_puddle_surface() || !gpMarioGroundPlane || !*gpMarioGroundPlane)
+		return;
+	const TBGCheckData* floor = *gpMarioGroundPlane;
+	if (!floor->isLegal())
+		return;
+	const unsigned key = (unsigned)floor->mBGType << 8 | floor->unk6;
+	if (key != s_seen) {
+		s_seen   = key;
+		s_steady = 0;
+		return;
+	}
+	if (++s_steady != 15 || key == s_logged)  // a moment: 15 ticks
+		return;
+	s_logged = key;
+	fprintf(stderr, "[puddles] Mario stands on: floor type 0x%04X, material 0x%02X (reflects %d%%)\n",
+	        floor->mBGType, floor->unk6, surfaceAlpha(floor->mBGType, floor->unk6) * 100 / 255);
+}
+
 // Filled by name: a hook added to PortExtension anywhere never shifts it.
 PortExtension s_extension;
 
@@ -141,10 +191,16 @@ struct Register {
 	Register()
 	{
 		memset(&s_extension, 0, sizeof s_extension);
-		s_extension.name       = "reflections";
-		s_extension.stageSetup = stageSetup;
+		s_extension.name          = "reflections";
+		s_extension.stageSetup    = stageSetup;
+		s_extension.afterMovement = afterMovement;
 		port_ext_register(&s_extension);
 	}
 } s_register;
 
 } // namespace
+
+extern "C" unsigned port_puddle_surface_alpha(unsigned type, unsigned material)
+{
+	return surfaceAlpha(type, material);
+}
