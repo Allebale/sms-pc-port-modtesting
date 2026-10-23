@@ -317,7 +317,8 @@ extern int port_ext_death_cause;
 // ------------------------------------------------------------------ the HUD
 // Parts of the game's own HUD (TGCConsole2) left out of its drawing. Each
 // owner (multiplayer's SMS_CMD_HUD, the mod API's game->set_hud_hidden) says
-// which parts it hides; the game hides the union. A part is hidden for the
+// which parts it hides; the game hides the union, with the settings menu's
+// HUD page's (port_hud_settings.h, asked every draw). A part is hidden for the
 // HUD's draw only and put back after it (ext/core/game/port_hud.cpp), so the
 // HUD's own logic, its animations and sounds, never sees it hidden. The bits
 // are the mod API's SMS_HUD_* (and multiplayer's MPG_HUD_*).

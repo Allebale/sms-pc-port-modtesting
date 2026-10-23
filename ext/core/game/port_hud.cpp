@@ -11,6 +11,7 @@
 // emitters are kept from drawing (STATUS_STOP_DRAW, which the HUD itself never
 // uses) while their counter is hidden.
 #include "port_ext.h"
+#include "port_hud_settings.h"
 
 #include <GC2D/BoundPane.hpp>
 #include <GC2D/ExPane.hpp>
@@ -23,6 +24,10 @@ namespace {
 
 unsigned s_hidden[PORT_HUD_OWNERS];
 unsigned s_mask; // the union of s_hidden
+
+// Every owner's parts, and the settings menu's HUD page's (port_hud_settings.h), asked fresh:
+// it changes from the menu and the HUD_TOGGLE key, and is read from its file on first use.
+unsigned hiddenNow() { return s_mask | port_hud_settings_mask(); }
 
 // The panes hidden for this draw and how each was, to put back after it.
 enum { kMaxPanes = 32 };
@@ -70,27 +75,28 @@ void before(TGCConsole2* c)
 {
 	s_count     = 0;
 	s_tankSaved = false;
+	const unsigned mask = hiddenNow(); // every owner's, and the settings page's
 
 	// every draw, hidden or not: a sparkle shown again when its counter is
-	sparkle(c->unk124, s_mask & PORT_HUD_COINS);
-	sparkle(c->unk144, s_mask & PORT_HUD_SHINES);
-	sparkle(c->unk164, s_mask & PORT_HUD_BLUE_COINS);
-	if (!s_mask)
+	sparkle(c->unk124, mask & PORT_HUD_COINS);
+	sparkle(c->unk144, mask & PORT_HUD_SHINES);
+	sparkle(c->unk164, mask & PORT_HUD_BLUE_COINS);
+	if (!mask)
 		return;
 
-	if (s_mask & PORT_HUD_COINS)
+	if (mask & PORT_HUD_COINS)
 		hideForDraw(c->unk108);
-	if (s_mask & PORT_HUD_SHINES)
+	if (mask & PORT_HUD_SHINES)
 		hideForDraw(c->unk140);
-	if (s_mask & PORT_HUD_BLUE_COINS)
+	if (mask & PORT_HUD_BLUE_COINS)
 		hideForDraw(c->unk160);
-	if (s_mask & PORT_HUD_HEALTH)
+	if (mask & PORT_HUD_HEALTH)
 		hideForDraw(c->unk1C4);
-	if (s_mask & PORT_HUD_LIVES)
+	if (mask & PORT_HUD_LIVES)
 		hideForDraw(c->unk3A8);
-	if (s_mask & PORT_HUD_RED_COINS)
+	if (mask & PORT_HUD_RED_COINS)
 		hideForDraw(c->unk428);
-	if (s_mask & PORT_HUD_WATER) {
+	if (mask & PORT_HUD_WATER) {
 		// The tank and every pane of the gauge, whichever group the layout
 		// puts them in: the back, its text, the nozzle icons and their
 		// labels, the level and the juice icons (Yoshi).
@@ -146,7 +152,7 @@ extern "C" void port_hud_set_hidden(int owner, unsigned mask)
 
 extern "C" unsigned port_hud_hidden(void)
 {
-	return s_mask;
+	return hiddenNow();
 }
 
 extern "C" void port_hud_draw(void* console, int afterDraw)
