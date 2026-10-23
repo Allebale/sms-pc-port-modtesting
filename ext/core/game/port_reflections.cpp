@@ -79,10 +79,28 @@ private:
 		const TBGCheckData* floor = gpMarioGroundPlane ? *gpMarioGroundPlane : nullptr;
 		if (!floor || !floor->isLegal())
 			return false;
+		// The copy is drawn where the model's joints are, and that is not always where its actor
+		// says it is: an object put away under the floor can keep its place above it, or its model
+		// can be left where it last was. So each of them must be at the floor or above it: the
+		// actor, the model's own place and its first joint, which the copy is drawn from.
 		const JGeometry::TVec3<f32>& n = floor->getNormal();
-		const f32 above = n.x * mOwner->mPosition.x + n.y * mOwner->mPosition.y + n.z * mOwner->mPosition.z
-		                  + floor->getPlaneDistance();
-		return above >= -kBelow;
+		const f32 d                    = floor->getPlaneDistance();
+		J3DModel* model                = const_cast<TPortMirrorActor*>(this)->getUnk10();
+		if (!above(n, d, mOwner->mPosition.x, mOwner->mPosition.y, mOwner->mPosition.z))
+			return false;
+		if (model) {
+			MtxPtr base = model->getBaseTRMtx();
+			MtxPtr root = model->getAnmMtx(0);
+			if (!above(n, d, base[0][3], base[1][3], base[2][3])
+			    || !above(n, d, root[0][3], root[1][3], root[2][3]))
+				return false;
+		}
+		return true;
+	}
+
+	static bool above(const JGeometry::TVec3<f32>& n, f32 d, f32 x, f32 y, f32 z)
+	{
+		return n.x * x + n.y * y + n.z * z + d >= -kBelow;
 	}
 
 	TLiveActor* mOwner;
