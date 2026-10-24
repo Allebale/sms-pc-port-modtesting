@@ -382,6 +382,10 @@ bool ringsLive()
 	return false;
 }
 
+// Whether Mario's feet are in a puddle (or on wet ground), and on the ground at all, this tick
+// (updateRings; Wet Footprints reads them).
+bool s_puddleAtFeet, s_onGround;
+
 // Each tick (from port_mirror_plane): new rings where drops have landed in puddles and where
 // Mario's feet are as he runs through them.
 void updateRings(const TBGCheckData* ground)
@@ -390,10 +394,11 @@ void updateRings(const TBGCheckData* ground)
 	static f32 s_lastX, s_lastZ;
 	static s32 s_lastStep;
 	TModelWaterManager* water = gpModelWaterManager;
-	if (!port_puddle_ripples() || !water || !gpMarioPos) {
-		s_ringCount = 0;
+	s_puddleAtFeet = false;
+	s_onGround     = false;
+	if (!water || !gpMarioPos)
 		return;
-	}
+	const bool rings = port_puddle_ripples() != 0;
 	const f32 mx = gpMarioPos->x, mz = gpMarioPos->z;
 	const int count = water->getParticleCount();
 	int made        = 0;
@@ -404,7 +409,7 @@ void updateRings(const TBGCheckData* ground)
 			const JGeometry::TVec3<f32>& p = water->mParticlePositionSOA[i];
 			const f32 dx = p.x - mx, dz = p.z - mz;
 			const f32 d2 = dx * dx + dz * dz;
-			if (!s_wasPuddle[i] && made < 3 && d2 < 3000.0f * 3000.0f) {  // a drop has just landed
+			if (rings && !s_wasPuddle[i] && made < 3 && d2 < 3000.0f * 3000.0f) {  // a drop has just landed
 				addRing(p.x, p.z);
 				made++;
 			}
@@ -421,7 +426,9 @@ void updateRings(const TBGCheckData* ground)
 	s_lastZ = mz;
 	const bool onGround = ground && ground->isLegal()
 	                      && gpMarioPos->y - heightAt(ground, mx, mz) < 10.0f && ground->getNormal().y > 0.5f;
-	if (puddleAtFeet && onGround && dx * dx + dz * dz > 2.0f * 2.0f && dx * dx + dz * dz < 200.0f * 200.0f
+	s_puddleAtFeet = puddleAtFeet;
+	s_onGround     = onGround;
+	if (rings && puddleAtFeet && onGround && dx * dx + dz * dz > 2.0f * 2.0f && dx * dx + dz * dz < 200.0f * 200.0f
 	    && nowMs() - s_lastStep >= 300) {
 		addRing(mx, mz);
 		s_lastStep = nowMs();
@@ -462,6 +469,7 @@ struct Ripple {
 	int time;
 	s32 ms;      // the clock, for puddles
 	f32 radius;
+	f32 ringAmp, ringK;  // rings on water (where it was disturbed), with its waves
 };
 
 void setUpRipple(Ripple* r, const TBGCheckData* plane, int rippleKind, int strength, f32 radius)
@@ -477,6 +485,8 @@ void setUpRipple(Ripple* r, const TBGCheckData* plane, int rippleKind, int stren
 	r->ms         = nowMs();
 	r->amp        = 0.0f;
 	r->k          = 1.0f;
+	r->ringAmp    = 0.0f;
+	r->ringK      = 6.2831853f / kRingLength;
 	if (r->rippleKind == 2) {
 		r->amp = strength == 2 ? 10.0f : 5.0f;
 		r->k   = 6.2831853f / kRingLength;
@@ -485,11 +495,45 @@ void setUpRipple(Ripple* r, const TBGCheckData* plane, int rippleKind, int stren
 		const f32 length  = spacing * 5.0f > 140.0f ? spacing * 5.0f : 140.0f;
 		r->amp            = strength == 2 ? 10.0f : 4.0f;
 		r->k              = 6.2831853f / length;
+		r->ringAmp        = strength == 2 ? 12.0f : 7.0f;
 	}
 	r->phase = (f32)r->time * 0.06f;
 }
 
 // How far beside x, z the picture is taken (the ripples), and the slope they give the surface.
+// The rings' push at x, z (Puddle Ripples, and disturbances on water): round each disturbance,
+// waves running out from it, as strong as it is young (100% as it starts, 0% two seconds on) and
+// fading to its edge; together, never more than one at full. Adds to *ox, *oz and the slope.
+void ringsAt(const Ripple& r, f32 x, f32 z, f32 amp, f32 k, f32* ox, f32* oz, f32* sx, f32* sz)
+{
+	f32 tx = 0.0f, tz = 0.0f, total = 0.0f, gx = 0.0f, gz = 0.0f;
+	const f32 run = k * kRingSpeed / 1000.0f;
+	for (int i = 0; i < s_ringCount; i++) {
+		const RingSource& src = s_rings[i];
+		const s32 age         = r.ms - src.start;
+		if (age < 0 || age >= kRingLife)
+			continue;
+		const f32 dx = x - src.x, dz = z - src.z;
+		const f32 d2 = dx * dx + dz * dz;
+		if (d2 >= kRingSpread * kRingSpread || d2 < 1.0f)
+			continue;
+		const f32 d      = sqrtf(d2);
+		const f32 edge   = 1.0f - d / kRingSpread;
+		const f32 weight = (1.0f - (f32)age / kRingLife) * edge * edge;
+		const f32 phase  = d * k - age * run;
+		tx += dx * weight * sinf(phase) / d;
+		tz += dz * weight * sinf(phase) / d;
+		gx += dx * weight * cosf(phase) / d;
+		gz += dz * weight * cosf(phase) / d;
+		total += weight;
+	}
+	if (total > 1.0f) {
+		tx /= total, tz /= total, gx /= total, gz /= total;
+	}
+	*ox += amp * tx, *oz += amp * tz;
+	*sx += amp * k * gx * 0.25f, *sz += amp * k * gz * 0.25f;
+}
+
 void rippleAt(const Ripple& r, f32 x, f32 z, f32* ox, f32* oz, f32* sx, f32* sz)
 {
 	*ox = *oz = *sx = *sz = 0.0f;
@@ -500,35 +544,10 @@ void rippleAt(const Ripple& r, f32 x, f32 z, f32* ox, f32* oz, f32* sx, f32* sz)
 		*oz = r.amp * (cosf(b1) + 0.5f * cosf(b2));
 		*sx = r.amp * r.k * (cosf(a1) + 0.85f * cosf(a2)) * 0.25f;
 		*sz = -r.amp * r.k * (1.1f * sinf(b1) + 0.75f * sinf(b2)) * 0.25f;
+		if (r.ringAmp > 0.0f)
+			ringsAt(r, x, z, r.ringAmp, r.ringK, ox, oz, sx, sz);
 	} else if (r.rippleKind == 2) {
-		// round each disturbance, waves running out from it, as strong as it is young (100% as it
-		// starts, 0% two seconds on) and fading to its edge; together, never more than one at full
-		f32 tx = 0.0f, tz = 0.0f, total = 0.0f, gx = 0.0f, gz = 0.0f;
-		const f32 run = r.k * kRingSpeed / 1000.0f;
-		for (int i = 0; i < s_ringCount; i++) {
-			const RingSource& src = s_rings[i];
-			const s32 age         = r.ms - src.start;
-			if (age < 0 || age >= kRingLife)
-				continue;
-			const f32 dx = x - src.x, dz = z - src.z;
-			const f32 d2 = dx * dx + dz * dz;
-			if (d2 >= kRingSpread * kRingSpread || d2 < 1.0f)
-				continue;
-			const f32 d      = sqrtf(d2);
-			const f32 edge   = 1.0f - d / kRingSpread;
-			const f32 weight = (1.0f - (f32)age / kRingLife) * edge * edge;
-			const f32 phase  = d * r.k - age * run;
-			tx += dx * weight * sinf(phase) / d;
-			tz += dz * weight * sinf(phase) / d;
-			gx += dx * weight * cosf(phase) / d;
-			gz += dz * weight * cosf(phase) / d;
-			total += weight;
-		}
-		if (total > 1.0f) {
-			tx /= total, tz /= total, gx /= total, gz /= total;
-		}
-		*ox = r.amp * tx, *oz = r.amp * tz;
-		*sx = r.amp * r.k * gx * 0.25f, *sz = r.amp * r.k * gz * 0.25f;
+		ringsAt(r, x, z, r.amp, r.k, ox, oz, sx, sz);
 	}
 }
 
@@ -876,6 +895,170 @@ void drawMarks(u8 alpha) { drawTriangles(s_tris, s_triCount, alpha); }
 
 const TBGCheckData* choosePlane(const TBGCheckData* ground);
 
+namespace {
+
+// ------------------------------------------------------------------ disturbances on water
+// While the reflection is on water (with Water Ripples on), rings run out over it, as over the
+// puddles, where it is disturbed: where FLUDD's water comes down onto it (a drop above the surface
+// one tick that is at it or gone the next), and from Mario as he wades and swims through it.
+void updateWaterRings()
+{
+	static u8 s_flying[256];
+	static f32 s_px[256], s_py[256], s_pz[256];
+	static f32 s_lastX, s_lastZ;
+	static s32 s_lastWade;
+	TModelWaterManager* water = gpModelWaterManager;
+	const bool on = s_kind == KIND_WATER && s_plane && port_water_ripples() && water && gpMarioPos;
+	const int count = water ? water->getParticleCount() : 0;
+	int made        = 0;
+	for (int i = 0; i < 256; i++) {
+		const bool flying = i < count && (water->mParticleFlagSOA[i] & 0xf) == 1;
+		if (on && s_flying[i] && made < 4) {
+			// last tick above the surface, near it; now down at it, or gone (it hit the water)
+			const f32 was = s_py[i] - heightAt(s_plane, s_px[i], s_pz[i]);
+			const f32 now = flying ? water->mParticlePositionSOA[i].y
+			                             - heightAt(s_plane, water->mParticlePositionSOA[i].x,
+			                                        water->mParticlePositionSOA[i].z)
+			                       : -1.0f;
+			const f32 dx = s_px[i] - gpMarioPos->x, dz = s_pz[i] - gpMarioPos->z;
+			if (was > 0.0f && was < 120.0f && now <= 5.0f && dx * dx + dz * dz < 3000.0f * 3000.0f
+			    && distanceTo(s_plane, s_px[i], s_pz[i]) == 0.0f) {
+				addRing(s_px[i], s_pz[i]);
+				made++;
+			}
+		}
+		s_flying[i] = flying;
+		if (flying) {
+			s_px[i] = water->mParticlePositionSOA[i].x;
+			s_py[i] = water->mParticlePositionSOA[i].y;
+			s_pz[i] = water->mParticlePositionSOA[i].z;
+		}
+	}
+	if (!on)
+		return;
+	// Mario in the water, moving: a ring from him every few strokes
+	const f32 mx = gpMarioPos->x, mz = gpMarioPos->z;
+	const f32 dx = mx - s_lastX, dz = mz - s_lastZ;
+	s_lastX = mx;
+	s_lastZ = mz;
+	const f32 depth = heightAt(s_plane, mx, mz) - gpMarioPos->y;
+	if (depth > -20.0f && depth < 150.0f && dx * dx + dz * dz > 1.5f * 1.5f && dx * dx + dz * dz < 200.0f * 200.0f
+	    && nowMs() - s_lastWade >= 350) {
+		addRing(mx, mz);
+		s_lastWade = nowMs();
+	}
+}
+
+// ------------------------------------------------------------------ Wet Footprints
+// After Mario runs through a puddle (or over wet ground), his next steps on dry ground leave damp
+// prints that fade. Each print a dark oval on the floor, left and right in turn, along the way he
+// goes; a puddle wets him for ten steps.
+const int kMostPrints   = 40;
+const s32 kPrintLife    = 5000;   // ms to fade away
+const f32 kStride       = 55.0f;  // units between prints
+const int kWetSteps     = 10;
+struct Print {
+	f32 x, y, z, angle;
+	s32 start;
+};
+Print s_prints[kMostPrints];
+int s_printCount, s_printNext;
+int s_wetSteps;
+f32 s_strideLeft;
+bool s_leftFoot;
+
+void addPrint(f32 x, f32 y, f32 z, f32 angle)
+{
+	Print& p = s_printCount < kMostPrints ? s_prints[s_printCount++] : s_prints[s_printNext++ % kMostPrints];
+	p.x = x, p.y = y, p.z = z, p.angle = angle;
+	p.start = nowMs();
+}
+
+void updateFootprints(const TBGCheckData* ground)
+{
+	static f32 s_lastX, s_lastZ;
+	if (!gpMarioPos)
+		return;
+	const f32 mx = gpMarioPos->x, mz = gpMarioPos->z;
+	const f32 dx = mx - s_lastX, dz = mz - s_lastZ;
+	s_lastX = mx;
+	s_lastZ = mz;
+	if (!port_wet_footprints()) {
+		s_printCount = 0;
+		s_wetSteps   = 0;
+		return;
+	}
+	if (s_puddleAtFeet) {  // wet again
+		s_wetSteps   = kWetSteps;
+		s_strideLeft = kStride;
+		return;
+	}
+	const f32 step = sqrtf(dx * dx + dz * dz);
+	if (!s_wetSteps || !s_onGround || step < 0.5f || step > 200.0f || !ground || !ground->isLegal())
+		return;
+	s_strideLeft -= step;
+	if (s_strideLeft > 0.0f)
+		return;
+	s_strideLeft = kStride;
+	// a foot to the side of the way he goes
+	const f32 fx = dx / step, fz = dz / step;
+	const f32 side = s_leftFoot ? 9.0f : -9.0f;
+	s_leftFoot     = !s_leftFoot;
+	const f32 px = mx + fz * side, pz = mz - fx * side;
+	addPrint(px, heightAt(ground, px, pz), pz, atan2f(fx, fz));
+	s_wetSteps--;
+}
+
+void drawFootprints(MtxPtr view)
+{
+	if (!s_printCount || !port_wet_footprints())
+		return;
+	const s32 t = nowMs();
+	GXClearVtxDesc();
+	GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+	GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+	GXSetCurrentMtx(GX_PNMTX0);
+	GXLoadPosMtxImm(view, GX_PNMTX0);
+	GXSetCullMode(GX_CULL_NONE);
+	GXSetNumChans(1);
+	GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX, 0, GX_DF_NONE, GX_AF_NONE);
+	GXSetNumTexGens(0);
+	GXSetNumTevStages(1);
+	GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+	GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+	GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_NOOP);
+	GXSetZCompLoc(GX_TRUE);
+	GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+	GXSetAlphaCompare(GX_ALWAYS, 0, GX_AOP_OR, GX_ALWAYS, 0);
+	GXSetColorUpdate(GX_TRUE);
+	GXSetAlphaUpdate(GX_FALSE);
+	GXSetDstAlpha(GX_FALSE, 0);
+	for (int i = 0; i < s_printCount; i++) {
+		const Print& p = s_prints[i];
+		const s32 age  = t - p.start;
+		if (age < 0 || age >= kPrintLife)
+			continue;
+		// damp at first, drying away: most of it in the last half
+		const f32 left = 1.0f - (f32)age / kPrintLife;
+		const u8 a     = (u8)(90.0f * (left < 0.5f ? left * 2.0f : 1.0f));
+		const f32 sa = sinf(p.angle), ca = cosf(p.angle);
+		GXBegin(GX_TRIANGLEFAN, GX_VTXFMT0, 14);
+		GXPosition3f32(p.x, p.y + 1.5f, p.z);
+		GXColor4u8(0, 0, 0, a);
+		for (int k = 0; k <= 12; k++) {
+			const f32 u = k * (6.2831853f / 12);
+			const f32 w = sinf(u) * 7.0f, l = cosf(u) * 13.0f;  // a foot: narrow, long
+			GXPosition3f32(p.x + ca * w + sa * l, p.y + 1.5f, p.z - sa * w + ca * l);
+			GXColor4u8(0, 0, 0, (u8)(a / 3));
+		}
+		GXEnd();
+	}
+}
+
+} // namespace
+
 // From TMirrorModelManager::perform (zzzzz-ext-25-water-reflections), as each frame starts: the
 // plane the mirror scene is mirrored about this frame. ground: the floor under Mario, the game's.
 const TBGCheckData* port_mirror_plane(const TBGCheckData* ground)
@@ -884,7 +1067,9 @@ const TBGCheckData* port_mirror_plane(const TBGCheckData* ground)
 	s_kind     = KIND_NONE;
 	s_triCount = 0;
 	updateRings(ground);
+	updateFootprints(ground);
 	const TBGCheckData* plane = choosePlane(ground);
+	updateWaterRings();
 	// Water Depth: on the water while the reflection is on it, fading out on the last one after
 	s_depthWanted   = s_kind == KIND_WATER && port_water_depth();
 	s_depthTriCount = 0;
@@ -1022,6 +1207,7 @@ void drawDepthFrame(MtxPtr view)
 
 void port_draw_water_mirror(MtxPtr view)
 {
+	drawFootprints(view);
 	drawDepthFrame(view);
 	if (!port_water_mirror_active() || !gpMirrorModelManager || !gpMirrorModelManager->unk24
 	    || !gpModelWaterManager)

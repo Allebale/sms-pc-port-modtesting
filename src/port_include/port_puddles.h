@@ -80,6 +80,12 @@ int port_puddles_beat_mirrors(void);
 // puddles and water too, from the next area (ext/core/game/port_reflections.cpp).
 int port_reflect_level(void);
 
+// Wet Footprints: 1 when Mario's steps out of a puddle leave damp prints that fade.
+int port_wet_footprints(void);
+// Sharper Reflections: 1 when the mirror's picture is 512 square, not the game's 256 (from the
+// next area).
+int port_sharper_reflections(void);
+
 // Water Reflections: 1 when the stage's own water and wet ground show the reflections puddles
 // do (ext/core/game/port_water_reflections.cpp); 0 as the game has it.
 int port_water_reflections(void);

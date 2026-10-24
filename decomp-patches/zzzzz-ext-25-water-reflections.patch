@@ -1,19 +1,20 @@
-Reason: Water Reflections (port_puddles.h, the settings menu's Graphics page): the stage's own water (sea, lakes, pools, fountains, streams) and wet ground show the reflections FLUDD's puddles do. TMirrorModelManager mirrors about the plane port_mirror_plane picks (the nearest water surface, else the floor under Mario, as ever), and TModelWaterManager draws the water's reflection after its puddles' (port_draw_water_mirror, ext/core/game/port_water_reflections.cpp); the puddles show none while it is mirrored about water. Puddle Ripples: while rings spread, drawMirror's disc is drawn by port_draw_puddle_disc, its reflection rippling. Puddle Lifetime: as the water's slots fill, puddles dry faster, back to the game's speed when all are in use, so that the oldest dry away rather than blink out. Puddles Beat Mirrors: by FLUDD's puddles in a real mirror's area, TMirrorModelManager puts the mirror aside (the floor is reflected about; the mirror is still drawn) and TMirrorActor::checkIsInMirror takes no notice of mirror areas. With Puddle Ripples, Viewing Angle, Reflection Blur or Sun Glints in use, drawMirror's disc is drawn by the port (port_draw_puddle_reflection) over the puddles as marked. Reflect the Level: TMirrorCamera::perform, its projection set, asks the port to cut the stage away below the mirror's surface (port_mirror_clip). Off and Original are the game as it was
+Reason: Water Reflections (port_puddles.h, the settings menu's Graphics page): the stage's own water (sea, lakes, pools, fountains, streams) and wet ground show the reflections FLUDD's puddles do. TMirrorModelManager mirrors about the plane port_mirror_plane picks (the nearest water surface, else the floor under Mario, as ever), and TModelWaterManager draws the water's reflection after its puddles' (port_draw_water_mirror, ext/core/game/port_water_reflections.cpp); the puddles show none while it is mirrored about water. Puddle Ripples: while rings spread, drawMirror's disc is drawn by port_draw_puddle_disc, its reflection rippling. Puddle Lifetime: as the water's slots fill, puddles dry faster, back to the game's speed when all are in use, so that the oldest dry away rather than blink out. Puddles Beat Mirrors: by FLUDD's puddles in a real mirror's area, TMirrorModelManager puts the mirror aside (the floor is reflected about; the mirror is still drawn) and TMirrorActor::checkIsInMirror takes no notice of mirror areas. With Puddle Ripples, Viewing Angle, Reflection Blur or Sun Glints in use, drawMirror's disc is drawn by the port (port_draw_puddle_reflection) over the puddles as marked. Reflect the Level: TMirrorCamera::perform, its projection set, asks the port to cut the stage away below the mirror's surface (port_mirror_clip). Sharper Reflections: TMirrorCamera's picture is 512 square and its draw's viewport and scissor as big. Off and Original are the game as it was
 
 --- a/src/Map/MapMirror.cpp
 +++ b/src/Map/MapMirror.cpp
-@@ -91,6 +91,10 @@
+@@ -91,6 +91,11 @@
  // TODO: frame 0x40 short (0x28 vs 0x68), instructions exact. Camera, matrix
  // and projection binders price +8 each at most (SMSGetCamera() reads 0); no
  // single spelling reaches 0x40.
 +#ifdef TARGET_PC
 +void port_mirror_clip(TMirrorCamera* mirror);  // ext/core/game/port_reflections.cpp
++extern "C" int port_sharper_reflections(void);  // platform/misc/port_puddle_settings.cpp
 +#endif
 +
  void TMirrorCamera::perform(u32 cue, JDrama::TGraphics* graphics)
  {
  	if (cue & (CUE_CALC_VIEW | CUE_SET_PROJECTION)) {
-@@ -103,8 +107,14 @@
+@@ -103,8 +108,21 @@
  		MTXCopy(unk30, graphics->mViewMtx);
  		graphics->mNearPlane = SMSGetCamera()->mNear;
  		graphics->mFarPlane  = SMSGetCamera()->getFar();
@@ -21,6 +22,13 @@ Reason: Water Reflections (port_puddles.h, the settings menu's Graphics page): t
 +		if (cue & CUE_SET_PROJECTION) {
  			GXSetProjection(projMtx, GX_PERSPECTIVE);
 +#ifdef TARGET_PC
++			// port: Sharper Reflections: the mirror's picture is drawn over
++			// as much of the frame as it is big (the stage's own viewport
++			// for it is the 256 square)
++			if (unk94 && unk94->width > 0x100) {
++				GXSetViewport(0.0f, 0.0f, unk94->width, unk94->height, 0.0f, 1.0f);
++				GXSetScissor(0, 0, unk94->width, unk94->height);
++			}
 +			// port: Reflect the Level (port_puddles.h): the stage cut away
 +			// below the mirror's surface while the mirror's picture is drawn.
 +			port_mirror_clip(this);
@@ -29,7 +37,31 @@ Reason: Water Reflections (port_puddles.h, the settings menu's Graphics page): t
  		GXSetAlphaUpdate(GX_TRUE);
  	}
  }
-@@ -362,6 +372,18 @@
+@@ -160,13 +178,20 @@
+     , unk90(0.0f)
+     , unk94(nullptr)
+ {
++#ifdef TARGET_PC
++	// port: Sharper Reflections (port_puddles.h): the mirror's picture
++	// 512 square, not 256, drawn over as much more of the frame (perform).
++	const u16 portSize = port_sharper_reflections() ? 0x200 : 0x100;
++#else
++	const u16 portSize = 0x100;
++#endif
+ 	unk94 = (ResTIMG*)new (0x20)
+-	    u8[GXGetTexBufferSize(0x100, 0x100, 5, 0, 0) + sizeof(ResTIMG)];
++	    u8[GXGetTexBufferSize(portSize, portSize, 5, 0, 0) + sizeof(ResTIMG)];
+ 	memset(unk94, 0, sizeof(ResTIMG));
+ 	unk94->format          = GX_TF_RGB5A3;
+ 	unk94->alphaEnabled    = true;
+-	unk94->width           = 0x100;
+-	unk94->height          = 0x100;
++	unk94->width           = portSize;
++	unk94->height          = portSize;
+ 	unk94->minFilter       = 1;
+ 	unk94->magFilter       = 1;
+ 	unk94->mipmapCount     = 1;
+@@ -362,6 +387,18 @@
  
  TMirrorModelManager* gpMirrorModelManager;
  
@@ -48,7 +80,7 @@ Reason: Water Reflections (port_puddles.h, the settings menu's Graphics page): t
  bool TMirrorModelManager::isUpperThanMirrorPlane(
      const JGeometry::TVec3<f32>& param_1) const
  {
-@@ -422,9 +444,27 @@
+@@ -422,9 +459,27 @@
  	if (cue & CUE_MOVE) {
  		JGeometry::TVec3<f32> local_44 = *gpMarioPos;
  		unk18 = gpCubeMirror->getDataNo(gpCubeMirror->getInCubeNo(local_44));
@@ -76,7 +108,7 @@ Reason: Water Reflections (port_puddles.h, the settings menu's Graphics page): t
  	}
  
  	if (isUnk18Present()) {
-@@ -439,6 +479,17 @@
+@@ -439,6 +494,17 @@
  			unk1C[unk18]->entry();
  		}
  	}

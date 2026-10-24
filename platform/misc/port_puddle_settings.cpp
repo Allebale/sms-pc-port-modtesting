@@ -65,6 +65,8 @@ bool isKind(const char* line, int* value) {
 int s_ripples = 1; // Water Ripples: 0 off, 1 gentle, 2 strong
 int s_puddleRipples = 1; // Puddle Ripples: 0 off, 1 gentle, 2 strong
 int s_beatMirrors = 1;    // Puddles Beat Mirrors
+int s_footprints = 1;     // Wet Footprints
+int s_sharper = 0;        // Sharper Reflections: 0 the game's 256 square picture, 1 512
 int s_level = 0;          // Reflect the Level: 0 off (as the game has it), 1 the stage itself too
 int s_water;       // Water Reflections: 0 none (as the game has it), 1 in the stage's water and wet ground
 // 0.5x to 5x the game's 1000 units, in steps of 0.25x (250 units)
@@ -225,6 +227,10 @@ void load() {
             s_depth = value < 0 ? 0 : value > 2 ? 2 : value;
         } else if (isKind(line, &value)) {
             // done by isKind
+        } else if (sscanf(line, " footprints = %d", &value) == 1) {
+            s_footprints = value != 0;
+        } else if (sscanf(line, " sharper = %d", &value) == 1) {
+            s_sharper = value != 0;
         } else if (sscanf(line, " level = %d", &value) == 1) {
             s_level = value != 0;
         } else if (sscanf(line, " beatmirrors = %d", &value) == 1) {
@@ -278,6 +284,10 @@ void save() {
     fprintf(f, "ripples = %d\n", s_ripples);
     fprintf(f, "# puddleripples: rings spread in puddles where drops land and Mario runs: 0 off, 1 gentle, 2 strong.\n");
     fprintf(f, "puddleripples = %d\n", s_puddleRipples);
+    fprintf(f, "# footprints: 1 Mario leaves damp prints after a puddle, 0 not.\n");
+    fprintf(f, "footprints = %d\n", s_footprints);
+    fprintf(f, "# sharper: 1 the reflection's picture 512 square, 0 the game's 256.\n");
+    fprintf(f, "sharper = %d\n", s_sharper);
     fprintf(f, "# level: 1 the stage itself (ground, buildings, sky) in puddles and water too, 0 not.\n");
     fprintf(f, "level = %d\n", s_level);
     fprintf(f, "# beatmirrors: 1 puddles near Mario take the reflection from a real mirror's area, 0 not.\n");
@@ -383,6 +393,31 @@ int puddleRipplesSet(int i) {
     s_puddleRipples = i;
     save();
     port_log("[puddles] Puddle Ripples changed: %s\n", ripplesName(i));
+    return 1;
+}
+
+int footprintsGet() {
+    load();
+    return s_footprints;
+}
+int footprintsSet(int i) {
+    if (i < 0 || i > 1) return 0;
+    load();
+    s_footprints = i;
+    save();
+    port_log("[puddles] Wet Footprints changed: %s\n", i ? "on" : "off");
+    return 1;
+}
+int sharperGet() {
+    load();
+    return s_sharper;
+}
+int sharperSet(int i) {
+    if (i < 0 || i > 1) return 0;
+    load();
+    s_sharper = i;
+    save();
+    port_log("[puddles] Sharper Reflections changed: %s (from the next area)\n", i ? "on" : "off");
     return 1;
 }
 
@@ -553,6 +588,12 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 11, "Puddle Ripples",
      "New puddles and Mario's steps ripple the reflection, calming over 2 seconds.", 0, nullptr, ripplesCount,
      ripplesName, puddleRipplesGet, puddleRipplesSet},
+    {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 6, "Sharper Reflections",
+     "The reflection's picture twice as sharp. Costs some speed. From the next area.", 1, nullptr, offOnCount,
+     offOnName, sharperGet, sharperSet},
+    {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 17, "Wet Footprints",
+     "After a puddle, Mario's steps leave damp prints that dry away.", 0, nullptr, offOnCount, offOnName,
+     footprintsGet, footprintsSet},
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 5, "Reflect the Level",
      "Buildings, trees and the sky in puddles and water too. From the next area.", 1, nullptr, offOnCount,
      offOnName, levelGet, levelSet},
@@ -650,6 +691,16 @@ int port_sun_glints(void) {
 int port_water_depth(void) {
     load();
     return s_depth;
+}
+
+int port_wet_footprints(void) {
+    load();
+    return s_footprints;
+}
+
+int port_sharper_reflections(void) {
+    load();
+    return s_sharper;
 }
 
 int port_reflect_level(void) {
