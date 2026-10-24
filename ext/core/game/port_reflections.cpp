@@ -15,6 +15,8 @@
 #include <MoveBG/Item.hpp>
 #include <MoveBG/MapObjBall.hpp>
 #include <NPC/NpcBase.hpp>
+#include <Camera/Camera.hpp>
+#include <Map/Map.hpp>
 #include <Map/MapData.hpp>
 #include <JSystem/J3D/J3DGraphAnimator/J3DModel.hpp>
 #include <JSystem/JDrama/JDRNameRefGen.hpp>
@@ -53,6 +55,8 @@ public:
 	    : TMirrorActor("port puddle reflection")
 	    , mOwner(owner)
 	    , mKind(kindOf(owner))
+	    , mSeen(true)
+	    , mSeenAt(-1)
 	{
 	}
 
@@ -76,7 +80,61 @@ private:
 			return false;
 		const f32 dx = mOwner->mPosition.x - gpMarioPos->x;
 		const f32 dz = mOwner->mPosition.z - gpMarioPos->z;
-		return dx * dx + dz * dz < kNear * kNear;
+		if (dx * dx + dz * dz >= kNear * kNear)
+			return false;
+		return seenInReflection();
+	}
+
+	// Whether the copy can be seen in the puddles or water at all. The mirror's picture has only
+	// the copies in it, not the stage, so a wall between a puddle and what it would reflect hides
+	// nothing: a palm behind a house showed in a puddle in front of it. Here the way from the
+	// mirror's surface to the object is checked against the stage's collision, as the camera sees
+	// it mirrored: where the line from the mirrored camera to the object crosses the surface is
+	// where the object shows, and from there up to the object must be clear (TMap::intersectLine).
+	// Three heights are tried (its foot, its middle, high up: a palm's crown over a roof), and it
+	// shows if any is clear and crosses the surface within the Reflection Distance of Mario. The
+	// answer is kept a few ticks, each copy on its own tick, to spread the cost.
+	bool seenInReflection() const
+	{
+		if (!gpMap || !gpCamera || !gpMirrorModelManager || !gpMirrorModelManager->unk24)
+			return true;
+		const int tick = gpModelWaterManager->unk5E00;
+		const int slot = (int)(((unsigned long)this >> 4) % kSeenEvery);
+		if (mSeenAt >= 0 && tick - mSeenAt < kSeenEvery && (tick + slot) % kSeenEvery)
+			return mSeen;
+		mSeenAt = tick;
+
+		const TMirrorCamera* mirror     = gpMirrorModelManager->unk24;
+		const JGeometry::TVec3<f32>& n  = mirror->unk84;
+		const f32 d                     = mirror->unk90;
+		const JGeometry::TVec3<f32>& c  = gpCamera->mPosition;
+		const f32 above                 = n.x * c.x + n.y * c.y + n.z * c.z + d;
+		if (above <= 0.0f) {  // the camera under the surface: nothing to judge by
+			mSeen = true;
+			return true;
+		}
+		// the camera mirrored through the surface
+		const JGeometry::TVec3<f32> m(c.x - 2.0f * above * n.x, c.y - 2.0f * above * n.y, c.z - 2.0f * above * n.z);
+		const f32 reach = port_puddle_reflection_distance() + 200.0f;
+		static const f32 kHeights[3] = {30.0f, 150.0f, 450.0f};
+		mSeen = false;
+		for (int i = 0; i < 3 && !mSeen; i++) {
+			const JGeometry::TVec3<f32> o(mOwner->mPosition.x, mOwner->mPosition.y + kHeights[i], mOwner->mPosition.z);
+			const f32 fo = n.x * o.x + n.y * o.y + n.z * o.z + d;
+			const f32 fm = -above;
+			if (fo <= 0.0f)
+				continue;  // under the surface
+			const f32 t = fm / (fm - fo);
+			JGeometry::TVec3<f32> x(m.x + (o.x - m.x) * t, m.y + (o.y - m.y) * t, m.z + (o.z - m.z) * t);
+			const f32 ex = x.x - gpMarioPos->x, ez = x.z - gpMarioPos->z;
+			if (ex * ex + ez * ez > reach * reach)
+				continue;  // it would show beyond the reflection's disc
+			x.y += 20.0f;  // off the floor
+			JGeometry::TVec3<f32> hit;
+			if (!gpMap->intersectLine(x, o, false, &hit))
+				mSeen = true;
+		}
+		return mSeen;
 	}
 
 	// Which of the settings menu's Reflect switches the actor answers to.
@@ -91,8 +149,11 @@ private:
 		return PORT_REFLECT_OBJECTS;
 	}
 
+	static const int kSeenEvery = 6;  // ticks a seenInReflection answer is kept
 	TLiveActor* mOwner;
 	int mKind;
+	mutable bool mSeen;
+	mutable int mSeenAt;
 };
 
 // The game's own copies of Mario and Yoshi (Mario, his hands, cap and FLUDD, flag 4; Yoshi and
