@@ -11,6 +11,7 @@
 #include "port_compat.h"
 #include "port_platform.h"
 #include "port_savestate.h"
+#include "port_puddles.h"
 #include "gc_adapter.h"
 #include "port_setting_list.h"
 #include "port_settings.h"
@@ -144,7 +145,7 @@ enum Control {
 	C_DUP, C_DDOWN, C_DLEFT, C_DRIGHT,
 	C_UP, C_DOWN, C_LEFT, C_RIGHT,
 	C_CUP, C_CDOWN, C_CLEFT, C_CRIGHT,
-	C_HALF, C_QUIT, C_LSOFT, C_RSOFT, C_SAVESTATE, C_LOADSTATE, C_MAP, C_CZOOM, C_COUNT
+	C_HALF, C_QUIT, C_LSOFT, C_RSOFT, C_SAVESTATE, C_LOADSTATE, C_MAP, C_CZOOM, C_REFLECT, C_COUNT
 };
 const char* const kControlNames[C_COUNT] = {
 	"A", "B", "X", "Y", "Z", "L", "R", "START",
@@ -152,6 +153,7 @@ const char* const kControlNames[C_COUNT] = {
 	"STICK_UP", "STICK_DOWN", "STICK_LEFT", "STICK_RIGHT",
 	"CSTICK_UP", "CSTICK_DOWN", "CSTICK_LEFT", "CSTICK_RIGHT",
 	"HALF_TILT", "QUIT", "L_SOFT", "R_SOFT", "SAVE_STATE", "LOAD_STATE", "MAP", "CAMERA_ZOOM",
+	"REFLECTIONS_TOGGLE",
 };
 // SAVE_STATE / LOAD_STATE are the port's, not the GameCube's: a press saves a
 // save state, or loads the newest (port_savestate.h). Their bindings are often
@@ -159,7 +161,9 @@ const char* const kControlNames[C_COUNT] = {
 // the other from the game (combo_masks below).
 // MAP is the port's too: a press opens or closes the radar's full map
 // (src/radar.cpp), counted in port_radar_map_presses.
-bool is_port_action(int c) { return c == C_SAVESTATE || c == C_LOADSTATE || c == C_MAP; }
+// REFLECTIONS_TOGGLE is the port's too: a press switches every reflection in puddles and water
+// off, and a second back on as the settings have them (port_puddles.h). R by default.
+bool is_port_action(int c) { return c == C_SAVESTATE || c == C_LOADSTATE || c == C_MAP || c == C_REFLECT; }
 // CAMERA_ZOOM is the port's as well, and no button of the game's: with C-stick
 // orbit on (SMS_CSTICK_ORBIT), holding it gives the C-stick's up and down back
 // its own job of moving the camera nearer or further. The right stick's press
@@ -230,7 +234,8 @@ const char* const kDefaultBindings =
     "R_SOFT = MOUSE_MIDDLE\n"
     "SAVE_STATE = F5\n"
     "LOAD_STATE = F6\n"
-    "MAP = M\n";
+    "MAP = M\n"
+    "REFLECTIONS_TOGGLE = R\n";
 
 // A binding is one key or controller button, or two held together, written
 // FIRST+SECOND (PAD_LB+PAD_RB, LCTRL+S): the second's code plus one sits above
@@ -954,6 +959,11 @@ extern "C" u32 PADRead(PADStatus* status)
 		port_savestate_hotkey(PORT_SAVESTATE_HOTKEY_LOAD_NEWEST);
 	wasSave = save;
 	wasLoad = load;
+	static bool wasReflect;
+	const bool reflectKey = held(C_REFLECT);
+	if (reflectKey && !wasReflect && !hotkeysBlocked)
+		port_reflections_toggle();
+	wasReflect = reflectKey;
 	static bool wasMap;
 	const bool mapKey = held(C_MAP);
 	if (mapKey && !wasMap && !blocked)

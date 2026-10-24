@@ -57,6 +57,11 @@ enum {
 };
 int port_reflect_kind(int kind);
 
+// The REFLECTIONS_TOGGLE key (R by default): every reflection in puddles and water off, Mario's
+// too, and back on as the settings have them. For this run only; on to start with.
+int port_reflections_on(void);
+void port_reflections_toggle(void);
+
 // Water Reflections: 1 when the stage's own water and wet ground show the reflections puddles
 // do (ext/core/game/port_water_reflections.cpp); 0 as the game has it.
 int port_water_reflections(void);

@@ -63,6 +63,7 @@ bool isKind(const char* line, int* value) {
 }
 int s_ripples = 1; // Water Ripples: 0 off, 1 gentle, 2 strong
 int s_puddleRipples = 1; // Puddle Ripples: 0 off, 1 gentle, 2 strong
+int s_reflectionsOn = 1;  // the REFLECTIONS_TOGGLE key: all off while 0 (this run only)
 int s_water;       // Water Reflections: 0 none (as the game has it), 1 in the stage's water and wet ground
 const int kDistances[] = {500, 750, 1000, 2000, 3000, 5000};
 const char* const kDistanceNames[] = {"0.5x", "0.75x", "Original", "2x", "3x", "5x"};
@@ -478,12 +479,21 @@ int port_water_ripples(void) {
 
 int port_reflect_kind(int kind) {
     load();
+    if (!s_reflectionsOn) return 0;
     return kind >= 0 && kind < PORT_REFLECT_KINDS ? s_show[kind] : 1;
+}
+
+int port_reflections_on(void) { return s_reflectionsOn; }
+
+void port_reflections_toggle(void) {
+    s_reflectionsOn = !s_reflectionsOn;
+    port_log("[puddles] reflections %s (the REFLECTIONS_TOGGLE key)\n",
+             s_reflectionsOn ? "back on, as the settings have them" : "all off");
 }
 
 int port_water_reflections(void) {
     load();
-    return s_water;
+    return s_reflectionsOn && s_water;
 }
 
 float port_puddle_reflection_distance(void) {
