@@ -47,10 +47,8 @@ int port_puddle_surface_kind(unsigned type, unsigned material);
 // Viewing Angle: 0 off (every angle alike, as the game has it), 1 subtle, 2 realistic: reflections
 // stronger looking across puddles and water, weaker looking down into them.
 int port_reflection_view_angle(void);
-// Each surface's Blur (the Reflections page), 0 sharp to 10: how blurred reflections on it are.
-int port_puddle_surface_blur(int surface);
-// Whether any surface has Blur above 0.
-int port_reflection_blur_on(void);
+// Reflection Blur: how blurred reflections in puddles and water are, 0 sharp to 10.
+int port_reflection_blur(void);
 // Sun Glints: 0 off, 1 subtle, 2 bright: the sun's light bouncing off puddles and water.
 int port_sun_glints(void);
 // Water Depth: 0 off, 1 subtle, 2 strong: the sea, lakes and pools darker over deep ground.

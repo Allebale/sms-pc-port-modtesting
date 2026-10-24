@@ -79,51 +79,33 @@ struct Surface {
     const char* name;  // the menu's label
     const char* hint;
     int tenths;        // the default
-    int blur;          // its Blur's default, 0 sharp to 10
-    const char* blurHint;
 };
 const Surface kSurfaces[PORT_PUDDLE_SURFACES] = {
-    {"stone", "Stone and Carpets", "Puddles on stone tiles, carpets and other floors, in percent.", 450, 1, "Blur of reflections on stone tiles and carpets, 0 sharp to 10."},
-    {"metal", "Metal", "Puddles on metal roofs and manhole covers, in percent.", 500, 0, "Blur of reflections on metal roofs and manhole covers, 0 sharp to 10."},
-    {"clay", "Clay Roof Tiles", "Puddles on clay roof tiles, in percent.", 400, 3, "Blur of reflections on clay roof tiles, 0 sharp to 10."},
-    {"wood", "Wood", "Puddles on wooden boardwalks, in percent.", 325, 2, "Blur of reflections on wooden boardwalks, 0 sharp to 10."},
-    {"sand", "Sand", "Puddles on sand, in percent.", 100, 6, "Blur of reflections on sand, 0 sharp to 10."},
-    {"grass", "Grass", "Puddles on grass, in percent.", 75, 8, "Blur of reflections on grass, 0 sharp to 10."},
-    {"canvas", "Canvas", "Puddles on canvas awnings, in percent.", 100, 5, "Blur of reflections on canvas awnings, 0 sharp to 10."},
-    {"wet", "Wet Floors", "Puddles on wet, slippery floors, in percent.", 550, 0, "Blur of reflections on wet, slippery floors, 0 sharp to 10."},
-    {"water", "Water", "Sea, lakes, pools, fountains and streams, with Water Reflections, in percent.", 500, 1, "Blur of reflections in the sea, lakes, pools, fountains and streams, 0 to 10."},
-    {"wetground", "Wet Ground", "Wet ground itself, with Water Reflections, in percent.", 400, 2, "Blur of reflections on wet ground, 0 sharp to 10."},
+    {"stone", "Stone and Carpets", "Puddles on stone tiles, carpets and other floors, in percent.", 450},
+    {"metal", "Metal", "Puddles on metal roofs and manhole covers, in percent.", 500},
+    {"clay", "Clay Roof Tiles", "Puddles on clay roof tiles, in percent.", 400},
+    {"wood", "Wood", "Puddles on wooden boardwalks, in percent.", 325},
+    {"sand", "Sand", "Puddles on sand, in percent.", 100},
+    {"grass", "Grass", "Puddles on grass, in percent.", 75},
+    {"canvas", "Canvas", "Puddles on canvas awnings, in percent.", 100},
+    {"wet", "Wet Floors", "Puddles on wet, slippery floors, in percent.", 550},
+    {"water", "Water", "Sea, lakes, pools, fountains and streams, with Water Reflections, in percent.", 500},
+    {"wetground", "Wet Ground", "Wet ground itself, with Water Reflections, in percent.", 400},
 };
 const int kStep = 25;                       // 2.5%
 const int kSteps = 1000 / kStep + 1;        // 0 to 100%
 int s_strength[PORT_PUDDLE_SURFACES];
-int s_blur[PORT_PUDDLE_SURFACES];
+int s_blur = 2;        // Reflection Blur: 0 sharp to 10
 bool s_strengthSet;
 int s_viewAngle = 1;  // Viewing Angle: 0 off, 1 subtle, 2 realistic
 int s_glints = 1;     // Sun Glints: 0 off, 1 subtle, 2 bright
 int s_depth = 1;      // Water Depth: 0 off, 1 subtle, 2 strong
 
-// A line naming a surface's Blur (stoneblur = 3): read into it.
-bool isBlur(const char* line) {
-    char key[40];
-    int value;
-    if (sscanf(line, " %39[a-z] = %d", key, &value) != 2) return false;
-    const size_t n = strlen(key);
-    if (n < 5 || strcmp(key + n - 4, "blur")) return false;
-    key[n - 4] = 0;
-    for (int i = 0; i < PORT_PUDDLE_SURFACES; i++)
-        if (!strcmp(key, kSurfaces[i].key)) {
-            s_blur[i] = value < 0 ? 0 : value > 10 ? 10 : value;
-            return true;
-        }
-    return false;
-}
 void defaultStrengths() {
     if (s_strengthSet) return;
     s_strengthSet = true;
     for (int i = 0; i < PORT_PUDDLE_SURFACES; i++) {
         s_strength[i] = kSurfaces[i].tenths;
-        s_blur[i]     = kSurfaces[i].blur;
     }
 }
 
@@ -214,8 +196,8 @@ void load() {
             s_reflections = value != 0;
         } else if (sscanf(line, " surface = %d", &value) == 1) {
             s_surface = value != 0;
-        } else if (isBlur(line)) {
-            // done by isBlur
+        } else if (sscanf(line, " blur = %d", &value) == 1) {
+            s_blur = value < 0 ? 0 : value > 10 ? 10 : value;
         } else if (sscanf(line, " viewangle = %d", &value) == 1) {
             s_viewAngle = value < 0 ? 0 : value > 2 ? 2 : value;
         } else if (sscanf(line, " glints = %d", &value) == 1) {
@@ -281,8 +263,8 @@ void save() {
     fprintf(f, "glints = %d\n", s_glints);
     fprintf(f, "# depth: water darker over deep ground: 0 off, 1 subtle, 2 strong.\n");
     fprintf(f, "depth = %d\n", s_depth);
-    fprintf(f, "# How blurred reflections are on each surface, 0 sharp to 10 (the menu's Reflections page).\n");
-    for (int i = 0; i < PORT_PUDDLE_SURFACES; i++) fprintf(f, "%sblur = %d\n", kSurfaces[i].key, s_blur[i]);
+    fprintf(f, "# blur: how blurred reflections in puddles and water are, 0 sharp to 10.\n");
+    fprintf(f, "blur = %d\n", s_blur);
     fprintf(f, "# What is reflected (the menu's Reflections page): 1 on, 0 off.\n");
     for (int i = 0; i < PORT_REFLECT_KINDS; i++) fprintf(f, "%s = %d\n", kKinds[i].key, s_show[i]);
     fprintf(f, "# waterreflections: 1 the stage's water and wet ground reflect as puddles do, 0 not.\n");
@@ -430,18 +412,16 @@ const char* blurName(int i) {
     snprintf(text, sizeof text, "%d", i < 0 ? 0 : i > 10 ? 10 : i);
     return text;
 }
-template <int N>
 int blurGet() {
     load();
-    return s_blur[N];
+    return s_blur;
 }
-template <int N>
 int blurSet(int i) {
     if (i < 0 || i > 10) return 0;
     load();
-    s_blur[N] = i;
+    s_blur = i;
     save();
-    port_log("[puddles] %s blur: %d\n", kSurfaces[N].name, i);
+    port_log("[puddles] Reflection Blur: %d\n", i);
     return 1;
 }
 
@@ -505,9 +485,6 @@ int strengthSet(int i) {
 #define SHOW_ROW(N, ORDER)                                                                              \
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, ORDER, kKinds[N].name, kKinds[N].hint, 0, nullptr, offOnCount, offOnName, \
      showGet<N>, showSet<N>}
-#define BLUR_ROW(N, ORDER, NAME)                                                                        \
-    {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, ORDER, NAME, kSurfaces[N].blurHint, 0, nullptr, blurCount, blurName,     \
-     blurGet<N>, blurSet<N>}
 #define SURFACE_ROW(N, ORDER)                                                                           \
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, ORDER, kSurfaces[N].name, kSurfaces[N].hint, 0, nullptr, strengthCount, \
      strengthName, strengthGet<N>, strengthSet<N>}
@@ -544,6 +521,9 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 13, "Sun Glints",
      "The sun's light sparkles off puddles and water. None indoors.", 0, nullptr, levelCount3, glintName,
      glintGet, glintSet},
+    {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 15, "Reflection Blur",
+     "How blurred reflections in puddles and water are, 0 sharp to 10.", 0, nullptr, blurCount, blurName,
+     blurGet, blurSet},
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 14, "Water Depth",
      "The sea, lakes and pools darken toward blue-green over deep ground.", 0, nullptr, levelCount3, depthName,
      depthGet, depthSet},
@@ -562,16 +542,6 @@ const PortSetting kPuddleSettings[] = {
     SURFACE_ROW(PORT_PUDDLE_WET, 47),
     SURFACE_ROW(PORT_PUDDLE_WATER, 48),
     SURFACE_ROW(PORT_PUDDLE_WET_GROUND, 49),
-    BLUR_ROW(PORT_PUDDLE_STONE, 60, "Stone and Carpets Blur"),
-    BLUR_ROW(PORT_PUDDLE_METAL, 61, "Metal Blur"),
-    BLUR_ROW(PORT_PUDDLE_CLAY, 62, "Clay Roof Tiles Blur"),
-    BLUR_ROW(PORT_PUDDLE_WOOD, 63, "Wood Blur"),
-    BLUR_ROW(PORT_PUDDLE_SAND, 64, "Sand Blur"),
-    BLUR_ROW(PORT_PUDDLE_GRASS, 65, "Grass Blur"),
-    BLUR_ROW(PORT_PUDDLE_CANVAS, 66, "Canvas Blur"),
-    BLUR_ROW(PORT_PUDDLE_WET, 67, "Wet Floors Blur"),
-    BLUR_ROW(PORT_PUDDLE_WATER, 68, "Water Blur"),
-    BLUR_ROW(PORT_PUDDLE_WET_GROUND, 69, "Wet Ground Blur"),
 };
 
 }  // namespace
@@ -623,16 +593,9 @@ int port_reflection_view_angle(void) {
     return s_viewAngle;
 }
 
-int port_puddle_surface_blur(int surface) {
+int port_reflection_blur(void) {
     load();
-    return surface >= 0 && surface < PORT_PUDDLE_SURFACES ? s_blur[surface] : 0;
-}
-
-int port_reflection_blur_on(void) {
-    load();
-    for (int i = 0; i < PORT_PUDDLE_SURFACES; i++)
-        if (s_blur[i]) return 1;
-    return 0;
+    return s_blur;
 }
 
 int port_sun_glints(void) {

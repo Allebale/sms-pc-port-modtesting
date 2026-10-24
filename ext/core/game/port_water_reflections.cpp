@@ -437,8 +437,8 @@ void updateRings(const TBGCheckData* ground)
 //                  Ripples, above).
 //   Viewing Angle  how strongly it reflects follows how slanting the view is, as real water does
 //                  (more looking across it, less looking down into it).
-//   Blur           the picture is taken several times around the point and averaged, as wide as
-//                  the surface under it is rough (the Reflections page: each surface's Blur).
+//   Blur           the picture is taken several times around the point and averaged, as widely
+//                  as Reflection Blur says.
 //   Sun Glints     where the sun's light bounces off the water (or the ripples' slopes) straight to
 //                  the camera, it shines (the sun as the stage places it; none indoors).
 //   Water Depth    the sea, lakes and pools darken toward deep blue-green as the ground under them
@@ -554,30 +554,7 @@ u8 s_sun[3];
 
 int vertexIndex(int ring, int segment) { return ring * kSegments + segment; }
 
-// The surface under each point, from the stage's collision, on a coarse web (each point takes the
-// nearest): its Blur. uniform: one surface for all (the water's), or -1 to look.
-const int kCoarseRings = 12, kCoarseSegments = 24;
-f32 s_blurCoarse[kCoarseRings + 1][kCoarseSegments];
-
-void measureBlur(const Ripple& r, int uniform)
-{
-	for (int ring = 0; ring <= kCoarseRings; ring++)
-		for (int seg = 0; seg < kCoarseSegments; seg++) {
-			int surface = uniform;
-			if (surface < 0) {
-				const f32 along = (f32)ring / kCoarseRings;
-				const f32 angle = (f32)seg * (6.2831853f / kCoarseSegments);
-				const f32 x     = gpMarioPos->x + sinf(angle) * r.radius * along;
-				const f32 z     = gpMarioPos->z + cosf(angle) * r.radius * along;
-				const TBGCheckData* floor = nullptr;
-				if (gpMap)
-					gpMap->checkGround(x, heightAt(r.plane, x, z) + 60.0f, z, &floor);
-				surface = floor && floor->isLegal() ? port_puddle_surface_kind(floor->mBGType, floor->unk6)
-				                                    : PORT_PUDDLE_STONE;
-			}
-			s_blurCoarse[ring][seg] = (f32)port_puddle_surface_blur(surface) * 3.0f;  // units
-		}
-}
+const int kCoarseRings = 12, kCoarseSegments = 24;  // Water Depth's web
 
 // How strongly the view reflects, by how slanting it is (Viewing Angle): 1 at Off.
 f32 viewFactor(int level, f32 cosine)
@@ -589,7 +566,7 @@ f32 viewFactor(int level, f32 cosine)
 	return level == 2 ? 0.3f + 1.4f * m3 : 0.6f + 0.8f * m3;
 }
 
-void buildWeb(const Ripple& r, u8 centre, int blurSurface)
+void buildWeb(const Ripple& r, u8 centre)
 {
 	const int view  = port_reflection_view_angle();
 	const int glint = port_sun_glints();
@@ -601,17 +578,8 @@ void buildWeb(const Ripple& r, u8 centre, int blurSurface)
 	const JGeometry::TVec3<f32>& cam = gpCamera->mPosition;
 	const JGeometry::TVec3<f32>& n0  = r.plane->getNormal();
 
-	bool blur = false;
-	if (port_reflection_blur_on()) {
-		measureBlur(r, blurSurface);
-		for (int ring = 0; ring <= kCoarseRings && !blur; ring++)
-			for (int seg = 0; seg < kCoarseSegments; seg++)
-				if (s_blurCoarse[ring][seg] > 0.0f) {
-					blur = true;
-					break;
-				}
-	}
-	s_taps = blur ? kMostTaps : 1;
+	const f32 b = (f32)port_reflection_blur() * 3.0f;  // how far around, in the game's units
+	s_taps      = b > 0.0f ? kMostTaps : 1;
 
 	for (int ring = 0; ring <= kRings; ring++) {
 		const f32 along = (f32)ring / kRings;
@@ -639,9 +607,6 @@ void buildWeb(const Ripple& r, u8 centre, int blurSurface)
 			// the taps: the middle, and around it as wide as the surface is rough
 			texCoordAt(r, x + ox, z + oz, &s_vs[0][i], &s_vt[0][i]);
 			if (s_taps > 1) {
-				const int cr  = (ring * kCoarseRings + kRings / 2) / kRings;
-				const int cs  = (seg * kCoarseSegments + kSegments / 2) / kSegments % kCoarseSegments;
-				const f32 b   = s_blurCoarse[cr][cs];
 				for (int t = 1; t < s_taps; t++) {
 					const f32 ta = (t - 1) * (6.2831853f / (kMostTaps - 1)) + 0.4f;
 					texCoordAt(r, x + ox + sinf(ta) * b, z + oz + cosf(ta) * b, &s_vs[t][i], &s_vt[t][i]);
@@ -721,15 +686,13 @@ bool anyGlint()
 }
 
 // The reflection over what the frame's alpha marks, on plane, over the disc of radius around Mario
-// (the game's centre alpha). blurSurface: the surface whose Blur all of it takes, or -1 for each
-// point's own. Leaves the alpha clear in the disc, colour and alpha updates as the game's disc does
+// (the game's centre alpha). Leaves the alpha clear in the disc, colour and alpha updates as the game's disc does
 // (colour on, alpha on, destination alpha 0); the caller puts back the rest.
-void drawReflection(MtxPtr view, const TBGCheckData* plane, f32 radius, u8 centre, int rippleKind, int rippleStrength,
-                    int blurSurface)
+void drawReflection(MtxPtr view, const TBGCheckData* plane, f32 radius, u8 centre, int rippleKind, int rippleStrength)
 {
 	Ripple r;
 	setUpRipple(&r, plane, rippleKind, rippleStrength, radius);
-	buildWeb(r, centre, blurSurface);
+	buildWeb(r, centre);
 
 	Mtx identity;
 	MTXIdentity(identity);
@@ -876,7 +839,7 @@ void drawDepth(MtxPtr view, f32 radius, const TBGCheckData* plane, f32 fade)
 // Whether the port draws the disc itself (anything of the above in use), not the game's.
 bool ownDisc(int rippleKind)
 {
-	if (port_reflection_view_angle() || port_sun_glints() || port_reflection_blur_on())
+	if (port_reflection_view_angle() || port_sun_glints() || port_reflection_blur())
 		return true;
 	if (rippleKind == 1)
 		return port_water_ripples() != 0;
@@ -1092,8 +1055,7 @@ void port_draw_water_mirror(MtxPtr view)
 	const int rippleKind     = s_kind == KIND_WATER ? 1 : 2;
 	const int rippleStrength = s_kind == KIND_WATER ? port_water_ripples() : port_puddle_ripples();
 	if (gpCamera && ownDisc(rippleKind)) {
-		drawReflection(view, s_plane, radius, gpModelWaterManager->unk5D64, rippleKind, rippleStrength,
-		               s_kind == KIND_WATER ? PORT_PUDDLE_WATER : PORT_PUDDLE_WET_GROUND);
+		drawReflection(view, s_plane, radius, gpModelWaterManager->unk5D64, rippleKind, rippleStrength);
 	} else {
 		Mtx identity;
 		MTXIdentity(identity);
@@ -1146,7 +1108,7 @@ int port_draw_puddle_reflection(MtxPtr view, f32 radius, u8 centre)
 	if (!gpCamera || !gpMirrorModelManager || !gpMirrorModelManager->unk24 || !gpMarioGroundPlane
 	    || !*gpMarioGroundPlane || !(*gpMarioGroundPlane)->isLegal() || !ownDisc(2))
 		return 0;
-	drawReflection(view, *gpMarioGroundPlane, radius, centre, 2, port_puddle_ripples(), -1);
+	drawReflection(view, *gpMarioGroundPlane, radius, centre, 2, port_puddle_ripples());
 	return 1;
 }
 
