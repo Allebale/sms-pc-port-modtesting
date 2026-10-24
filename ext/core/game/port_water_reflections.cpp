@@ -22,6 +22,8 @@
 #include <Map/MapCollisionData.hpp>
 #include <Map/MapData.hpp>
 #include <Map/MapMirror.hpp>
+#include <Map/PollutionLayer.hpp>
+#include <Map/PollutionManager.hpp>
 #include <Camera/Camera.hpp>
 #include <Camera/SunMgr.hpp>
 #include <Camera/SunModel.hpp>
@@ -547,7 +549,7 @@ void texCoordAt(const Ripple& r, f32 sx, f32 sz, f32* s, f32* t)
 // This frame's web: each point's place, its alpha, the picture's coordinates for each tap, and
 // how brightly it glints.
 f32 s_vx[kVerts], s_vy[kVerts], s_vz[kVerts];
-u8 s_va[kVerts], s_vg[kVerts];
+u8 s_va[kVerts], s_vg[kVerts], s_vgoop[kVerts];
 f32 s_vs[kMostTaps][kVerts], s_vt[kMostTaps][kVerts];
 int s_taps;
 u8 s_sun[3];
@@ -555,6 +557,59 @@ u8 s_sun[3];
 int vertexIndex(int ring, int segment) { return ring * kSegments + segment; }
 
 const int kCoarseRings = 12, kCoarseSegments = 24;  // Water Depth's web
+
+// ------------------------------------------------------------------ goop
+// Goop on the floor shows the reflection faintly (the Reflections page's Goop strength and Goop
+// Blur): thick and glossy, like wet paint. Where it lies is the game's own goop map (each layer's
+// mPollutionMap, a byte a texel, cleaned and spread as the game plays), read at each point of the
+// reflection's web. Floor layers only, and not the burning, electric or deadly kinds, which glow.
+f32 goopAt(f32 x, f32 y, f32 z)
+{
+	TPollutionManager* goop = gpPollution;
+	if (!goop)
+		return 0.0f;
+	for (int i = 0; i < goop->getJointModelNum(); i++) {
+		TPollutionLayer* layer = goop->getLayer(i);
+		if (!layer || layer->getPlaneType() != 0 || !layer->isInArea(x, y, z) || !layer->mPollutionMap)
+			continue;
+		const int type = layer->getPollutionType();
+		if (type == POLLUTION_TYPE_FIRE || type == POLLUTION_TYPE_ELECTRIC || type == POLLUTION_TYPE_INSTAKILL)
+			continue;
+		const int s = layer->getTexPosS(x), t = layer->getTexPosT(z);
+		if (!layer->mPos.isSame(s, t, y))
+			continue;
+		const int v   = layer->mPollutionMap[layer->mPos.index(s, t)];
+		const int min = layer->mPollutedThreshold;
+		if (v <= min)
+			continue;
+		const f32 g = (f32)(v - min) / (f32)(255 - min);
+		return g > 1.0f ? 1.0f : g;
+	}
+	return 0.0f;
+}
+
+// Whether there is goop to reflect in this tick: some on a coarse web over the reflection's disc
+// on the floor under Mario (port_mirror_plane).
+bool s_goopNear;
+
+void checkGoop(const TBGCheckData* ground)
+{
+	s_goopNear = false;
+	if (!port_reflections_goop() || !gpPollution || !gpMarioPos || !ground || !ground->isLegal())
+		return;
+	const f32 radius = port_puddle_reflection_distance();
+	for (int ring = 0; ring <= 8 && !s_goopNear; ring++)
+		for (int seg = 0; seg < 16; seg++) {
+			const f32 along = (f32)ring / 8;
+			const f32 angle = (f32)seg * (6.2831853f / 16);
+			const f32 x     = gpMarioPos->x + sinf(angle) * radius * along;
+			const f32 z     = gpMarioPos->z + cosf(angle) * radius * along;
+			if (goopAt(x, heightAt(ground, x, z), z) > 0.0f) {
+				s_goopNear = true;
+				break;
+			}
+		}
+}
 
 // How strongly the view reflects, by how slanting it is (Viewing Angle): 1 at Off.
 f32 viewFactor(int level, f32 cosine)
@@ -566,7 +621,7 @@ f32 viewFactor(int level, f32 cosine)
 	return level == 2 ? 0.3f + 1.4f * m3 : 0.6f + 0.8f * m3;
 }
 
-void buildWeb(const Ripple& r, u8 centre)
+void buildWeb(const Ripple& r, u8 centre, bool goop)
 {
 	const int view  = port_reflection_view_angle();
 	const int glint = port_sun_glints();
@@ -579,7 +634,11 @@ void buildWeb(const Ripple& r, u8 centre)
 	const JGeometry::TVec3<f32>& n0  = r.plane->getNormal();
 
 	const f32 b = (f32)port_reflection_blur() * 0.75f;  // quarters: 3 units a whole step
-	s_taps      = b > 0.0f ? kMostTaps : 1;
+	goop        = goop && s_goopNear;
+	const f32 goopB      = goop ? (f32)port_goop_blur() * 0.75f : 0.0f;
+	const int goopTenths = goop ? port_puddle_surface_strength(PORT_PUDDLE_GOOP) : 0;
+	const f32 goopStrength = (goopTenths < 0 ? 0 : goopTenths > 1000 ? 1000 : goopTenths) * 0.255f;
+	s_taps = b > 0.0f || goopB > 0.0f ? kMostTaps : 1;
 
 	for (int ring = 0; ring <= kRings; ring++) {
 		const f32 along = (f32)ring / kRings;
@@ -604,12 +663,17 @@ void buildWeb(const Ripple& r, u8 centre)
 			f32 a      = centre * (1.0f - along) * viewFactor(view, cosine);
 			s_va[i]    = (u8)(a > 255.0f ? 255.0f : a);
 
-			// the taps: the middle, and around it as wide as the surface is rough
+			// goop here, and how strongly it reflects
+			const f32 g = goop ? goopAt(x, y - kLift, z) : 0.0f;
+			s_vgoop[i]  = (u8)(g * goopStrength);
+
+			// the taps: the middle, and around it as wide as the surface is rough (goop's own)
 			texCoordAt(r, x + ox, z + oz, &s_vs[0][i], &s_vt[0][i]);
 			if (s_taps > 1) {
+				const f32 bh = b + (goopB - b) * g;
 				for (int t = 1; t < s_taps; t++) {
 					const f32 ta = (t - 1) * (6.2831853f / (kMostTaps - 1)) + 0.4f;
-					texCoordAt(r, x + ox + sinf(ta) * b, z + oz + cosf(ta) * b, &s_vs[t][i], &s_vt[t][i]);
+					texCoordAt(r, x + ox + sinf(ta) * bh, z + oz + cosf(ta) * bh, &s_vs[t][i], &s_vt[t][i]);
 				}
 			}
 
@@ -641,7 +705,7 @@ void buildWeb(const Ripple& r, u8 centre)
 	}
 }
 
-enum WebColour { WEB_ALPHA, WEB_GREY, WEB_GLINT };
+enum WebColour { WEB_ALPHA, WEB_GREY, WEB_GLINT, WEB_GOOP };
 
 void drawWeb(int tap, int colour, u8 grey, bool tex)
 {
@@ -666,6 +730,8 @@ void drawWeb(int tap, int colour, u8 grey, bool tex)
 					GXColor4u8(0xff, 0xff, 0xff, s_va[i]);
 				else if (colour == WEB_GREY)
 					GXColor4u8(grey, grey, grey, s_va[i]);
+				else if (colour == WEB_GOOP)
+					GXColor4u8(0xff, 0xff, 0xff, s_vgoop[i]);
 				else
 					GXColor4u8((u8)(s_sun[0] * s_vg[i] / 255), (u8)(s_sun[1] * s_vg[i] / 255),
 					           (u8)(s_sun[2] * s_vg[i] / 255), 0xff);
@@ -688,11 +754,12 @@ bool anyGlint()
 // The reflection over what the frame's alpha marks, on plane, over the disc of radius around Mario
 // (the game's centre alpha). Leaves the alpha clear in the disc, colour and alpha updates as the game's disc does
 // (colour on, alpha on, destination alpha 0); the caller puts back the rest.
-void drawReflection(MtxPtr view, const TBGCheckData* plane, f32 radius, u8 centre, int rippleKind, int rippleStrength)
+void drawReflection(MtxPtr view, const TBGCheckData* plane, f32 radius, u8 centre, int rippleKind, int rippleStrength,
+                    bool goop)
 {
 	Ripple r;
 	setUpRipple(&r, plane, rippleKind, rippleStrength, radius);
-	buildWeb(r, centre);
+	buildWeb(r, centre, goop);
 
 	Mtx identity;
 	MTXIdentity(identity);
@@ -706,6 +773,23 @@ void drawReflection(MtxPtr view, const TBGCheckData* plane, f32 radius, u8 centr
 	GXSetZCompLoc(GX_TRUE);
 	GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
 	GXSetAlphaCompare(GX_ALWAYS, 0, GX_AOP_OR, GX_ALWAYS, 0);
+
+	// the goop marked too, as strongly as it reflects, where it is seen (added to the puddles')
+	bool anyGoop = false;
+	for (int i = 0; goop && i < kVerts && !anyGoop; i++)
+		anyGoop = s_vgoop[i] != 0;
+	if (anyGoop) {
+		GXSetNumTexGens(0);
+		GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+		GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+		GXSetBlendMode(GX_BM_BLEND, GX_BL_ONE, GX_BL_ONE, GX_LO_NOOP);
+		GXSetColorUpdate(GX_FALSE);
+		GXSetAlphaUpdate(GX_TRUE);
+		GXSetDstAlpha(GX_FALSE, 0);
+		GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+		drawWeb(0, WEB_GOOP, 0, false);
+		GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+	}
 
 	// the sun's glints, added where the marks are (before they are worn down)
 	if (anyGlint()) {
@@ -848,6 +932,8 @@ bool ownDisc(int rippleKind)
 {
 	if (port_reflection_view_angle() || port_sun_glints() || port_reflection_blur() || port_reflect_level())
 		return true;
+	if (rippleKind == 2 && s_goopNear)
+		return true;
 	if (rippleKind == 1)
 		return port_water_ripples() != 0;
 	return port_puddle_ripples() && ringsLive();
@@ -884,6 +970,7 @@ const TBGCheckData* port_mirror_plane(const TBGCheckData* ground)
 	s_kind     = KIND_NONE;
 	s_triCount = 0;
 	updateRings(ground);
+	checkGoop(ground);
 	const TBGCheckData* plane = choosePlane(ground);
 	// Water Depth: on the water while the reflection is on it, fading out on the last one after
 	s_depthWanted   = s_kind == KIND_WATER && port_water_depth();
@@ -964,6 +1051,9 @@ const TBGCheckData* choosePlane(const TBGCheckData* ground)
 extern "C" int port_water_mirror_active(void) { return s_kind != KIND_NONE && s_triCount > 0; }
 
 extern "C" int port_water_mirror_on_water(void) { return s_kind == KIND_WATER; }
+
+// Whether goop near Mario shows reflections this tick (port_reflections.cpp draws the copies then).
+extern "C" int port_goop_mirror_active(void) { return s_goopNear && s_kind != KIND_WATER; }
 
 // From TModelWaterManager::perform (zzzzz-ext-25-water-reflections), after drawMirror: the
 // reflection in the water or wet ground on this frame's plane. view: the camera's.
@@ -1062,7 +1152,8 @@ void port_draw_water_mirror(MtxPtr view)
 	const int rippleKind     = s_kind == KIND_WATER ? 1 : 2;
 	const int rippleStrength = s_kind == KIND_WATER ? port_water_ripples() : port_puddle_ripples();
 	if (gpCamera && ownDisc(rippleKind)) {
-		drawReflection(view, s_plane, radius, gpModelWaterManager->unk5D64, rippleKind, rippleStrength);
+		// (goop is drawn with the puddles, in drawMirror: not again here)
+		drawReflection(view, s_plane, radius, gpModelWaterManager->unk5D64, rippleKind, rippleStrength, false);
 	} else {
 		Mtx identity;
 		MTXIdentity(identity);
@@ -1115,7 +1206,7 @@ int port_draw_puddle_reflection(MtxPtr view, f32 radius, u8 centre)
 	if (!gpCamera || !gpMirrorModelManager || !gpMirrorModelManager->unk24 || !gpMarioGroundPlane
 	    || !*gpMarioGroundPlane || !(*gpMarioGroundPlane)->isLegal() || !ownDisc(2))
 		return 0;
-	drawReflection(view, *gpMarioGroundPlane, radius, centre, 2, port_puddle_ripples());
+	drawReflection(view, *gpMarioGroundPlane, radius, centre, 2, port_puddle_ripples(), true);
 	return 1;
 }
 

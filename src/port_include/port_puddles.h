@@ -32,6 +32,7 @@ enum {
 	PORT_PUDDLE_WET,    // wet and slippery floors
 	PORT_PUDDLE_WATER,      // Water Reflections: the sea, lakes, pools, fountains and streams
 	PORT_PUDDLE_WET_GROUND, // Water Reflections: wet ground itself, puddle or not
+	PORT_PUDDLE_GOOP,       // goop on the floor (not the burning, electric or deadly kinds)
 	PORT_PUDDLE_SURFACES
 };
 // How strongly a puddle on that surface reflects, in tenths of a percent of the game's own
@@ -79,6 +80,13 @@ int port_puddles_beat_mirrors(void);
 // Reflect the Level: 1 when the stage itself (its ground, buildings and sky) is reflected in
 // puddles and water too, from the next area (ext/core/game/port_reflections.cpp).
 int port_reflect_level(void);
+
+// Whether goop is to show reflections at all (its strength above 0).
+int port_reflections_goop(void);
+// Goop Blur: how blurred reflections in goop are, in quarters: 0 sharp to 40 (10).
+int port_goop_blur(void);
+// Whether goop near Mario shows reflections this tick (port_water_reflections.cpp).
+int port_goop_mirror_active(void);
 
 // Water Reflections: 1 when the stage's own water and wet ground show the reflections puddles
 // do (ext/core/game/port_water_reflections.cpp); 0 as the game has it.
