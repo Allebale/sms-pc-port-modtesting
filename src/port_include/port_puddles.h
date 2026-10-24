@@ -45,6 +45,18 @@ unsigned port_puddle_surface_alpha(unsigned type, unsigned material);
 // reflections are drawn over, fading out to its edge: 500, 750, 1000 (Original), 2000, 3000 or 5000.
 float port_puddle_reflection_distance(void);
 
+// The settings menu's Reflect switches (its Other page): what is reflected, in puddles and water
+// alike. Each 1 (on) unless switched off.
+enum {
+	PORT_REFLECT_MARIO,      // Mario and Yoshi: the game's own copies
+	PORT_REFLECT_CHARACTERS, // the people (NPCs)
+	PORT_REFLECT_ENEMIES,    // enemies and bosses
+	PORT_REFLECT_ITEMS,      // coins, fruit and other things to take
+	PORT_REFLECT_OBJECTS,    // everything else: crates, trees, doors, platforms
+	PORT_REFLECT_KINDS
+};
+int port_reflect_kind(int kind);
+
 // Water Reflections: 1 when the stage's own water and wet ground show the reflections puddles
 // do (ext/core/game/port_water_reflections.cpp); 0 as the game has it.
 int port_water_reflections(void);

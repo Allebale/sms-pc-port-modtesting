@@ -33,6 +33,34 @@ bool s_loaded;
 int s_index;       // into kScales: Original until chosen
 int s_reflections; // Puddle Reflections: 0 Mario only (as the game has it), 1 everything
 int s_surface;     // Reflections by Surface: 0 every puddle alike (as the game has it), 1 by its floor
+// The Reflect switches, the Other page: what is reflected (port_puddles.h's PORT_REFLECT_*).
+struct Kind {
+    const char* key;   // in puddles.txt
+    const char* name;
+    const char* hint;
+};
+const Kind kKinds[PORT_REFLECT_KINDS] = {
+    {"showmario", "Reflect Mario and Yoshi", "Mario, FLUDD and Yoshi in puddles and water."},
+    {"showcharacters", "Reflect Characters", "Piantas, Nokis and other people. Needs Puddle Reflections on Everything."},
+    {"showenemies", "Reflect Enemies", "Enemies and bosses. Needs Puddle Reflections on Everything."},
+    {"showitems", "Reflect Items", "Fruit and other things to take. Needs Puddle Reflections on Everything."},
+    {"showobjects", "Reflect Objects", "Crates, trees, doors and the like. Needs Puddle Reflections on Everything."},
+};
+int s_show[PORT_REFLECT_KINDS] = {1, 1, 1, 1, 1};
+int kindIndex(const char* key) {
+    for (int i = 0; i < PORT_REFLECT_KINDS; i++)
+        if (!strcmp(key, kKinds[i].key)) return i;
+    return -1;
+}
+// A line naming a Reflect switch: read into it.
+bool isKind(const char* line, int* value) {
+    char key[32];
+    if (sscanf(line, " %31[a-z] = %d", key, value) != 2) return false;
+    const int i = kindIndex(key);
+    if (i < 0) return false;
+    s_show[i] = *value != 0;
+    return true;
+}
 int s_water;       // Water Reflections: 0 none (as the game has it), 1 in the stage's water and wet ground
 const int kDistances[] = {500, 750, 1000, 2000, 3000, 5000};
 const char* const kDistanceNames[] = {"0.5x", "0.75x", "Original", "2x", "3x", "5x"};
@@ -158,6 +186,8 @@ void load() {
             s_reflections = value != 0;
         } else if (sscanf(line, " surface = %d", &value) == 1) {
             s_surface = value != 0;
+        } else if (isKind(line, &value)) {
+            // done by isKind
         } else if (sscanf(line, " waterreflections = %d", &value) == 1) {
             s_water = value != 0;
         } else if (sscanf(line, " distance = %d", &value) == 1) {
@@ -197,6 +227,8 @@ void save() {
     fprintf(f, "surface = %d\n", s_surface);
     fprintf(f, "# distance: how far from Mario reflections are drawn: 500, 750, 1000 (Original), 2000, 3000 or 5000.\n");
     fprintf(f, "distance = %d\n", kDistances[s_distance]);
+    fprintf(f, "# What is reflected (the menu's Other page): 1 on, 0 off.\n");
+    for (int i = 0; i < PORT_REFLECT_KINDS; i++) fprintf(f, "%s = %d\n", kKinds[i].key, s_show[i]);
     fprintf(f, "# waterreflections: 1 the stage's water and wet ground reflect as puddles do, 0 not.\n");
     fprintf(f, "waterreflections = %d\n", s_water);
     fprintf(f, "# How strongly puddles reflect on each surface, in percent (the menu's Other page).\n");
@@ -263,6 +295,21 @@ int waterSet(int i) {
     return 1;
 }
 
+template <int N>
+int showGet() {
+    load();
+    return s_show[N];
+}
+template <int N>
+int showSet(int i) {
+    if (i < 0 || i > 1) return 0;
+    load();
+    s_show[N] = i;
+    save();
+    port_log("[puddles] %s: %s\n", kKinds[N].name, i ? "on" : "off");
+    return 1;
+}
+
 int distanceCount() { return kDistanceCount; }
 const char* distanceName(int i) {
     return i >= 0 && i < kDistanceCount ? kDistanceNames[i] : kDistanceNames[kDistanceOriginal];
@@ -305,6 +352,9 @@ int strengthSet(int i) {
     port_log("[puddles] %s: %s percent\n", kSurfaces[N].name, strengthName(i));
     return 1;
 }
+#define SHOW_ROW(N, ORDER)                                                                              \
+    {nullptr, PORT_SETTINGS_PAGE_OTHER, ORDER, kKinds[N].name, kKinds[N].hint, 0, nullptr, offOnCount, offOnName, \
+     showGet<N>, showSet<N>}
 #define SURFACE_ROW(N, ORDER)                                                                           \
     {nullptr, PORT_SETTINGS_PAGE_OTHER, ORDER, kSurfaces[N].name, kSurfaces[N].hint, 0, nullptr, strengthCount, \
      strengthName, strengthGet<N>, strengthSet<N>}
@@ -326,6 +376,11 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 99, "Water Reflections",
      "The sea, pools, fountains, streams and wet ground reflect as puddles do.", 0, nullptr, offOnCount,
      offOnName, waterGet, waterSet},
+    SHOW_ROW(PORT_REFLECT_MARIO, 1),
+    SHOW_ROW(PORT_REFLECT_CHARACTERS, 2),
+    SHOW_ROW(PORT_REFLECT_ENEMIES, 3),
+    SHOW_ROW(PORT_REFLECT_ITEMS, 4),
+    SHOW_ROW(PORT_REFLECT_OBJECTS, 5),
     SURFACE_ROW(PORT_PUDDLE_STONE, 10),
     SURFACE_ROW(PORT_PUDDLE_METAL, 20),
     SURFACE_ROW(PORT_PUDDLE_CLAY, 30),
@@ -365,6 +420,11 @@ int port_puddle_surface(void) {
 int port_puddle_surface_strength(int surface) {
     load();
     return surface >= 0 && surface < PORT_PUDDLE_SURFACES ? s_strength[surface] : 1000;
+}
+
+int port_reflect_kind(int kind) {
+    load();
+    return kind >= 0 && kind < PORT_REFLECT_KINDS ? s_show[kind] : 1;
 }
 
 int port_water_reflections(void) {

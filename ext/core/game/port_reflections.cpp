@@ -11,6 +11,10 @@
 #include "port_puddles.h"
 
 #include <Enemy/Conductor.hpp>
+#include <Enemy/Enemy.hpp>
+#include <MoveBG/Item.hpp>
+#include <MoveBG/MapObjBall.hpp>
+#include <NPC/NpcBase.hpp>
 #include <Map/MapData.hpp>
 #include <JSystem/J3D/J3DGraphAnimator/J3DModel.hpp>
 #include <JSystem/JDrama/JDRNameRefGen.hpp>
@@ -22,6 +26,7 @@
 #include <Player/ModelWaterManager.hpp>
 #include <Strategic/LiveActor.hpp>
 #include <Strategic/LiveManager.hpp>
+#include <Map/MapMirror.hpp>
 #include <Strategic/MirrorActor.hpp>
 
 #include <stdio.h>
@@ -47,6 +52,7 @@ public:
 	explicit TPortMirrorActor(TLiveActor* owner)
 	    : TMirrorActor("port puddle reflection")
 	    , mOwner(owner)
+	    , mKind(kindOf(owner))
 	{
 	}
 
@@ -62,6 +68,8 @@ private:
 		if (!port_puddle_reflections() || !gpModelWaterManager
 		    || (!gpModelWaterManager->getParticleCount() && !port_water_mirror_active()))
 			return false;
+		if (!port_reflect_kind(mKind))
+			return false;
 		if (mOwner->checkLiveFlag(LIVE_FLAG_DEAD | LIVE_FLAG_HIDDEN | LIVE_FLAG_CLIPPED_OUT))
 			return false;
 		if (!gpMarioPos)
@@ -71,8 +79,31 @@ private:
 		return dx * dx + dz * dz < kNear * kNear;
 	}
 
+	// Which of the settings menu's Reflect switches the actor answers to.
+	static int kindOf(TLiveActor* actor)
+	{
+		if (dynamic_cast<TBaseNPC*>(actor))  // before enemies: an NPC is a TSpineEnemy too
+			return PORT_REFLECT_CHARACTERS;
+		if (dynamic_cast<TSpineEnemy*>(actor))
+			return PORT_REFLECT_ENEMIES;
+		if (dynamic_cast<TItem*>(actor) || dynamic_cast<TResetFruit*>(actor))
+			return PORT_REFLECT_ITEMS;
+		return PORT_REFLECT_OBJECTS;
+	}
+
 	TLiveActor* mOwner;
+	int mKind;
 };
+
+// The game's own copies of Mario and Yoshi (Mario, his hands, cap and FLUDD, flag 4; Yoshi and
+// his tongue, flags 4 and 0x20), with their flags as the game set them. Reflect Mario and Yoshi
+// off, each is told not to be in the mirror (flag 1) while no real mirror is near (the hotel's
+// keep him), and given back its flags when it is on.
+const int kMostPlayerCopies = 64;
+TMirrorActor* s_playerCopies[kMostPlayerCopies];
+u16 s_playerFlags[kMostPlayerCopies];
+int s_playerCount;
+bool s_playerHidden;
 
 const J3DModel* s_models[kMostModels];
 int s_modelCount;
@@ -91,13 +122,45 @@ void remember(const J3DModel* model)
 		s_models[s_modelCount++] = model;
 }
 
+void rememberPlayerCopies(JDrama::TViewObjPtrListT<JDrama::TViewObj>* scene)
+{
+	s_playerCount  = 0;
+	s_playerHidden = false;
+	JGadget::TList_pointer<JDrama::TViewObj*>& children = scene->getChildren();
+	for (JGadget::TList_pointer<JDrama::TViewObj*>::iterator it = children.begin();
+	     it != children.end() && s_playerCount < kMostPlayerCopies; ++it) {
+		TMirrorActor* mirror = dynamic_cast<TMirrorActor*>(*it);
+		if (!mirror || dynamic_cast<TPortMirrorActor*>(mirror) || (mirror->unk1A & 1)
+		    || !(mirror->unk1A & (4 | 0x20)))
+			continue;
+		s_playerCopies[s_playerCount] = mirror;
+		s_playerFlags[s_playerCount]  = mirror->unk1A;
+		s_playerCount++;
+	}
+}
+
+void showPlayerCopies()
+{
+	const bool hide = !port_reflect_kind(PORT_REFLECT_MARIO) && gpMirrorModelManager
+	                  && !gpMirrorModelManager->isUnk18Present();
+	if (hide == s_playerHidden)
+		return;
+	s_playerHidden = hide;
+	for (int i = 0; i < s_playerCount; i++)
+		s_playerCopies[i]->unk1A = (u16)(hide ? s_playerFlags[i] | 1 : s_playerFlags[i]);
+}
+
+// Leaving the stage: its copies go with it.
+void moveStage() { s_playerCount = 0; }
+
 void stageSetup()
 {
-	if (!port_puddle_reflections() || !gpConductor)
-		return;
 	JDrama::TViewObjPtrListT<JDrama::TViewObj>* scene
 	    = JDrama::TNameRefGen::search<JDrama::TViewObjPtrListT<JDrama::TViewObj> >(kMirrorScene);
 	if (!scene)
+		return;
+	rememberPlayerCopies(scene);
+	if (!port_puddle_reflections() || !gpConductor)
 		return;
 
 	// the models the game gave a copy already (Mario, FLUDD, Yoshi, coins...)
@@ -183,6 +246,8 @@ u8 surfaceAlpha(unsigned type, unsigned material)
 // stays changed a moment, so that the material numbers can be told apart by walking.
 void afterMovement()
 {
+	showPlayerCopies();
+
 	static unsigned s_logged = 0xFFFFFFFFu, s_seen = 0xFFFFFFFFu;
 	static int s_steady;
 	if (!port_puddle_surface() || !gpMarioGroundPlane || !*gpMarioGroundPlane)
@@ -214,6 +279,7 @@ struct Register {
 		s_extension.name          = "reflections";
 		s_extension.stageSetup    = stageSetup;
 		s_extension.afterMovement = afterMovement;
+		s_extension.moveStage     = moveStage;
 		port_ext_register(&s_extension);
 	}
 } s_register;
