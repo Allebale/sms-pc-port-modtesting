@@ -67,6 +67,14 @@ void port_reflections_toggle(void);
 // it (the puddles then show none).
 int port_puddles_beat_mirrors(void);
 
+// Sky in Reflections: 0 off, 1 faint, 2 medium, 3 strong: the stage's sky colour (measured as it
+// loads) faintly in puddles and water where nothing is reflected, more looking across them.
+int port_sky_reflections(void);
+// The average colour of a GameCube-format texture, each pixel as much as its alpha
+// (platform/misc/port_texture_average.cpp); weight: how many pixels' worth. 0 when it cannot.
+int port_texture_average(const void* data, unsigned fmt, unsigned w, unsigned h, const void* tlut,
+                         unsigned tlutFmt, unsigned char* rgb, unsigned* weight);
+
 // Water Reflections: 1 when the stage's own water and wet ground show the reflections puddles
 // do (ext/core/game/port_water_reflections.cpp); 0 as the game has it.
 int port_water_reflections(void);
