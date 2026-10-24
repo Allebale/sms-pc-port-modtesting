@@ -475,6 +475,73 @@ int blurSet(int i) {
     return 1;
 }
 
+// ------------------------------------------------------------------ the preset
+// One row that sets every reflection option at once: Original (the game as it was, these options'
+// defaults) or Recommended (the mod's own pick). It reads Custom when the options are neither.
+// Puddle Lifetime, on the Graphics page, is not part of it.
+struct Preset {
+    int reflections, water, distanceTimes4, beatMirrors, level;
+    int viewAngle, puddleRipples, ripples, glints, depth, blurQuarters, footprints;
+    int show[PORT_REFLECT_KINDS];
+    int surface;
+    int strength[PORT_PUDDLE_SURFACES];  // tenths of a percent
+};
+const Preset kPresets[2] = {
+    // Original
+    {0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, {1, 0, 0, 0, 0}, 0, {300, 500, 400, 330, 50, 60, 100, 550, 500, 450}},
+    // Recommended
+    {1, 1, 20, 1, 1, 2, 2, 2, 1, 1, 5, 1, {1, 1, 1, 1, 1}, 1, {300, 500, 400, 330, 50, 60, 100, 550, 500, 450}},
+};
+const char* const kPresetNames[] = {"Original", "Recommended", "Custom"};
+
+int distanceIndexOf(int times4) {  // 4 is 1x
+    int i = (times4 * 250 - 500) / kDistanceStep;
+    return i < 0 ? 0 : i >= kDistanceCount ? kDistanceCount - 1 : i;
+}
+
+bool presetIs(const Preset& p) {
+    if (s_reflections != p.reflections || s_water != p.water || s_distance != distanceIndexOf(p.distanceTimes4)
+        || s_beatMirrors != p.beatMirrors || s_level != p.level || s_viewAngle != p.viewAngle
+        || s_puddleRipples != p.puddleRipples || s_ripples != p.ripples || s_glints != p.glints
+        || s_depth != p.depth || s_blur != p.blurQuarters || s_footprints != p.footprints || s_surface != p.surface)
+        return false;
+    for (int i = 0; i < PORT_REFLECT_KINDS; i++)
+        if (s_show[i] != p.show[i]) return false;
+    for (int i = 0; i < PORT_PUDDLE_SURFACES; i++)
+        if (s_strength[i] != p.strength[i]) return false;
+    return true;
+}
+
+int presetCount() { return 3; }
+const char* presetName(int i) { return kPresetNames[i < 0 || i > 2 ? 2 : i]; }
+int presetGet() {
+    load();
+    return presetIs(kPresets[0]) ? 0 : presetIs(kPresets[1]) ? 1 : 2;
+}
+int presetSet(int i) {
+    if (i < 0 || i > 1) return 1;  // Custom changes nothing, as on the Graphics page
+    load();
+    const Preset& p = kPresets[i];
+    s_reflections   = p.reflections;
+    s_water         = p.water;
+    s_distance      = distanceIndexOf(p.distanceTimes4);
+    s_beatMirrors   = p.beatMirrors;
+    s_level         = p.level;
+    s_viewAngle     = p.viewAngle;
+    s_puddleRipples = p.puddleRipples;
+    s_ripples       = p.ripples;
+    s_glints        = p.glints;
+    s_depth         = p.depth;
+    s_blur          = p.blurQuarters;
+    s_footprints    = p.footprints;
+    s_surface       = p.surface;
+    for (int k = 0; k < PORT_REFLECT_KINDS; k++) s_show[k] = p.show[k];
+    for (int k = 0; k < PORT_PUDDLE_SURFACES; k++) s_strength[k] = p.strength[k];
+    save();
+    logSettings(i ? "Reflections set to Recommended" : "Reflections set to Original");
+    return 1;
+}
+
 template <int N>
 int showGet() {
     load();
@@ -552,6 +619,9 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 95, "Puddle Lifetime",
      "How long FLUDD's puddles last. Goop and objects react as in the original game.", 0, nullptr, count,
      name, get, set},
+    {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 0, "Preset",
+     "The original game, or the recommended look. Some apply from the next area.", 1, nullptr, presetCount,
+     presetName, presetGet, presetSet},
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 1, "Puddle Reflections",
      "Characters and objects in FLUDD's puddles too, from the next area.", 1, nullptr, reflectionsCount,
      reflectionsName, reflectionsGet, reflectionsSet},
