@@ -712,3 +712,23 @@ int port_draw_puddle_disc(f32 radius, u8 centre)
 	drawRippleDisc(ripple);
 	return 1;
 }
+
+// From TMirrorModelManager::perform (zzzzz-ext-25-water-reflections), each tick: whether, in the
+// real mirror's area mirror (-1: none), FLUDD's puddles near Mario take the reflection from it
+// (Puddles Beat Mirrors). They do from when one is within the Reflection Distance to when none is
+// within 200 units more, so that the mirror does not flicker on and off at the edge.
+int port_puddles_beat_mirror(int mirror)
+{
+	static bool s_active;
+	bool active = false;
+	if (mirror != -1 && port_puddles_beat_mirrors() && port_reflections_on() && gpMarioPos) {
+		f32 distance;
+		active = nearestPuddle(port_puddle_reflection_distance() + (s_active ? 200.0f : 0.0f), &distance);
+	}
+	if (active != s_active)
+		fprintf(stderr, "[puddles] %s\n",
+		        active ? "puddles near Mario in a real mirror's area: they take the reflection (Puddles Beat Mirrors)"
+		               : "the real mirror's reflection back");
+	s_active = active;
+	return active;
+}

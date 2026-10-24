@@ -62,6 +62,11 @@ int port_reflect_kind(int kind);
 int port_reflections_on(void);
 void port_reflections_toggle(void);
 
+// Puddles Beat Mirrors: 1 when FLUDD's puddles near Mario in a real mirror's area (a hotel
+// mirror, a shiny floor) take the reflection from the mirror; 0 the mirror keeps it, as the game has
+// it (the puddles then show none).
+int port_puddles_beat_mirrors(void);
+
 // Water Reflections: 1 when the stage's own water and wet ground show the reflections puddles
 // do (ext/core/game/port_water_reflections.cpp); 0 as the game has it.
 int port_water_reflections(void);
