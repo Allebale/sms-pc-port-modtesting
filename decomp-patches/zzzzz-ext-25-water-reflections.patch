@@ -1,4 +1,4 @@
-Reason: Water Reflections (port_puddles.h, the settings menu's Graphics page): the stage's own water (sea, lakes, pools, fountains, streams) and wet ground show the reflections FLUDD's puddles do. TMirrorModelManager mirrors about the plane port_mirror_plane picks (the nearest water surface, else the floor under Mario, as ever), and TModelWaterManager draws the water's reflection after its puddles' (port_draw_water_mirror, ext/core/game/port_water_reflections.cpp); the puddles show none while it is mirrored about water. Puddle Ripples: while rings spread, drawMirror's disc is drawn by port_draw_puddle_disc, its reflection rippling. Puddle Lifetime: as the water's slots fill, puddles dry faster, back to the game's speed when all are in use, so that the oldest dry away rather than blink out. Puddles Beat Mirrors: by FLUDD's puddles in a real mirror's area, TMirrorModelManager puts the mirror aside (the floor is reflected about; the mirror is still drawn) and TMirrorActor::checkIsInMirror takes no notice of mirror areas. With Puddle Ripples, Viewing Angle, Reflection Blur or Sun Glints in use, drawMirror's disc is drawn by the port (port_draw_puddle_reflection) over the puddles as marked. Reflect the Level: TMirrorCamera::perform, its projection set, asks the port to cut the stage away below the mirror's surface (port_mirror_clip). Off and Original are the game as it was Off and Original are the game as it was
+Reason: Water Reflections (port_puddles.h, the settings menu's Graphics page): the stage's own water (sea, lakes, pools, fountains, streams) and wet ground show the reflections FLUDD's puddles do. TMirrorModelManager mirrors about the plane port_mirror_plane picks (the nearest water surface, else the floor under Mario, as ever), and TModelWaterManager draws the water's reflection after its puddles' (port_draw_water_mirror, ext/core/game/port_water_reflections.cpp); the puddles show none while it is mirrored about water. Puddle Ripples: while rings spread, drawMirror's disc is drawn by port_draw_puddle_disc, its reflection rippling. Puddle Lifetime: as the water's slots fill, puddles dry faster, back to the game's speed when all are in use, so that the oldest dry away rather than blink out. Puddles Beat Mirrors: by FLUDD's puddles in a real mirror's area, TMirrorModelManager puts the mirror aside (the floor is reflected about; the mirror is still drawn) and TMirrorActor::checkIsInMirror takes no notice of mirror areas. With Puddle Ripples, Viewing Angle, Reflection Blur or Sun Glints in use, drawMirror's disc is drawn by the port (port_draw_puddle_reflection) over the puddles as marked. Reflect the Level: TMirrorCamera::perform, its projection set, asks the port to cut the stage away below the mirror's surface (port_mirror_clip). Off and Original are the game as it was Wet Footprints: drawn before the puddles (port_draw_footprints). Off and Original are the game as it was
 
 --- a/src/Map/MapMirror.cpp
 +++ b/src/Map/MapMirror.cpp
@@ -169,20 +169,28 @@ Reason: Water Reflections (port_puddles.h, the settings menu's Graphics page): t
  	GXBegin(GX_TRIANGLEFAN, GX_VTXFMT0, 10);
  	GXPosition3f32(SMS_GetMarioPos().x, SMS_GetMarioPos().y + 4.0f,
  	               SMS_GetMarioPos().z);
-@@ -2210,6 +2244,11 @@
+@@ -2210,6 +2244,12 @@
  		unk5D30->draw();
  }
  
 +#ifdef TARGET_PC
-+// port: Water Reflections (ext/core/game/port_water_reflections.cpp)
++// port: Water Reflections and Wet Footprints (ext/core/game/port_water_reflections.cpp)
 +void port_draw_water_mirror(MtxPtr view);
++void port_draw_footprints(MtxPtr view);
 +#endif
 +
  void TModelWaterManager::perform(u32 cue, JDrama::TGraphics* graphics)
  {
  	MtxPtr r29 = graphics->mViewMtx;
-@@ -2238,8 +2277,19 @@
+@@ -2236,10 +2276,26 @@
+ 			TTimeRec::snapGxTimeStart(0xFF, 0x00, 0x00, 0xFD);
+ 
  		drawSilhouette(r29);
++#ifdef TARGET_PC
++		// port: Wet Footprints (port_puddles.h): drawn before the puddles,
++		// so that they lie under them, never over.
++		port_draw_footprints(r29);
++#endif
  		drawWaterVolume(r29);
  
 +#ifdef TARGET_PC

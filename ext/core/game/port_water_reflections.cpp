@@ -901,6 +901,7 @@ const int kMostPrints   = 40;
 const s32 kPrintLife    = 5000;   // ms to fade away
 const f32 kStride       = 70.0f;  // units between prints
 const int kWetSteps     = 10;
+const f32 kPuddleCover  = 70.0f;  // how near a puddle's middle a print is under it
 struct Print {
 	f32 x, y, z, angle;
 	s32 start;
@@ -979,10 +980,22 @@ void drawFootprints(MtxPtr view)
 	GXSetColorUpdate(GX_TRUE);
 	GXSetAlphaUpdate(GX_FALSE);
 	GXSetDstAlpha(GX_FALSE, 0);
+	TModelWaterManager* water = gpModelWaterManager;
 	for (int i = 0; i < s_printCount; i++) {
 		const Print& p = s_prints[i];
 		const s32 age  = t - p.start;
 		if (age < 0 || age >= kPrintLife)
+			continue;
+		// none under a puddle: its water would show it through
+		bool underPuddle = false;
+		for (int k = 0; water && k < water->getParticleCount() && !underPuddle; k++) {
+			if ((water->mParticleFlagSOA[k] & 0xf) != 2)
+				continue;
+			const JGeometry::TVec3<f32>& q = water->mParticlePositionSOA[k];
+			const f32 dx = q.x - p.x, dz = q.z - p.z;
+			underPuddle = dx * dx + dz * dz < kPuddleCover * kPuddleCover && fabsf(q.y - p.y) < 50.0f;
+		}
+		if (underPuddle)
 			continue;
 		// damp at first, drying away: most of it in the last half
 		const f32 left = 1.0f - (f32)age / kPrintLife;
@@ -1150,7 +1163,6 @@ void drawDepthFrame(MtxPtr view)
 
 void port_draw_water_mirror(MtxPtr view)
 {
-	drawFootprints(view);
 	drawDepthFrame(view);
 	if (!port_water_mirror_active() || !gpMirrorModelManager || !gpMirrorModelManager->unk24
 	    || !gpModelWaterManager)
@@ -1289,3 +1301,7 @@ struct RegisterDepth {
 	}
 } s_registerDepth;
 } // namespace
+
+// From TModelWaterManager::perform (zzzzz-ext-25-water-reflections), before the puddles are drawn:
+// the wet footprints, so that the puddles lie over them.
+void port_draw_footprints(MtxPtr view) { drawFootprints(view); }
