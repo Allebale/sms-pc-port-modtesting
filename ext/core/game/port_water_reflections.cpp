@@ -350,6 +350,7 @@ void drawDisc(f32 radius, u8 centre)
 struct RingSource {
 	f32 x, z;
 	s32 start;
+	f32 spread;  // how far around it the water is stirred
 };
 const int kMostRings   = 24;
 const s32 kRingLife    = 2000;   // ms: full strength to still
@@ -364,12 +365,13 @@ int now() { return gpModelWaterManager ? gpModelWaterManager->unk5E00 : 0; }
 
 s32 nowMs() { return (s32)OSTicksToMilliseconds(OSGetTime()); }
 
-void addRing(f32 x, f32 z)
+void addRing(f32 x, f32 z, f32 spread = kRingSpread)
 {
 	RingSource& r = s_ringCount < kMostRings ? s_rings[s_ringCount++] : s_rings[s_ringNext++ % kMostRings];
-	r.x     = x;
-	r.z     = z;
-	r.start = nowMs();
+	r.x      = x;
+	r.z      = z;
+	r.start  = nowMs();
+	r.spread = spread;
 }
 
 bool ringsLive()
@@ -495,7 +497,8 @@ void setUpRipple(Ripple* r, const TBGCheckData* plane, int rippleKind, int stren
 		const f32 length  = spacing * 5.0f > 140.0f ? spacing * 5.0f : 140.0f;
 		r->amp            = strength == 2 ? 10.0f : 4.0f;
 		r->k              = 6.2831853f / length;
-		r->ringAmp        = strength == 2 ? 12.0f : 7.0f;
+		r->ringAmp        = strength == 2 ? 22.0f : 14.0f;
+		r->ringK          = 6.2831853f / 90.0f;  // longer waves than a puddle's
 	}
 	r->phase = (f32)r->time * 0.06f;
 }
@@ -515,10 +518,10 @@ void ringsAt(const Ripple& r, f32 x, f32 z, f32 amp, f32 k, f32* ox, f32* oz, f3
 			continue;
 		const f32 dx = x - src.x, dz = z - src.z;
 		const f32 d2 = dx * dx + dz * dz;
-		if (d2 >= kRingSpread * kRingSpread || d2 < 1.0f)
+		if (d2 >= src.spread * src.spread || d2 < 1.0f)
 			continue;
 		const f32 d      = sqrtf(d2);
-		const f32 edge   = 1.0f - d / kRingSpread;
+		const f32 edge   = 1.0f - d / src.spread;
 		const f32 weight = (1.0f - (f32)age / kRingLife) * edge * edge;
 		const f32 phase  = d * k - age * run;
 		tx += dx * weight * sinf(phase) / d;
@@ -901,6 +904,20 @@ namespace {
 // While the reflection is on water (with Water Ripples on), rings run out over it, as over the
 // puddles, where it is disturbed: where FLUDD's water comes down onto it (a drop above the surface
 // one tick that is at it or gone the next), and from Mario as he wades and swims through it.
+// Rings on water stir it further than in a puddle.
+const f32 kWaterRingSpread = 360.0f;
+
+// The log: the first few rings on water in each area, and then one a second.
+void logWaterRing(const char* what, f32 x, f32 z)
+{
+	static int s_count;
+	static s32 s_last;
+	if (++s_count > 5 && nowMs() - s_last < 1000)
+		return;
+	s_last = nowMs();
+	fprintf(stderr, "[puddles] a ring on water from %s at %.0f %.0f\n", what, x, z);
+}
+
 void updateWaterRings()
 {
 	static u8 s_flying[256];
@@ -923,8 +940,9 @@ void updateWaterRings()
 			const f32 dx = s_px[i] - gpMarioPos->x, dz = s_pz[i] - gpMarioPos->z;
 			if (was > 0.0f && was < 120.0f && now <= 5.0f && dx * dx + dz * dz < 3000.0f * 3000.0f
 			    && distanceTo(s_plane, s_px[i], s_pz[i]) == 0.0f) {
-				addRing(s_px[i], s_pz[i]);
+				addRing(s_px[i], s_pz[i], kWaterRingSpread);
 				made++;
+				logWaterRing("FLUDD's water", s_px[i], s_pz[i]);
 			}
 		}
 		s_flying[i] = flying;
@@ -944,8 +962,9 @@ void updateWaterRings()
 	const f32 depth = heightAt(s_plane, mx, mz) - gpMarioPos->y;
 	if (depth > -20.0f && depth < 150.0f && dx * dx + dz * dz > 1.5f * 1.5f && dx * dx + dz * dz < 200.0f * 200.0f
 	    && nowMs() - s_lastWade >= 350) {
-		addRing(mx, mz);
+		addRing(mx, mz, kWaterRingSpread);
 		s_lastWade = nowMs();
+		logWaterRing("Mario", mx, mz);
 	}
 }
 
@@ -955,7 +974,7 @@ void updateWaterRings()
 // goes; a puddle wets him for ten steps.
 const int kMostPrints   = 40;
 const s32 kPrintLife    = 5000;   // ms to fade away
-const f32 kStride       = 55.0f;  // units between prints
+const f32 kStride       = 70.0f;  // units between prints
 const int kWetSteps     = 10;
 struct Print {
 	f32 x, y, z, angle;
@@ -1002,7 +1021,7 @@ void updateFootprints(const TBGCheckData* ground)
 	s_strideLeft = kStride;
 	// a foot to the side of the way he goes
 	const f32 fx = dx / step, fz = dz / step;
-	const f32 side = s_leftFoot ? 9.0f : -9.0f;
+	const f32 side = s_leftFoot ? 14.0f : -14.0f;
 	s_leftFoot     = !s_leftFoot;
 	const f32 px = mx + fz * side, pz = mz - fx * side;
 	addPrint(px, heightAt(ground, px, pz), pz, atan2f(fx, fz));
@@ -1049,7 +1068,7 @@ void drawFootprints(MtxPtr view)
 		GXColor4u8(0, 0, 0, a);
 		for (int k = 0; k <= 12; k++) {
 			const f32 u = k * (6.2831853f / 12);
-			const f32 w = sinf(u) * 7.0f, l = cosf(u) * 13.0f;  // a foot: narrow, long
+			const f32 w = sinf(u) * 13.0f, l = cosf(u) * 24.0f;  // Mario's shoe: about 26 by 48
 			GXPosition3f32(p.x + ca * w + sa * l, p.y + 1.5f, p.z - sa * w + ca * l);
 			GXColor4u8(0, 0, 0, (u8)(a / 3));
 		}
