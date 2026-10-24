@@ -591,8 +591,34 @@ f32 goopAt(f32 x, f32 y, f32 z)
 // Whether there is goop to reflect in this tick: some on a coarse web over the reflection's disc
 // on the floor under Mario (port_mirror_plane).
 bool s_goopNear;
+void checkGoopNow(const TBGCheckData* ground);
 
 void checkGoop(const TBGCheckData* ground)
+{
+	static int s_logged = -1;
+	checkGoopNow(ground);
+	if ((int)s_goopNear != s_logged) {
+		s_logged = s_goopNear;
+		int layers = 0;
+		if (gpPollution)
+			layers = gpPollution->getJointModelNum();
+		fprintf(stderr, "[puddles] goop near Mario: %s (%d goop layers in this area%s)\n", s_goopNear ? "yes" : "no",
+		        layers, port_reflections_goop() ? "" : "; Goop strength is 0");
+		// what the goop map says at his feet, layer by layer, to tell why when there is none
+		for (int i = 0; gpPollution && gpMarioPos && ground && ground->isLegal() && i < layers; i++) {
+			TPollutionLayer* layer = gpPollution->getLayer(i);
+			const f32 x = gpMarioPos->x, z = gpMarioPos->z, y = heightAt(ground, x, z);
+			if (!layer || !layer->isInArea(x, y, z) || !layer->mPollutionMap)
+				continue;
+			const int s = layer->getTexPosS(x), t = layer->getTexPosT(z);
+			fprintf(stderr, "[puddles]   layer %d: kind %d, plane %d, goop %d (over %d), at this height %s\n", i,
+			        layer->getPollutionType(), layer->getPlaneType(), layer->mPollutionMap[layer->mPos.index(s, t)],
+			        layer->mPollutedThreshold, layer->mPos.isSame(s, t, y) ? "yes" : "no");
+		}
+	}
+}
+
+void checkGoopNow(const TBGCheckData* ground)
 {
 	s_goopNear = false;
 	if (!port_reflections_goop() || !gpPollution || !gpMarioPos || !ground || !ground->isLegal())
@@ -707,6 +733,12 @@ void buildWeb(const Ripple& r, u8 centre, bool goop)
 
 enum WebColour { WEB_ALPHA, WEB_GREY, WEB_GLINT, WEB_GOOP };
 
+// How far above the reflection's surface the web is drawn: 0, but for goop's marks, raised over
+// the goop's own surface (a layer laid over the floor, its waves included), so as not to be hidden
+// under it; what stands in front of the goop is still nearer.
+f32 s_webLift;
+const f32 kGoopLift = 40.0f;
+
 void drawWeb(int tap, int colour, u8 grey, bool tex)
 {
 	GXClearVtxDesc();
@@ -725,7 +757,7 @@ void drawWeb(int tap, int colour, u8 grey, bool tex)
 		for (int seg = 0; seg <= kSegments; seg++) {
 			for (int k = 0; k < 2; k++) {
 				const int i = vertexIndex(ring + 1 - k, seg % kSegments);
-				GXPosition3f32(s_vx[i], s_vy[i], s_vz[i]);
+				GXPosition3f32(s_vx[i], s_vy[i] + s_webLift, s_vz[i]);
 				if (colour == WEB_ALPHA)
 					GXColor4u8(0xff, 0xff, 0xff, s_va[i]);
 				else if (colour == WEB_GREY)
@@ -787,7 +819,9 @@ void drawReflection(MtxPtr view, const TBGCheckData* plane, f32 radius, u8 centr
 		GXSetAlphaUpdate(GX_TRUE);
 		GXSetDstAlpha(GX_FALSE, 0);
 		GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+		s_webLift = kGoopLift;
 		drawWeb(0, WEB_GOOP, 0, false);
+		s_webLift = 0.0f;
 		GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
 	}
 
@@ -997,6 +1031,11 @@ const TBGCheckData* choosePlane(const TBGCheckData* ground)
 	// always keep the reflection on the floor, so that they never lose theirs to water near by.
 	f32 groundDistance = radius;
 	bool groundFound   = nearestPuddle(radius, &groundDistance);
+	// goop near counts as a puddle at his feet: it keeps the reflection on the floor too
+	if (s_goopNear) {
+		groundFound    = true;
+		groundDistance = 0.0f;
+	}
 	const bool puddles = groundFound;
 	if (ground && ground->isLegal()) {
 		FindWetGround wet = {x, z, ground, 0.0f, false};
