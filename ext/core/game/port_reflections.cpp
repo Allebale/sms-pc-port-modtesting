@@ -244,9 +244,38 @@ u8 surfaceAlpha(unsigned type, unsigned material)
 
 // While Reflections by Surface is on: the floor under Mario, logged each time it changes and
 // stays changed a moment, so that the material numbers can be told apart by walking.
+// The log: why puddles show no reflection, when it is not this code's doing. The game draws
+// none while Mario is in a real mirror's room (TMirrorModelManager: the mirror's plane, not the
+// floor, is reflected about then), nor while the floor under him is none (in the air off a ledge,
+// say). Each change of either is logged once it has lasted a moment.
+void logMirrorState()
+{
+	static int s_state = -1, s_seen = -1, s_steady;
+	if (!gpMirrorModelManager || !gpMarioGroundPlane)
+		return;
+	const TBGCheckData* floor = *gpMarioGroundPlane;
+	const int state = gpMirrorModelManager->isUnk18Present() ? 1 : (!floor || !floor->isLegal()) ? 2 : 0;
+	if (state != s_seen) {
+		s_seen   = state;
+		s_steady = 0;
+		return;
+	}
+	if (++s_steady != 30 || state == s_state)
+		return;
+	s_state = state;
+	if (state == 1)
+		fprintf(stderr, "[puddles] Mario is in a real mirror's area (mirror %d): the game shows no puddle "
+		        "reflections here\n", gpMirrorModelManager->getUnk18());
+	else if (state == 2)
+		fprintf(stderr, "[puddles] no floor under Mario: no puddle reflections\n");
+	else
+		fprintf(stderr, "[puddles] puddle reflections shown (no real mirror near, floor under Mario)\n");
+}
+
 void afterMovement()
 {
 	showPlayerCopies();
+	logMirrorState();
 
 	static unsigned s_logged = 0xFFFFFFFFu, s_seen = 0xFFFFFFFFu;
 	static int s_steady;
