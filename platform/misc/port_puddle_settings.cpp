@@ -33,7 +33,7 @@ bool s_loaded;
 int s_index;       // into kScales: Original until chosen
 int s_reflections; // Puddle Reflections: 0 Mario only (as the game has it), 1 everything
 int s_surface;     // Reflections by Surface: 0 every puddle alike (as the game has it), 1 by its floor
-// The Reflect switches, the Other page: what is reflected (port_puddles.h's PORT_REFLECT_*).
+// The Reflect switches, the Reflections page: what is reflected (port_puddles.h's PORT_REFLECT_*).
 struct Kind {
     const char* key;   // in puddles.txt
     const char* name;
@@ -64,7 +64,6 @@ bool isKind(const char* line, int* value) {
 int s_ripples = 1; // Water Ripples: 0 off, 1 gentle, 2 strong
 int s_puddleRipples = 1; // Puddle Ripples: 0 off, 1 gentle, 2 strong
 int s_beatMirrors = 1;    // Puddles Beat Mirrors
-int s_reflectionsOn = 1;  // the REFLECTIONS_TOGGLE key: all off while 0 (this run only)
 int s_water;       // Water Reflections: 0 none (as the game has it), 1 in the stage's water and wet ground
 const int kDistances[] = {500, 750, 1000, 2000, 3000, 5000};
 const char* const kDistanceNames[] = {"0.5x", "0.75x", "Original", "2x", "3x", "5x"};
@@ -72,7 +71,7 @@ const int kDistanceCount = int(sizeof kDistances / sizeof kDistances[0]);
 const int kDistanceOriginal = 2;      // 1000, the game's
 int s_distance = kDistanceOriginal;   // Reflection Distance: into kDistances
 
-// Reflections by Surface's strengths, the Other page: tenths of a percent of the game's own, in
+// Reflections by Surface's strengths, the Reflections page: tenths of a percent of the game's own, in
 // steps of 2.5% (tuned by eye in Delfino Plaza).
 struct Surface {
     const char* key;   // in puddles.txt
@@ -281,13 +280,13 @@ void save() {
     fprintf(f, "glints = %d\n", s_glints);
     fprintf(f, "# depth: water darker over deep ground: 0 off, 1 subtle, 2 strong.\n");
     fprintf(f, "depth = %d\n", s_depth);
-    fprintf(f, "# How blurred reflections are on each surface, 0 sharp to 10 (the menu's Other page).\n");
+    fprintf(f, "# How blurred reflections are on each surface, 0 sharp to 10 (the menu's Reflections page).\n");
     for (int i = 0; i < PORT_PUDDLE_SURFACES; i++) fprintf(f, "%sblur = %d\n", kSurfaces[i].key, s_blur[i]);
-    fprintf(f, "# What is reflected (the menu's Other page): 1 on, 0 off.\n");
+    fprintf(f, "# What is reflected (the menu's Reflections page): 1 on, 0 off.\n");
     for (int i = 0; i < PORT_REFLECT_KINDS; i++) fprintf(f, "%s = %d\n", kKinds[i].key, s_show[i]);
     fprintf(f, "# waterreflections: 1 the stage's water and wet ground reflect as puddles do, 0 not.\n");
     fprintf(f, "waterreflections = %d\n", s_water);
-    fprintf(f, "# How strongly puddles reflect on each surface, in percent (the menu's Other page).\n");
+    fprintf(f, "# How strongly puddles reflect on each surface, in percent (the menu's Reflections page).\n");
     for (int i = 0; i < PORT_PUDDLE_SURFACES; i++)
         fprintf(f, "%s = %d.%d\n", kSurfaces[i].key, s_strength[i] / 10, s_strength[i] % 10);
     fclose(f);
@@ -503,13 +502,13 @@ int strengthSet(int i) {
     return 1;
 }
 #define SHOW_ROW(N, ORDER)                                                                              \
-    {nullptr, PORT_SETTINGS_PAGE_OTHER, ORDER, kKinds[N].name, kKinds[N].hint, 0, nullptr, offOnCount, offOnName, \
+    {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, ORDER, kKinds[N].name, kKinds[N].hint, 0, nullptr, offOnCount, offOnName, \
      showGet<N>, showSet<N>}
 #define BLUR_ROW(N, ORDER, NAME)                                                                        \
-    {nullptr, PORT_SETTINGS_PAGE_OTHER, ORDER, NAME, kSurfaces[N].blurHint, 0, nullptr, blurCount, blurName,     \
+    {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, ORDER, NAME, kSurfaces[N].blurHint, 0, nullptr, blurCount, blurName,     \
      blurGet<N>, blurSet<N>}
 #define SURFACE_ROW(N, ORDER)                                                                           \
-    {nullptr, PORT_SETTINGS_PAGE_OTHER, ORDER, kSurfaces[N].name, kSurfaces[N].hint, 0, nullptr, strengthCount, \
+    {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, ORDER, kSurfaces[N].name, kSurfaces[N].hint, 0, nullptr, strengthCount, \
      strengthName, strengthGet<N>, strengthSet<N>}
 
 // Name and hint: plain letters, digits, spaces and . , - ( ) ' only (port_settings.h).
@@ -521,7 +520,7 @@ const PortSetting kPuddleSettings[] = {
      "Characters and objects in FLUDD's puddles too, from the next area.", 1, nullptr, reflectionsCount,
      reflectionsName, reflectionsGet, reflectionsSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 97, "Reflections by Surface",
-     "Puddles reflect more or less by surface. Set each on the Other page.", 0, nullptr, offOnCount, offOnName,
+     "Puddles reflect more or less by surface. Set each on the Reflections page.", 0, nullptr, offOnCount, offOnName,
      surfaceGet, surfaceSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 98, "Reflection Distance",
      "How far from Mario puddles show reflections, fading out at the edge.", 0, nullptr, distanceCount,
@@ -615,13 +614,12 @@ int port_water_ripples(void) {
 
 int port_reflect_kind(int kind) {
     load();
-    if (!s_reflectionsOn) return 0;
     return kind >= 0 && kind < PORT_REFLECT_KINDS ? s_show[kind] : 1;
 }
 
 int port_reflection_view_angle(void) {
     load();
-    return s_reflectionsOn ? s_viewAngle : 0;
+    return s_viewAngle;
 }
 
 int port_puddle_surface_blur(int surface) {
@@ -631,7 +629,6 @@ int port_puddle_surface_blur(int surface) {
 
 int port_reflection_blur_on(void) {
     load();
-    if (!s_reflectionsOn) return 0;
     for (int i = 0; i < PORT_PUDDLE_SURFACES; i++)
         if (s_blur[i]) return 1;
     return 0;
@@ -639,12 +636,12 @@ int port_reflection_blur_on(void) {
 
 int port_sun_glints(void) {
     load();
-    return s_reflectionsOn ? s_glints : 0;
+    return s_glints;
 }
 
 int port_water_depth(void) {
     load();
-    return s_reflectionsOn ? s_depth : 0;
+    return s_depth;
 }
 
 int port_puddles_beat_mirrors(void) {
@@ -652,17 +649,10 @@ int port_puddles_beat_mirrors(void) {
     return s_beatMirrors;
 }
 
-int port_reflections_on(void) { return s_reflectionsOn; }
-
-void port_reflections_toggle(void) {
-    s_reflectionsOn = !s_reflectionsOn;
-    port_log("[puddles] reflections %s (the REFLECTIONS_TOGGLE key)\n",
-             s_reflectionsOn ? "back on, as the settings have them" : "all off");
-}
 
 int port_water_reflections(void) {
     load();
-    return s_reflectionsOn && s_water;
+    return s_water;
 }
 
 float port_puddle_reflection_distance(void) {

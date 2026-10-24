@@ -35,7 +35,7 @@ enum {
 	PORT_SETTINGS_PAGE_GAMEPLAY,
 	PORT_SETTINGS_PAGE_CONTROLS,
 	PORT_SETTINGS_PAGE_HUD,
-	PORT_SETTINGS_PAGE_OTHER,   // the port's own: the puddles' strengths by surface
+	PORT_SETTINGS_PAGE_REFLECTIONS, // the port's own: what puddles and water reflect, and how
 	PORT_SETTINGS_PAGE_COUNT
 };
 

@@ -205,7 +205,7 @@ void stageSetup()
 // like). What each material number means is in the game's sound data, not its code: these were
 // told apart by walking Delfino Plaza with the log below. A floor not listed counts as smooth
 // stone (0x00: the plaza's tiles, and its carpets, which are pictures on the same floor). How
-// strongly each reflects is set on the settings menu's Other page (port_puddles.h).
+// strongly each reflects is set on the settings menu's Reflections page (port_puddles.h).
 int surfaceOf(unsigned type, unsigned material)
 {
 	switch (type & 0x3FFF) {

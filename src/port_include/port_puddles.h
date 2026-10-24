@@ -20,7 +20,7 @@ int port_puddle_reflections(void);
 int port_puddle_surface(void);
 // The surfaces Reflections by Surface tells apart (ext/core/game/port_reflections.cpp sorts a
 // floor into one by its type and sound material), each with its strength on the settings menu's
-// Other page.
+// Reflections page.
 enum {
 	PORT_PUDDLE_STONE,  // smooth stone: the plaza's tiles, its carpets, and every floor not below
 	PORT_PUDDLE_METAL,
@@ -47,7 +47,7 @@ int port_puddle_surface_kind(unsigned type, unsigned material);
 // Viewing Angle: 0 off (every angle alike, as the game has it), 1 subtle, 2 realistic: reflections
 // stronger looking across puddles and water, weaker looking down into them.
 int port_reflection_view_angle(void);
-// Each surface's Blur (the Other page), 0 sharp to 10: how blurred reflections on it are.
+// Each surface's Blur (the Reflections page), 0 sharp to 10: how blurred reflections on it are.
 int port_puddle_surface_blur(int surface);
 // Whether any surface has Blur above 0.
 int port_reflection_blur_on(void);
@@ -60,7 +60,7 @@ int port_water_depth(void);
 // reflections are drawn over, fading out to its edge: 500, 750, 1000 (Original), 2000, 3000 or 5000.
 float port_puddle_reflection_distance(void);
 
-// The settings menu's Reflect switches (its Other page): what is reflected, in puddles and water
+// The settings menu's Reflect switches (its Reflections page): what is reflected, in puddles and water
 // alike. Each 1 (on) unless switched off.
 enum {
 	PORT_REFLECT_MARIO,      // Mario and Yoshi: the game's own copies
@@ -71,11 +71,6 @@ enum {
 	PORT_REFLECT_KINDS
 };
 int port_reflect_kind(int kind);
-
-// The REFLECTIONS_TOGGLE key (R by default): every reflection in puddles and water off, Mario's
-// too, and back on as the settings have them. For this run only; on to start with.
-int port_reflections_on(void);
-void port_reflections_toggle(void);
 
 // Puddles Beat Mirrors: 1 when FLUDD's puddles near Mario in a real mirror's area (a hotel
 // mirror, a shiny floor) take the reflection from the mirror; 0 the mirror keeps it, as the game has

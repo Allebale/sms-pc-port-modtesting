@@ -13,7 +13,7 @@
 // than any puddle or wet ground; else the floor under him, as in the game. After drawMirror
 // (port_draw_water_mirror, from TModelWaterManager::perform) the same is done for the water or wet
 // ground on that plane: its triangles, from the stage's collision, are marked as strongly as the
-// Other page says, the disc fades them out, and the texture is laid over them. Off, nothing of it
+// Reflections page says, the disc fades them out, and the texture is laid over them. Off, nothing of it
 // runs and the game is as it was.
 #include "port_ext.h"
 #include "port_puddles.h"
@@ -438,7 +438,7 @@ void updateRings(const TBGCheckData* ground)
 //   Viewing Angle  how strongly it reflects follows how slanting the view is, as real water does
 //                  (more looking across it, less looking down into it).
 //   Blur           the picture is taken several times around the point and averaged, as wide as
-//                  the surface under it is rough (the Other page: each surface's Blur).
+//                  the surface under it is rough (the Reflections page: each surface's Blur).
 //   Sun Glints     where the sun's light bounces off the water (or the ripples' slopes) straight to
 //                  the camera, it shines (the sun as the stage places it; none indoors).
 //   Water Depth    the sea, lakes and pools darken toward deep blue-green as the ground under them
@@ -1158,7 +1158,7 @@ int port_puddles_beat_mirror(int mirror)
 {
 	static bool s_active;
 	bool active = false;
-	if (mirror != -1 && port_puddles_beat_mirrors() && port_reflections_on() && gpMarioPos) {
+	if (mirror != -1 && port_puddles_beat_mirrors() && gpMarioPos) {
 		f32 distance;
 		active = nearestPuddle(port_puddle_reflection_distance() + (s_active ? 200.0f : 0.0f), &distance);
 	}
