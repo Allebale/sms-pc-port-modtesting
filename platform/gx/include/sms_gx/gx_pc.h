@@ -64,6 +64,12 @@ int GXPC_SettingsMenuIsOpen(void);
 /* The quit key: opens the "are you sure" prompt, whose Quit button exits.
  * 0 without a window (headless), where the caller exits straight away. */
 int GXPC_RequestQuit(void);
+/* Texture packs and one of the game's textures (its image data, GX format and size; not
+ * mipmapped, no palette): whether the packs, when on, replace it, and that replacement as RGBA8,
+ * *outW x *outH, malloc'ed for the caller to free (null when they are off or have none). The pause
+ * menu's QUIT GAME is made from the pack's letters (src/pause_quit.cpp). */
+int GXPC_TexturePackHas(const void* data, unsigned fmt, unsigned w, unsigned h);
+unsigned char* GXPC_TexturePackImage(const void* data, unsigned fmt, unsigned w, unsigned h, int* outW, int* outH);
 /* The game's settings menu (src/settings_menu.cpp) is open (1) or closed (0). Like the cheat and
  * warp menus it frees the mouse mouse look holds, and mouse look takes it back when the menu
  * closes; the game keeps reading the pad. Call it on open and on close. */
@@ -80,6 +86,12 @@ void GXPC_SetStretch2D(int on);
  * and past its edges: the game laid it out across the whole frame (the map
  * screen calls it around its drawing); 0 goes back. */
 void GXPC_SetWide2D(int on);
+/* Texture copies of w x h texels into `dest` keep that size at every internal
+ * resolution instead of the scaled EFB's (0 x 0 forgets `dest`). Delfino's
+ * goop layers call it: the game draws a layer's texture into the EFB and
+ * copies it back each frame, so a scaled copy kept each texel a hard square,
+ * where the GameCube's filtering of the small texture rounds the goop's edges. */
+void GXPC_SetNativeCopy(const void* dest, int w, int h);
 /* SMS_WIDESCREEN_HUD=edges: mark the gameplay HUD's drawing, and bracket
  * each J2D pane's drawing with its horizontal extent (game x), so HUD pieces
  * move to the screen edge on their side. */

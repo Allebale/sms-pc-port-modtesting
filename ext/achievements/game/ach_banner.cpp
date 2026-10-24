@@ -41,6 +41,10 @@ struct Name {
 const Name kNames[] = {
 #include "ach_names.inc"
 };
+// Super Mario Eclipse's, in an Eclipse build
+const Name kEclipseNames[] = {
+#include "ach_eclipse_names.inc"
+};
 
 const f32 kU = 448.0f / 840.0f; // the design's pixels to the screen's
 
@@ -93,9 +97,11 @@ f32 bounce(f32 p)
 
 const Name* nameOf(int id)
 {
-	for (unsigned i = 0; i < sizeof kNames / sizeof kNames[0]; i++)
-		if (kNames[i].id == id)
-			return &kNames[i];
+	const Name* names = ach::eclipse() ? kEclipseNames : kNames;
+	const unsigned n  = ach::eclipse() ? sizeof kEclipseNames / sizeof kEclipseNames[0] : sizeof kNames / sizeof kNames[0];
+	for (unsigned i = 0; i < n; i++)
+		if (names[i].id == id)
+			return &names[i];
 	return nullptr;
 }
 
@@ -335,10 +341,12 @@ void drawBanner(f32 width, f32 height, f32 t)
 	}
 }
 
-// Whether a banner may start: in a stage with its HUD's art (game_6) loaded, not in a talk or a cutscene.
+// Whether a banner may start: in a stage with its HUD's art (game_6) loaded, playing (the director's state
+// the warp menu waits for too: not a stage's opening title, the pause menu or a Shine's end), not in a talk or a cutscene.
 bool clear()
 {
-	return gpMarDirector && ach::playing() && !gpMarDirector->isTalkOrDemoModeNow() && loadBig();
+	return gpMarDirector && ach::playing() && gpMarDirector->mState == TMarDirector::STATE_UNK4
+	    && !gpMarDirector->isTalkOrDemoModeNow() && loadBig();
 }
 
 void draw(float width, float height)

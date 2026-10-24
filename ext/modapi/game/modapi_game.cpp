@@ -248,6 +248,32 @@ void chooseNextStage()
 
 void moveStage() { s_stageReady = false; }
 
+// The stage about to load, its episode chosen (port_ext.h's chooseStageLoad):
+// a mod may load another, or have Mario come from elsewhere.
+void chooseStageLoad()
+{
+	if (!modh_wants(SMS_EV_STAGE_LOADING))
+		return;
+	TGameSequence& cur  = gpApplication.mCurrArea;
+	TGameSequence& prev = gpApplication.mPrevArea;
+	SmsEvStageLoading ev;
+	ev.area         = cur.unk0;
+	ev.episode      = cur.unk1;
+	ev.reason       = s_lastReason;
+	ev.shine        = s_lastShine;
+	ev.from_area    = prev.unk0;
+	ev.from_episode = prev.unk1;
+	modh_dispatch(SMS_EV_STAGE_LOADING, &ev, sizeof ev);
+	if (!port_ext_load_instead(ev.area, ev.episode))
+		fprintf(stderr, "[mods] SMS_EV_STAGE_LOADING: area %d, episode %d not taken (no such stage, or the title); "
+		                "loading area %d, episode %d\n",
+		        ev.area, ev.episode, cur.unk0, cur.unk1);
+	if (ev.from_area >= 0 && ev.from_area <= 254 && ev.from_episode >= 0 && ev.from_episode <= 255) {
+		prev.unk0 = (u8)ev.from_area;
+		prev.unk1 = (u8)ev.from_episode;
+	}
+}
+
 void missNextArea()
 {
 	s_missAsked = true;
@@ -944,6 +970,7 @@ struct Register {
 		e.allowNextStage      = allowNextStage;
 		e.moveStage           = moveStage;
 		e.chooseNextStage     = chooseNextStage;
+		e.chooseStageLoad     = chooseStageLoad;
 		e.missNextArea        = missNextArea;
 		e.takeGameOver        = takeGameOver;
 		e.keepCoinsOnMiss     = keepCoinsOnMiss;
@@ -1104,6 +1131,18 @@ extern "C" int modg_object_health(SmsObject o, int* max)
 	if (max)
 		*max = e->getSaveParam() ? (int)e->getSaveParam()->mSLHitPointMax.get() : e->getHitPoints();
 	return e->getHitPoints();
+}
+
+// The HUD's parts mods hide (game->set_hud_hidden: every mod's ORed by the
+// host half): the game leaves them out of the HUD's draw (port_hud_draw).
+extern "C" void modg_set_hud_hidden(uint32_t mask)
+{
+	port_hud_set_hidden(PORT_HUD_BY_MODS, mask);
+}
+
+extern "C" uint32_t modg_hud_hidden(void)
+{
+	return port_hud_hidden();
 }
 
 extern "C" int modg_object_set_position(SmsObject o, const SmsVec3* pos)

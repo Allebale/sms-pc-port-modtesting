@@ -217,6 +217,17 @@ typedef struct PortExtension {
 	// the port's own menus (TApplication's loop, before the save state menu):
 	// 2D in the game's screen coordinates, `width` x `height` (640 x 448).
 	void (*draw)(float width, float height);
+	// A stage is about to load, its episode chosen (TApplication::proc's
+	// APP_STATE_GAMEPLAY, before the movie some stages open with and the
+	// stage's TMarDirector): gpApplication.mCurrArea is the stage, mPrevArea
+	// where Mario comes from (the plaza starts him by that world's way in).
+	// The hook may load another stage (port_ext_load_instead) or change
+	// mPrevArea. Once a load (not again after the opening movie); every
+	// extension's chooseStageLoad runs before any extension's stageLoading,
+	// which is given the stage the game chose (`area`, `episode`) and sees
+	// mCurrArea, what loads.
+	void (*chooseStageLoad)(void);
+	void (*stageLoading)(int area, int episode);
 } PortExtension;
 
 // playerDeath's causes (the mod API's SMS_DEATH_*)
@@ -311,6 +322,20 @@ void port_ext_timer(int what, int time);
 void port_ext_script_call(const char* name, void* owner, int argc);
 void port_ext_map_event(void* event);
 int port_ext_object_stomp(void* object, void* mario);
+// TApplication's APP_STATE_GAMEPLAY, before its opening movie check:
+// `afterMovie` 1 on the pass that follows the stage's opening movie (the same
+// load: chooseStageLoad and stageLoading are not asked again).
+void port_ext_stage_loading(int afterMovie);
+// For chooseStageLoad and stageLoading: load `area`, `episode` instead of
+// gpApplication.mCurrArea, as if the game had chosen it (mNextArea too when it
+// was the same stage; a world's episode recorded as its episode select does;
+// a new visit's coins afresh). 0 when the game has no such stage, or it is the
+// title (area 15), to or from; 1 when taken (or it is the stage already).
+int port_ext_load_instead(int area, int episode);
+// Whether the game has a stage for `area`, `episode` (its scene table).
+int port_ext_stage_exists(int area, int episode);
+// port_ext.cpp's side of port_ext_stage_loading (ext/core/game/port_stage_load.cpp).
+void port_ext_choose_stage_load(int area, int episode);
 // What hurts the player as TMario::damageExec takes his health (the enemy,
 // or his own floor actor for the ground's damage), while it does; else null.
 extern void* port_ext_damage_source;
@@ -318,6 +343,30 @@ extern void* port_ext_damage_source;
 // TMario::loserExec by a caller that knows it (sinking goop); OTHER: worked
 // out from Mario as he dies.
 extern int port_ext_death_cause;
+
+// ------------------------------------------------------------------ the HUD
+// Parts of the game's own HUD (TGCConsole2) left out of its drawing. Each
+// owner (multiplayer's SMS_CMD_HUD, the mod API's game->set_hud_hidden) says
+// which parts it hides; the game hides the union, with the settings menu's
+// HUD page's (port_hud_settings.h, asked every draw). A part is hidden for the
+// HUD's draw only and put back after it (ext/core/game/port_hud.cpp), so the
+// HUD's own logic, its animations and sounds, never sees it hidden. The bits
+// are the mod API's SMS_HUD_* (and multiplayer's MPG_HUD_*).
+#define PORT_HUD_COINS      1u
+#define PORT_HUD_SHINES     2u
+#define PORT_HUD_BLUE_COINS 4u
+#define PORT_HUD_HEALTH     8u
+#define PORT_HUD_WATER      16u
+#define PORT_HUD_LIVES      32u
+#define PORT_HUD_RED_COINS  64u
+#define PORT_HUD_ALL        0xFFFFu
+enum { PORT_HUD_BY_MULTIPLAYER = 0, PORT_HUD_BY_MODS = 1, PORT_HUD_OWNERS = 2 };
+void port_hud_set_hidden(int owner, unsigned mask);
+// The union: every owner's parts.
+unsigned port_hud_hidden(void);
+// TGCConsole2::perform's draw pass is about to draw the HUD (`after` 0), or
+// has (`after` 1): the game's patch calls it, `console` the TGCConsole2.
+void port_hud_draw(void* console, int after);
 
 #ifdef __cplusplus
 }
