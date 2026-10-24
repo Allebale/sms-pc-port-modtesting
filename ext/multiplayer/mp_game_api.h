@@ -357,7 +357,10 @@ enum {
 	MPG_CMD_SCREEN,     // i[0] MPG_SCREEN_*: in i[1]'s colour over f[0] seconds
 	MPG_CMD_SHAKE,      // the camera shakes, f[0] strong (1 a hard hit), for f[1] seconds
 	MPG_CMD_RUMBLE,     // the controller: i[0] 0 weak, 1 hard, i[1] times
-	MPG_CMD_LAST = MPG_CMD_RUMBLE,
+	MPG_CMD_SPLASH,     // slot i[0] splashed as Shadow Mario is: meter i[1] of i[2] (0 none), i[3] MPG_SPLASH_*, at f[0..2],
+	                    // flushed for f[3] seconds (0: 0.8)
+	MPG_CMD_BOUNDS,     // the player kept within f[3] of f[0..2]; i[0] MPG_BOUNDS_RING, i[1] its colour; f[4] seconds to glide
+	MPG_CMD_LAST = MPG_CMD_BOUNDS,
 };
 // Host only (not sent): forget the sticky command of this kind, as sticky
 // commands replace each other, without sending anything.
@@ -382,12 +385,21 @@ enum {
 	MPG_PLAYER_HEALTH,        // i[1]: 0..8
 	MPG_PLAYER_WATER,         // i[1]: FLUDD's tank, percent
 	MPG_PLAYER_NOZZLE,        // i[1]: 0 spray, 1 rocket, 2 underwater, 4 hover, 5 turbo
+	MPG_PLAYER_ADD_WATER,     // i[1]: percent of a full tank added (less when negative)
+	MPG_PLAYER_WATER_USE,     // i[1]: FLUDD's water used at this percent of its own rate, for the session
+	MPG_PLAYER_FLUDD,         // i[1]: 1 FLUDD on the player's back, 0 off it
 };
 // MPG_CMD_RULES's bits
 #define MPG_RULE_NO_FLUDD   1u
 #define MPG_RULE_NO_DAMAGE  2u
 #define MPG_RULE_NO_PAUSE   4u
 #define MPG_RULE_NO_PICKUPS 8u
+#define MPG_RULE_WATER_HITS 16u // FLUDD's water hits the other players (mpg_splash; game/mp_pvp.cpp)
+#define MPG_RULE_NO_REFILL  32u // FLUDD fills up only as the server says (the fluddRefill hook)
+#define MPG_BOUNDS_RING 1u      // MPG_CMD_BOUNDS's i[0]: the edge drawn on the ground
+// MPG_CMD_SPLASH's i[3] bits
+#define MPG_SPLASH_DOWN  1u // the meter is empty: knocked down
+#define MPG_SPLASH_QUIET 2u // the meter only: no splash, no sound
 // MPG_CMD_HUD's bits
 #define MPG_HUD_COINS      1u
 #define MPG_HUD_SHINES     2u
@@ -428,15 +440,29 @@ int mpg_take_load_stage(int* area, int* episode);
 // slot once it plays it).
 int mpg_player_arrived(int slot);
 // What a server mod hears of the game (ext/modapi's SMS_EV_NET_*).
-enum { MPG_NET_JOINED = 1, MPG_NET_LEFT, MPG_NET_ARRIVED, MPG_NET_SESSION };
+enum { MPG_NET_JOINED = 1, MPG_NET_LEFT, MPG_NET_ARRIVED, MPG_NET_SESSION, MPG_NET_SPLASH };
 typedef struct MpgNetEvent {
 	int type;    // MPG_NET_*
-	int slot;    // the player (JOINED, LEFT, ARRIVED)
+	int slot;    // the player (JOINED, LEFT, ARRIVED; SPLASH: the one hit)
 	char name[24];
 	int area, episode; // SESSION
 	uint32_t session;
+	int by, drops;     // SPLASH: whose water, how many drops
+	float pos[3];      // SPLASH: where the last hit
 } MpgNetEvent;
 int mpg_next_net_event(MpgNetEvent* out);
+// Players collide with each other (game/mp_pvp.cpp keeps each game's own out
+// of the others): the host's setting (mpg_set_collision_setting: its settings
+// menu, SMS_MULTIPLAYER_COLLISION=1) unless a server mod set it
+// (mpg_server_set_collision: 1, 0, or -1 the host's setting again); clients
+// as the host says. mpg_collision: whether they collide now, in any game.
+int mpg_collision(void);
+int mpg_collision_setting(void);
+int mpg_set_collision_setting(int on);
+int mpg_server_set_collision(int on);
+// This game's player's water hit player `victim` (MPG_RULE_WATER_HITS): `drops`
+// of its drops, the last at `pos`. The host's server mods hear it (MPG_NET_SPLASH).
+void mpg_splash(int victim, int drops, const float pos[3]);
 // mpg_start has run (the role is known, multiplayer or not).
 int mpg_started(void);
 // Host: the mod API joining games must carry at least (the server mods' client_api); 0, 0: any.

@@ -138,6 +138,8 @@ void build() {
     add(t, n);
     t = port_puddle_settings(&n);
     add(t, n);
+    t = mp_port_settings(&n);
+    add(t, n);
     s_all.push_back(&kPreset);
     // by page, then by order; a stable sort keeps a module's table order for ties
     std::stable_sort(s_all.begin(), s_all.end(), [](const PortSetting* a, const PortSetting* b) {
@@ -185,7 +187,7 @@ const Words kWords[] = {
                    {"Steam Deck", "\"steamdeck\""}}},
 };
 // Off and On, as false and true.
-const char* const kSwitches[] = {"fxaa", "heatHaze", "textures", "shaderWarmup", "fullscreen", "hudEdges", "overlay", "hdr",
+const char* const kSwitches[] = {"mpCollision", "fxaa", "heatHaze", "textures", "shaderWarmup", "fullscreen", "hudEdges", "overlay", "hdr",
                                  "hdrCalibration", "skipMovies", "invertCameraX", "invertCameraY", "freeCamera", "mouseCamera",
                                  "closeCameraMouse", "cstickOrbit", "rawMouse"};
 // Whole numbers, as shown; Off is 0.

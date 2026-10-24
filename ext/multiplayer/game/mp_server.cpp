@@ -12,6 +12,7 @@
 
 #include "../mp_game_api.h"
 #include "mp_puppet.hpp"
+#include "mp_pvp.hpp"
 #include "port_ext.h"
 #include "port_framerate.h"
 
@@ -700,7 +701,25 @@ void player(TMario* m, const MpgCmd& c)
 		if (TWaterGun* gun = m->mWaterGun) {
 			const int pct      = c.i[1] < 0 ? 0 : c.i[1] > 100 ? 100 : c.i[1];
 			gun->mCurrentWater = gun->getMaxWater() * pct / 100;
+			MpPvpWaterSet();
 		}
+		break;
+	case MPG_PLAYER_ADD_WATER:
+		if (TWaterGun* gun = m->mWaterGun) {
+			const int pct = c.i[1] < -100 ? -100 : c.i[1] > 100 ? 100 : c.i[1];
+			s32 water     = gun->mCurrentWater + gun->getMaxWater() * pct / 100;
+			gun->mCurrentWater = water < 0 ? 0 : water > gun->getMaxWater() ? gun->getMaxWater() : water;
+			MpPvpWaterSet();
+		}
+		break;
+	case MPG_PLAYER_WATER_USE:
+		MpPvpWaterUse(c.i[1]);
+		break;
+	case MPG_PLAYER_FLUDD:
+		if (c.i[1])
+			m->onFlag(MARIO_FLAG_HAS_FLUDD);
+		else if (!m->onYoshi()) // Yoshi's juice is FLUDD's nozzle
+			m->offFlag(MARIO_FLAG_HAS_FLUDD);
 		break;
 	case MPG_PLAYER_NOZZLE:
 		if (TWaterGun* gun = m->mWaterGun)
@@ -968,6 +987,12 @@ void run(TMarDirector* dir, const MpgCmd& c)
 		s_shakeAt = clockMs();
 		s_shakeMs = c.f[1] > 0.0f ? (unsigned)(c.f[1] * 1000.0f) : 0;
 		break;
+	case MPG_CMD_SPLASH:
+		MpPvpSplash(c);
+		break;
+	case MPG_CMD_BOUNDS:
+		MpPvpBounds(c);
+		break;
 	case MPG_CMD_RUMBLE:
 		if (SMSRumbleMgr && !MpServerDedicated())
 			SMSRumbleMgr->start(c.i[0] ? 21 : 20, c.i[1] > 1 ? (c.i[1] < 20 ? c.i[1] : 20) : 1, (f32*)nullptr);
@@ -1063,6 +1088,7 @@ void MpServerStageSetup()
 	s_glideCount = 0;
 	s_untouchableCount = 0;
 	s_hiddenCount = 0;
+	MpPvpStageSetup();
 	TakeStart start;
 	eachActor(0, 0xFFFFFFFFu, start);
 }
@@ -1123,6 +1149,8 @@ void MpServerTick()
 		bench();
 		return;
 	}
+	// players against each other: collision, water's hits
+	MpPvpTick();
 	// held: a Blooper ridden stops where it is, rather than surfing on unsteered
 	if (s_hold && surfing(m))
 		m->mForwardVel = 0.0f;
@@ -1141,6 +1169,7 @@ void MpServerTick()
 void MpServerPadRead(void* status)
 {
 	PADStatus* pads = (PADStatus*)status;
+	MpPvpPadRead(status); // test aids
 	if (s_rules & MPG_RULE_NO_FLUDD) {
 		pads[0].button &= ~PAD_TRIGGER_R; // FLUDD sprays with R
 		pads[0].triggerRight = 0;
@@ -1156,6 +1185,16 @@ void MpServerPadRead(void* status)
 }
 
 int MpServerNoDamage() { return (s_rules & MPG_RULE_NO_DAMAGE) != 0; }
+
+unsigned MpServerRules() { return s_rules; }
+
+bool MpServerMarker(int i, float* at)
+{
+	if (i < 0 || i >= kMarkers || !s_markers[i].on || s_markers[i].slot >= 0)
+		return false;
+	at[0] = s_markers[i].at.x, at[1] = s_markers[i].at.y, at[2] = s_markers[i].at.z;
+	return true;
+}
 
 // ------------------------------------------------------------------- what the host's mods ask
 

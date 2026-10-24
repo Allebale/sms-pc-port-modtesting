@@ -14,6 +14,10 @@ int s_count;
 
 } // namespace
 
+// The file chosen at file select, for fileStarting: as saveFile last said;
+// none (-1, a new game) for one played without a memory card.
+static int s_startFile = -1, s_startNew = 1;
+
 extern "C" void port_ext_register(const PortExtension* ext)
 {
 	if (!ext || s_count >= kMaxExtensions)
@@ -93,6 +97,8 @@ extern "C" int port_ext_keep_coins_on_miss(void)
 
 extern "C" void port_ext_after_file_select(void)
 {
+	s_startFile = -1; // the next game's file comes with its own saveFile
+	s_startNew  = 1;
 	EACH(afterFileSelect) s_ext[i]->afterFileSelect();
 }
 
@@ -212,9 +218,54 @@ extern "C" void port_ext_player_death(void* mario, int cause)
 	EACH(playerDeath) s_ext[i]->playerDeath(mario, cause);
 }
 
-extern "C" void port_ext_player_spawn(float* pos, float* yaw, int* hasPos, int kind)
+extern "C" void port_ext_player_spawn(float* pos, float* yaw, int* hasPos, int* kind)
 {
 	EACH(playerSpawn) s_ext[i]->playerSpawn(pos, yaw, hasPos, kind);
+}
+
+int port_ext_no_coaster_start;
+
+extern "C" void port_ext_save_file(int what, int file, int from)
+{
+	if (what == PORT_SAVE_FILE_LOADED || what == PORT_SAVE_FILE_NEW) {
+		s_startFile = file;
+		s_startNew  = what == PORT_SAVE_FILE_NEW;
+	}
+	EACH(saveFile) s_ext[i]->saveFile(what, file, from);
+}
+
+extern "C" int port_ext_file_starting(void)
+{
+	EACH(fileStarting) if (s_ext[i]->fileStarting(s_startFile, s_startNew)) return 1;
+	return 0;
+}
+
+extern "C" int port_ext_nozzle_fire(void* mario, int nozzle, int how)
+{
+	EACH(nozzleFire) if (s_ext[i]->nozzleFire(mario, nozzle, how)) return 1;
+	return 0;
+}
+
+extern "C" int port_ext_fludd_refill(void* mario, int source, void* from)
+{
+	EACH(fluddRefill) if (s_ext[i]->fluddRefill(mario, source, from)) return 1;
+	return 0;
+}
+
+extern "C" const char* port_ext_shine_model(void* shine, void* keeper, int collected)
+{
+	EACH(shineModel) if (const char* name = s_ext[i]->shineModel(shine, keeper, collected)) return name;
+	return 0;
+}
+
+extern "C" void port_ext_yoshi_egg(int kind, void* egg, int* present)
+{
+	EACH(yoshiEgg) s_ext[i]->yoshiEgg(kind, egg, present);
+}
+
+extern "C" void port_ext_episode_shine(int shineStage, int episode, int* shine)
+{
+	EACH(episodeShine) s_ext[i]->episodeShine(shineStage, episode, shine);
 }
 
 extern "C" int port_ext_player_message(void* mario, void* sender, unsigned message)
