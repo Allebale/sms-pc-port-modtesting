@@ -23,6 +23,8 @@
 #include <Map/MapData.hpp>
 #include <Map/MapMirror.hpp>
 #include <Camera/Camera.hpp>
+#include <Camera/SunMgr.hpp>
+#include <Camera/SunModel.hpp>
 #include <JSystem/JMath.hpp>
 #include <Player/MarioAccess.hpp>
 #include <Player/ModelWaterManager.hpp>
@@ -57,6 +59,7 @@ const TBGCheckData* s_plane;
 int s_kind;
 const TBGCheckData* s_tris[kMostTriangles];
 int s_triCount;
+f32 s_depthRadius;  // Water Depth reaches further than the reflection: at least this
 
 bool on() { return port_water_reflections() && gpMapCollisionData && gpMarioPos; }
 
@@ -309,19 +312,14 @@ void drawDisc(f32 radius, u8 centre)
 	GXEnd();
 }
 
-// Water Ripples and Puddle Ripples. The disc is drawn as a fine web of rings, each point keeping
-// its place but showing the mirror's picture from a little beside it. The texture's coordinates
-// are worked out here, as the mirror camera's matrix would give them from the place
-// (TMirrorCamera::drawSetting), so that they can be moved.
+// Water Ripples and Puddle Ripples: each point of the reflection shows the mirror's picture from a
+// little beside it (drawn below, with the rest of what the port does to the reflection).
 //
 // Water (Water Ripples): two crossing waves that roll on with the game's clock (still while it is
 // paused). Puddles and wet ground (Puddle Ripples): still, until something disturbs them: where a
 // puddle forms (each drop of FLUDD's water that lands) and where Mario's feet fall as he runs
 // through one, the water around rings out at full strength and calms, evenly, to still in two
 // seconds (by the clock, not the game's ticks, whose rate the frame rate may change).
-const int kRings    = 48;
-const int kSegments = 96;
-
 // Puddle disturbances: where, and when (milliseconds).
 struct RingSource {
 	f32 x, z;
@@ -404,35 +402,59 @@ void updateRings(const TBGCheckData* ground)
 	}
 }
 
+// ------------------------------------------------------------------ the reflection, drawn
+// The disc around Mario is drawn as a fine web of rings, each point keeping its place. Its texture
+// coordinates into the mirror's picture are worked out here, as the mirror camera's matrix would
+// give them from the place (TMirrorCamera::drawSetting), so that they can be moved and repeated:
+//
+//   Ripples        the point shows the picture from a little beside it (Water Ripples, Puddle
+//                  Ripples, above).
+//   Viewing Angle  how strongly it reflects follows how slanting the view is, as real water does
+//                  (more looking across it, less looking down into it).
+//   Blur           the picture is taken several times around the point and averaged, as wide as
+//                  the surface under it is rough (the Other page: each surface's Blur).
+//   Sun Glints     where the sun's light bounces off the water (or the ripples' slopes) straight to
+//                  the camera, it shines (the sun as the stage places it; none indoors).
+//   Water Depth    the sea, lakes and pools darken toward deep blue-green as the ground under them
+//                  falls away (the stage's collision, under each point).
+//
+// As the game draws it (drawMirror): the frame's alpha holds the marks (the puddles, or the
+// water); the disc's alpha times the picture's multiplies it; the colour already there is darkened
+// by it and the picture added in its place; the alpha is left clear.
+const int kRings    = 48;
+const int kSegments = 96;
+const int kVerts    = (kRings + 1) * kSegments;
+const int kMostTaps = 7;
+
 struct Ripple {
 	Mtx tex;     // world place to the mirror texture (s, t, q)
 	const TBGCheckData* plane;
-	bool rings;  // puddle rings, else water's waves
+	int rippleKind;  // 0 none, 1 water's waves, 2 puddle rings
 	f32 amp;     // how far beside, in the game's units
 	f32 k;       // 2 pi over the waves' length
 	f32 phase;
 	int time;
 	s32 ms;      // the clock, for puddles
-	u8 centre;   // the disc's alpha at its middle
 	f32 radius;
 };
 
-void setUpRipple(Ripple* r, const TBGCheckData* plane, bool rings, int strength, f32 radius, u8 centre)
+void setUpRipple(Ripple* r, const TBGCheckData* plane, int rippleKind, int strength, f32 radius)
 {
 	TMirrorCamera* mirror = gpMirrorModelManager->unk24;
 	Mtx project;
 	C_MTXLightPerspective(project, mirror->unk80 * gpCamera->mFovy, gpCamera->mAspect, 0.5f, -0.5f, 0.5f, 0.5f);
 	MTXConcat(project, mirror->unk30, r->tex);
-	r->plane  = plane;
-	r->rings  = rings;
-	r->radius = radius;
-	r->centre = centre;
-	r->time   = now();
-	r->ms     = nowMs();
-	if (rings) {
+	r->plane      = plane;
+	r->rippleKind = strength ? rippleKind : 0;
+	r->radius     = radius;
+	r->time       = now();
+	r->ms         = nowMs();
+	r->amp        = 0.0f;
+	r->k          = 1.0f;
+	if (r->rippleKind == 2) {
 		r->amp = strength == 2 ? 10.0f : 5.0f;
 		r->k   = 6.2831853f / kRingLength;
-	} else {
+	} else if (r->rippleKind == 1) {
 		const f32 spacing = radius / kRings;
 		const f32 length  = spacing * 5.0f > 140.0f ? spacing * 5.0f : 140.0f;
 		r->amp            = strength == 2 ? 10.0f : 4.0f;
@@ -441,17 +463,22 @@ void setUpRipple(Ripple* r, const TBGCheckData* plane, bool rings, int strength,
 	r->phase = (f32)r->time * 0.06f;
 }
 
-void rippleTexCoord(const Ripple& r, f32 x, f32 z)
+// How far beside x, z the picture is taken (the ripples), and the slope they give the surface.
+void rippleAt(const Ripple& r, f32 x, f32 z, f32* ox, f32* oz, f32* sx, f32* sz)
 {
-	f32 sx = x, sz = z;
-	if (!r.rings) {
-		sx += r.amp * (sinf(x * r.k + r.phase) + 0.5f * sinf((x + z) * r.k * 1.7f + r.phase * 1.3f));
-		sz += r.amp * (cosf(z * r.k * 1.1f - r.phase * 0.9f) + 0.5f * cosf((x - z) * r.k * 1.5f + r.phase * 1.1f));
-	} else {
+	*ox = *oz = *sx = *sz = 0.0f;
+	if (r.rippleKind == 1) {
+		const f32 a1 = x * r.k + r.phase, a2 = (x + z) * r.k * 1.7f + r.phase * 1.3f;
+		const f32 b1 = z * r.k * 1.1f - r.phase * 0.9f, b2 = (x - z) * r.k * 1.5f + r.phase * 1.1f;
+		*ox = r.amp * (sinf(a1) + 0.5f * sinf(a2));
+		*oz = r.amp * (cosf(b1) + 0.5f * cosf(b2));
+		*sx = r.amp * r.k * (cosf(a1) + 0.85f * cosf(a2)) * 0.25f;
+		*sz = -r.amp * r.k * (1.1f * sinf(b1) + 0.75f * sinf(b2)) * 0.25f;
+	} else if (r.rippleKind == 2) {
 		// round each disturbance, waves running out from it, as strong as it is young (100% as it
 		// starts, 0% two seconds on) and fading to its edge; together, never more than one at full
-		f32 ox = 0.0f, oz = 0.0f, total = 0.0f;
-		const f32 run = r.k * kRingSpeed / 1000.0f;  // the waves' phase, a millisecond
+		f32 tx = 0.0f, tz = 0.0f, total = 0.0f, gx = 0.0f, gz = 0.0f;
+		const f32 run = r.k * kRingSpeed / 1000.0f;
 		for (int i = 0; i < s_ringCount; i++) {
 			const RingSource& src = s_rings[i];
 			const s32 age         = r.ms - src.start;
@@ -464,62 +491,370 @@ void rippleTexCoord(const Ripple& r, f32 x, f32 z)
 			const f32 d      = sqrtf(d2);
 			const f32 edge   = 1.0f - d / kRingSpread;
 			const f32 weight = (1.0f - (f32)age / kRingLife) * edge * edge;
-			const f32 w      = weight * sinf(d * r.k - age * run) / d;
-			ox += dx * w;
-			oz += dz * w;
+			const f32 phase  = d * r.k - age * run;
+			tx += dx * weight * sinf(phase) / d;
+			tz += dz * weight * sinf(phase) / d;
+			gx += dx * weight * cosf(phase) / d;
+			gz += dz * weight * cosf(phase) / d;
 			total += weight;
 		}
 		if (total > 1.0f) {
-			ox /= total;
-			oz /= total;
+			tx /= total, tz /= total, gx /= total, gz /= total;
 		}
-		sx += r.amp * ox;
-		sz += r.amp * oz;
+		*ox = r.amp * tx, *oz = r.amp * tz;
+		*sx = r.amp * r.k * gx * 0.25f, *sz = r.amp * r.k * gz * 0.25f;
 	}
+}
+
+void texCoordAt(const Ripple& r, f32 sx, f32 sz, f32* s, f32* t)
+{
 	const f32 sy = heightAt(r.plane, sx, sz) + kLift;
-	const f32 s  = r.tex[0][0] * sx + r.tex[0][1] * sy + r.tex[0][2] * sz + r.tex[0][3];
-	const f32 t  = r.tex[1][0] * sx + r.tex[1][1] * sy + r.tex[1][2] * sz + r.tex[1][3];
+	const f32 a  = r.tex[0][0] * sx + r.tex[0][1] * sy + r.tex[0][2] * sz + r.tex[0][3];
+	const f32 b  = r.tex[1][0] * sx + r.tex[1][1] * sy + r.tex[1][2] * sz + r.tex[1][3];
 	f32 q        = r.tex[2][0] * sx + r.tex[2][1] * sy + r.tex[2][2] * sz + r.tex[2][3];
 	if (fabsf(q) < 0.0001f)
 		q = q < 0.0f ? -0.0001f : 0.0001f;
-	GXTexCoord2f32(s / q, t / q);
+	*s = a / q;
+	*t = b / q;
 }
 
-void rippleVertex(const Ripple& r, int ring, int segment)
+// This frame's web: each point's place, its alpha, the picture's coordinates for each tap, and
+// how brightly it glints.
+f32 s_vx[kVerts], s_vy[kVerts], s_vz[kVerts];
+u8 s_va[kVerts], s_vg[kVerts];
+f32 s_vs[kMostTaps][kVerts], s_vt[kMostTaps][kVerts];
+int s_taps;
+u8 s_sun[3];
+
+int vertexIndex(int ring, int segment) { return ring * kSegments + segment; }
+
+// The surface under each point, from the stage's collision, on a coarse web (each point takes the
+// nearest): its Blur. uniform: one surface for all (the water's), or -1 to look.
+const int kCoarseRings = 12, kCoarseSegments = 24;
+f32 s_blurCoarse[kCoarseRings + 1][kCoarseSegments];
+
+void measureBlur(const Ripple& r, int uniform)
 {
-	const f32 along = (f32)ring / kRings;
-	const f32 angle = (f32)segment * (6.2831853f / kSegments);
-	const f32 x     = gpMarioPos->x + sinf(angle) * r.radius * along;
-	const f32 z     = gpMarioPos->z + cosf(angle) * r.radius * along;
-	GXPosition3f32(x, heightAt(r.plane, x, z) + kLift, z);
-	GXColor4u8(0xff, 0xff, 0xff, (u8)(r.centre * (1.0f - along)));
-	rippleTexCoord(r, x, z);
+	for (int ring = 0; ring <= kCoarseRings; ring++)
+		for (int seg = 0; seg < kCoarseSegments; seg++) {
+			int surface = uniform;
+			if (surface < 0) {
+				const f32 along = (f32)ring / kCoarseRings;
+				const f32 angle = (f32)seg * (6.2831853f / kCoarseSegments);
+				const f32 x     = gpMarioPos->x + sinf(angle) * r.radius * along;
+				const f32 z     = gpMarioPos->z + cosf(angle) * r.radius * along;
+				const TBGCheckData* floor = nullptr;
+				if (gpMap)
+					gpMap->checkGround(x, heightAt(r.plane, x, z) + 60.0f, z, &floor);
+				surface = floor && floor->isLegal() ? port_puddle_surface_kind(floor->mBGType, floor->unk6)
+				                                    : PORT_PUDDLE_STONE;
+			}
+			s_blurCoarse[ring][seg] = (f32)port_puddle_surface_blur(surface) * 3.0f;  // units
+		}
 }
 
-// The disc as the web, its texture coordinates given; the vertex format and the texture's
-// coordinates are left as the game's disc wants them (place and colour, from the place).
-void drawRippleDisc(const Ripple& r)
+// How strongly the view reflects, by how slanting it is (Viewing Angle): 1 at Off.
+f32 viewFactor(int level, f32 cosine)
+{
+	if (!level)
+		return 1.0f;
+	const f32 m  = 1.0f - cosine;
+	const f32 m3 = m * m * m;
+	return level == 2 ? 0.3f + 1.4f * m3 : 0.6f + 0.8f * m3;
+}
+
+void buildWeb(const Ripple& r, u8 centre, int blurSurface)
+{
+	const int view  = port_reflection_view_angle();
+	const int glint = port_sun_glints();
+	bool sun        = glint && gpSunModel && gpSunMgr && gpSunMgr->unk14;
+	if (sun) {
+		const bool sunset = (gpSunMgr->unk15 & 2) != 0;
+		s_sun[0] = 255, s_sun[1] = sunset ? 170 : 245, s_sun[2] = sunset ? 90 : 220;
+	}
+	const JGeometry::TVec3<f32>& cam = gpCamera->mPosition;
+	const JGeometry::TVec3<f32>& n0  = r.plane->getNormal();
+
+	bool blur = false;
+	if (port_reflection_blur_on()) {
+		measureBlur(r, blurSurface);
+		for (int ring = 0; ring <= kCoarseRings && !blur; ring++)
+			for (int seg = 0; seg < kCoarseSegments; seg++)
+				if (s_blurCoarse[ring][seg] > 0.0f) {
+					blur = true;
+					break;
+				}
+	}
+	s_taps = blur ? kMostTaps : 1;
+
+	for (int ring = 0; ring <= kRings; ring++) {
+		const f32 along = (f32)ring / kRings;
+		for (int seg = 0; seg < kSegments; seg++) {
+			const int i     = vertexIndex(ring, seg);
+			const f32 angle = (f32)seg * (6.2831853f / kSegments);
+			const f32 x     = gpMarioPos->x + sinf(angle) * r.radius * along;
+			const f32 z     = gpMarioPos->z + cosf(angle) * r.radius * along;
+			const f32 y     = heightAt(r.plane, x, z) + kLift;
+			s_vx[i] = x, s_vy[i] = y, s_vz[i] = z;
+
+			f32 ox, oz, slopeX, slopeZ;
+			rippleAt(r, x, z, &ox, &oz, &slopeX, &slopeZ);
+
+			// to the camera, and how slanting
+			f32 vx = cam.x - x, vy = cam.y - y, vz = cam.z - z;
+			const f32 vl = sqrtf(vx * vx + vy * vy + vz * vz);
+			if (vl > 0.0f)
+				vx /= vl, vy /= vl, vz /= vl;
+			f32 cosine = fabsf(vx * n0.x + vy * n0.y + vz * n0.z);
+			cosine     = cosine > 1.0f ? 1.0f : cosine;
+			f32 a      = centre * (1.0f - along) * viewFactor(view, cosine);
+			s_va[i]    = (u8)(a > 255.0f ? 255.0f : a);
+
+			// the taps: the middle, and around it as wide as the surface is rough
+			texCoordAt(r, x + ox, z + oz, &s_vs[0][i], &s_vt[0][i]);
+			if (s_taps > 1) {
+				const int cr  = (ring * kCoarseRings + kRings / 2) / kRings;
+				const int cs  = (seg * kCoarseSegments + kSegments / 2) / kSegments % kCoarseSegments;
+				const f32 b   = s_blurCoarse[cr][cs];
+				for (int t = 1; t < s_taps; t++) {
+					const f32 ta = (t - 1) * (6.2831853f / (kMostTaps - 1)) + 0.4f;
+					texCoordAt(r, x + ox + sinf(ta) * b, z + oz + cosf(ta) * b, &s_vs[t][i], &s_vt[t][i]);
+				}
+			}
+
+			// the sun's glint: its light bounced off the surface (tilted by the ripples' slope)
+			s_vg[i] = 0;
+			if (sun) {
+				const JGeometry::TVec3<f32>& sp = gpSunModel->mPosition;
+				f32 lx = sp.x - x, ly = sp.y - y, lz = sp.z - z;
+				const f32 ll = sqrtf(lx * lx + ly * ly + lz * lz);
+				if (ll > 0.0f && ly > 0.0f) {
+					lx /= ll, ly /= ll, lz /= ll;
+					f32 hx = lx + vx, hy = ly + vy, hz = lz + vz;
+					const f32 hl = sqrtf(hx * hx + hy * hy + hz * hz);
+					f32 nx = n0.x - slopeX, ny = n0.y, nz = n0.z - slopeZ;
+					const f32 nl = sqrtf(nx * nx + ny * ny + nz * nz);
+					if (hl > 0.0f && nl > 0.0f) {
+						f32 d = (hx * nx + hy * ny + hz * nz) / (hl * nl);
+						if (d > 0.0f) {
+							// a sharp highlight: d to the 256th
+							for (int p = 0; p < 8; p++)
+								d *= d;
+							f32 g = d * (glint == 2 ? 2.0f : 1.0f) * (1.0f - along) * 255.0f;
+							s_vg[i] = (u8)(g > 255.0f ? 255.0f : g);
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+enum WebColour { WEB_ALPHA, WEB_GREY, WEB_GLINT };
+
+void drawWeb(int tap, int colour, u8 grey, bool tex)
 {
 	GXClearVtxDesc();
 	GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
 	GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
-	GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+	if (tex)
+		GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
 	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
 	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
-	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
-	GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
+	if (tex) {
+		GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+		GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
+	}
 	for (int ring = 0; ring < kRings; ring++) {
 		GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, (u16)(2 * (kSegments + 1)));
 		for (int seg = 0; seg <= kSegments; seg++) {
-			rippleVertex(r, ring + 1, seg % kSegments);
-			rippleVertex(r, ring, seg % kSegments);
+			for (int k = 0; k < 2; k++) {
+				const int i = vertexIndex(ring + 1 - k, seg % kSegments);
+				GXPosition3f32(s_vx[i], s_vy[i], s_vz[i]);
+				if (colour == WEB_ALPHA)
+					GXColor4u8(0xff, 0xff, 0xff, s_va[i]);
+				else if (colour == WEB_GREY)
+					GXColor4u8(grey, grey, grey, s_va[i]);
+				else
+					GXColor4u8((u8)(s_sun[0] * s_vg[i] / 255), (u8)(s_sun[1] * s_vg[i] / 255),
+					           (u8)(s_sun[2] * s_vg[i] / 255), 0xff);
+				if (tex)
+					GXTexCoord2f32(s_vs[tap][i], s_vt[tap][i]);
+			}
 		}
 		GXEnd();
 	}
+}
+
+bool anyGlint()
+{
+	for (int i = 0; i < kVerts; i++)
+		if (s_vg[i])
+			return true;
+	return false;
+}
+
+// The reflection over what the frame's alpha marks, on plane, over the disc of radius around Mario
+// (the game's centre alpha). blurSurface: the surface whose Blur all of it takes, or -1 for each
+// point's own. Leaves the alpha clear in the disc, colour and alpha updates as the game's disc does
+// (colour on, alpha on, destination alpha 0); the caller puts back the rest.
+void drawReflection(MtxPtr view, const TBGCheckData* plane, f32 radius, u8 centre, int rippleKind, int rippleStrength,
+                    int blurSurface)
+{
+	Ripple r;
+	setUpRipple(&r, plane, rippleKind, rippleStrength, radius);
+	buildWeb(r, centre, blurSurface);
+
+	Mtx identity;
+	MTXIdentity(identity);
+	gpMirrorModelManager->unk24->drawSetting(identity);  // the mirror's picture, as texture 0
+	GXSetCurrentMtx(GX_PNMTX0);
+	GXLoadPosMtxImm(view, GX_PNMTX0);
+	GXSetCullMode(GX_CULL_NONE);
+	GXSetNumChans(1);
+	GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX, 0, GX_DF_NONE, GX_AF_NONE);
+	GXSetNumTevStages(1);
+	GXSetZCompLoc(GX_TRUE);
+	GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+	GXSetAlphaCompare(GX_ALWAYS, 0, GX_AOP_OR, GX_ALWAYS, 0);
+
+	// the sun's glints, added where the marks are (before they are worn down)
+	if (anyGlint()) {
+		GXSetNumTexGens(0);
+		GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+		GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+		GXSetBlendMode(GX_BM_BLEND, GX_BL_DSTALPHA, GX_BL_ONE, GX_LO_NOOP);
+		GXSetColorUpdate(GX_TRUE);
+		GXSetAlphaUpdate(GX_FALSE);
+		GXSetDstAlpha(GX_FALSE, 0);
+		drawWeb(0, WEB_GLINT, 0, false);
+	}
+
+	// the marks times the disc's alpha times the picture's (where something is reflected)
+	GXSetNumTexGens(1);
+	GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+	GXSetTevOp(GX_TEVSTAGE0, GX_MODULATE);
+	GXSetBlendMode(GX_BM_BLEND, GX_BL_ZERO, GX_BL_SRCALPHA, GX_LO_NOOP);
+	GXSetColorUpdate(GX_FALSE);
+	GXSetAlphaUpdate(GX_TRUE);
+	GXSetDstAlpha(GX_FALSE, 0);
+	drawWeb(0, WEB_ALPHA, 0, true);
+
+	// the colour there darkened by as much ...
+	GXSetNumTexGens(0);
+	GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+	GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+	GXSetBlendMode(GX_BM_BLEND, GX_BL_ZERO, GX_BL_INVDSTALPHA, GX_LO_NOOP);
+	GXSetColorUpdate(GX_TRUE);
+	GXSetAlphaUpdate(GX_FALSE);
+	drawWeb(0, WEB_ALPHA, 0, false);
+
+	// ... and the picture added in its place, each tap its share
+	GXSetNumTexGens(1);
+	GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+	GXSetTevOp(GX_TEVSTAGE0, GX_MODULATE);
+	GXSetBlendMode(GX_BM_BLEND, GX_BL_DSTALPHA, GX_BL_ONE, GX_LO_NOOP);
+	const u8 share = (u8)(255 / s_taps);
+	for (int t = 0; t < s_taps; t++)
+		drawWeb(t, WEB_GREY, share, true);
+
+	// the alpha left clear
+	GXSetNumTexGens(0);
+	GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+	GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+	GXSetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_NOOP);
+	GXSetColorUpdate(GX_FALSE);
+	GXSetAlphaUpdate(GX_TRUE);
+	GXSetDstAlpha(GX_TRUE, 0);
+	drawWeb(0, WEB_ALPHA, 0, false);
+
 	GXClearVtxDesc();
 	GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
 	GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
 	GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_POS, 0x1e, 0, 0x7d);
+	GXSetColorUpdate(GX_TRUE);
+}
+
+// Water Depth: the water darkened toward deep blue-green where the ground under it falls away.
+// Drawn over the water's marks (strength 255) on a coarse web, before the reflection's marks.
+const u8 kDeep[3] = {16, 56, 72};
+
+void drawDepth(MtxPtr view, f32 radius)
+{
+	const int level = port_water_depth();
+	if (!level || !gpMap)
+		return;
+	const f32 most = level == 2 ? 0.75f : 0.45f;
+	static f32 px[(kCoarseRings + 1) * kCoarseSegments], py[(kCoarseRings + 1) * kCoarseSegments],
+	    pz[(kCoarseRings + 1) * kCoarseSegments];
+	static u8 pa[(kCoarseRings + 1) * kCoarseSegments];
+	for (int ring = 0; ring <= kCoarseRings; ring++)
+		for (int seg = 0; seg < kCoarseSegments; seg++) {
+			const int i     = ring * kCoarseSegments + seg;
+			const f32 along = (f32)ring / kCoarseRings;
+			const f32 angle = (f32)seg * (6.2831853f / kCoarseSegments);
+			const f32 x     = gpMarioPos->x + sinf(angle) * radius * along;
+			const f32 z     = gpMarioPos->z + cosf(angle) * radius * along;
+			const f32 h     = heightAt(s_plane, x, z);
+			const TBGCheckData* floor;
+			const f32 g = gpMap->checkGroundIgnoreWaterSurface(x, h, z, &floor);
+			f32 depth   = h - g;
+			depth       = depth < 0.0f ? 0.0f : depth > 5000.0f ? 5000.0f : depth;
+			// deeper, darker: half of it by 400 units down, nearly all by 1500
+			const f32 dark = 1.0f - expf(-depth / 580.0f);
+			// fading out over the last fifth of the disc
+			const f32 edge = along > 0.8f ? (1.0f - along) * 5.0f : 1.0f;
+			px[i] = x, py[i] = h + kLift, pz[i] = z;
+			pa[i] = (u8)(most * dark * edge * 255.0f);
+		}
+
+	GXClearVtxDesc();
+	GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+	GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+	GXSetCurrentMtx(GX_PNMTX0);
+	GXLoadPosMtxImm(view, GX_PNMTX0);
+	GXSetNumTexGens(0);
+	GXSetNumTevStages(1);
+	GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+	GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+	GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+	for (int pass = 0; pass < 2; pass++) {
+		if (pass == 0) {
+			// the marks times how dark here
+			GXSetBlendMode(GX_BM_BLEND, GX_BL_ZERO, GX_BL_SRCALPHA, GX_LO_NOOP);
+			GXSetColorUpdate(GX_FALSE);
+			GXSetAlphaUpdate(GX_TRUE);
+		} else {
+			// the deep colour laid over by as much
+			GXSetBlendMode(GX_BM_BLEND, GX_BL_DSTALPHA, GX_BL_INVDSTALPHA, GX_LO_NOOP);
+			GXSetColorUpdate(GX_TRUE);
+			GXSetAlphaUpdate(GX_FALSE);
+		}
+		for (int ring = 0; ring < kCoarseRings; ring++) {
+			GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, (u16)(2 * (kCoarseSegments + 1)));
+			for (int seg = 0; seg <= kCoarseSegments; seg++)
+				for (int k = 0; k < 2; k++) {
+					const int i = (ring + 1 - k) * kCoarseSegments + seg % kCoarseSegments;
+					GXPosition3f32(px[i], py[i], pz[i]);
+					GXColor4u8(kDeep[0], kDeep[1], kDeep[2], pa[i]);
+				}
+			GXEnd();
+		}
+	}
+	GXSetColorUpdate(GX_FALSE);
+	GXSetAlphaUpdate(GX_TRUE);
+}
+
+// Whether the port draws the disc itself (anything of the above in use), not the game's.
+bool ownDisc(int rippleKind)
+{
+	if (port_reflection_view_angle() || port_sun_glints() || port_reflection_blur_on())
+		return true;
+	if (rippleKind == 1)
+		return port_water_ripples() != 0;
+	return port_puddle_ripples() && ringsLive();
 }
 
 void drawMarks(u8 alpha)
@@ -598,7 +933,9 @@ const TBGCheckData* port_mirror_plane(const TBGCheckData* ground)
 	} else {
 		return ground;
 	}
-	Collect collect = {x, z, radius, s_plane, s_kind == KIND_WATER};
+	s_depthRadius = radius > 2500.0f ? radius : 2500.0f;
+	Collect collect = {x, z, s_kind == KIND_WATER && port_water_depth() ? s_depthRadius : radius, s_plane,
+	                   s_kind == KIND_WATER};
 	eachGroundNear(x, z, radius, collect);
 	if (s_kind == KIND_GROUND && !s_triCount)
 		s_kind = KIND_NONE;  // no wet ground: the floor's puddles, as the game has them
@@ -648,42 +985,40 @@ void port_draw_water_mirror(MtxPtr view)
 	GXSetAlphaUpdate(GX_TRUE);
 	GXSetDstAlpha(GX_FALSE, 0);
 	GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+	if (s_kind == KIND_WATER && port_water_depth()) {
+		drawMarks(255);
+		drawDepth(view, s_depthRadius);
+		GXSetBlendMode(GX_BM_BLEND, GX_BL_ONE, GX_BL_ZERO, GX_LO_NOOP);
+		GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+	}
 	drawMarks(strength);
 
-	// 2: faded out over the disc around Mario (the mark times the disc's alpha)
-	Mtx identity;
-	MTXIdentity(identity);
-	gpMirrorModelManager->unk24->drawSetting(identity);
-	GXSetCurrentMtx(GX_PNMTX0);
-	GXLoadPosMtxImm(view, GX_PNMTX0);
-	GXSetNumTexGens(1);
-	GXSetNumTevStages(1);
-	GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
-	GXSetTevOp(GX_TEVSTAGE0, GX_MODULATE);
-	GXSetBlendMode(GX_BM_BLEND, GX_BL_ZERO, GX_BL_SRCALPHA, GX_LO_NOOP);
-	GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
-
-	// water: its waves; wet ground: the puddles' rings, while there are any
+	// 2-3: the reflection over them (the port's own disc, or as the game's)
+	const int rippleKind     = s_kind == KIND_WATER ? 1 : 2;
 	const int rippleStrength = s_kind == KIND_WATER ? port_water_ripples() : port_puddle_ripples();
-	const bool rippled = rippleStrength && gpCamera && (s_kind == KIND_WATER || ringsLive());
-	Ripple ripple;
-	if (rippled) {
-		setUpRipple(&ripple, s_plane, s_kind != KIND_WATER, rippleStrength, radius, gpModelWaterManager->unk5D64);
-		drawRippleDisc(ripple);
+	if (gpCamera && ownDisc(rippleKind)) {
+		drawReflection(view, s_plane, radius, gpModelWaterManager->unk5D64, rippleKind, rippleStrength,
+		               s_kind == KIND_WATER ? PORT_PUDDLE_WATER : PORT_PUDDLE_WET_GROUND);
 	} else {
+		Mtx identity;
+		MTXIdentity(identity);
+		gpMirrorModelManager->unk24->drawSetting(identity);
+		GXSetCurrentMtx(GX_PNMTX0);
+		GXLoadPosMtxImm(view, GX_PNMTX0);
+		GXSetNumTexGens(1);
+		GXSetNumTevStages(1);
+		GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+		GXSetTevOp(GX_TEVSTAGE0, GX_MODULATE);
+		GXSetBlendMode(GX_BM_BLEND, GX_BL_ZERO, GX_BL_SRCALPHA, GX_LO_NOOP);
+		GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
 		GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_POS, 0x1e, 0, 0x7d);
 		drawDisc(radius, gpModelWaterManager->unk5D64);
-	}
-
-	// 3: the mirror's picture laid over what is marked, and the alpha left clear
-	GXSetBlendMode(GX_BM_BLEND, GX_BL_DSTALPHA, GX_BL_INVDSTALPHA, GX_LO_NOOP);
-	GXSetColorUpdate(GX_TRUE);
-	GXSetAlphaUpdate(GX_TRUE);
-	GXSetDstAlpha(GX_TRUE, 0);
-	if (rippled)
-		drawRippleDisc(ripple);
-	else
+		GXSetBlendMode(GX_BM_BLEND, GX_BL_DSTALPHA, GX_BL_INVDSTALPHA, GX_LO_NOOP);
+		GXSetColorUpdate(GX_TRUE);
+		GXSetAlphaUpdate(GX_TRUE);
+		GXSetDstAlpha(GX_TRUE, 0);
 		drawDisc(radius, gpModelWaterManager->unk5D64);
+	}
 
 	// 4: what of the marks lies outside the disc, cleared too
 	GXSetNumTexGens(0);
@@ -691,7 +1026,16 @@ void port_draw_water_mirror(MtxPtr view)
 	GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
 	GXSetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_NOOP);
 	GXSetColorUpdate(GX_FALSE);
+	GXSetAlphaUpdate(GX_TRUE);
+	GXSetDstAlpha(GX_TRUE, 0);
 	GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+	GXClearVtxDesc();
+	GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+	GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+	GXSetCurrentMtx(GX_PNMTX0);
+	GXLoadPosMtxImm(view, GX_PNMTX0);
 	drawMarks(0);
 
 	GXSetColorUpdate(GX_TRUE);
@@ -699,18 +1043,15 @@ void port_draw_water_mirror(MtxPtr view)
 	GXSetDstAlpha(GX_FALSE, 0);
 }
 
-// From TModelWaterManager::drawMirror (zzzzz-ext-25-water-reflections), for each of its two passes
-// over the disc around Mario: with Puddle Ripples on and rings spreading, the disc drawn as the
-// web, the puddles' reflection rippling; 1 done. 0: the game's own disc, as ever.
-int port_draw_puddle_disc(f32 radius, u8 centre)
+// From TModelWaterManager::drawMirror (zzzzz-ext-25-water-reflections), with the puddles marked:
+// the reflection over them drawn by the port (ripples, Viewing Angle, Blur, Sun Glints), 1; or 0,
+// the game's own disc, as ever.
+int port_draw_puddle_reflection(MtxPtr view, f32 radius, u8 centre)
 {
-	const int strength = port_puddle_ripples();
-	if (!strength || !gpCamera || !gpMirrorModelManager || !gpMirrorModelManager->unk24 || !gpMarioGroundPlane
-	    || !*gpMarioGroundPlane || !(*gpMarioGroundPlane)->isLegal() || !ringsLive())
+	if (!gpCamera || !gpMirrorModelManager || !gpMirrorModelManager->unk24 || !gpMarioGroundPlane
+	    || !*gpMarioGroundPlane || !(*gpMarioGroundPlane)->isLegal() || !ownDisc(2))
 		return 0;
-	Ripple ripple;
-	setUpRipple(&ripple, *gpMarioGroundPlane, true, strength, radius, centre);
-	drawRippleDisc(ripple);
+	drawReflection(view, *gpMarioGroundPlane, radius, centre, 2, port_puddle_ripples(), -1);
 	return 1;
 }
 

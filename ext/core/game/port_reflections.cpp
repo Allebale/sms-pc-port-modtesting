@@ -315,6 +315,8 @@ struct Register {
 
 } // namespace
 
+extern "C" int port_puddle_surface_kind(unsigned type, unsigned material) { return surfaceOf(type, material); }
+
 extern "C" unsigned port_puddle_surface_alpha(unsigned type, unsigned material)
 {
 	return surfaceAlpha(type, material);

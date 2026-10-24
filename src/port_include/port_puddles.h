@@ -41,6 +41,21 @@ int port_puddle_surface_strength(int surface);
 // unk6) reflects, 0 to 255 (ext/core/game/port_reflections.cpp).
 unsigned port_puddle_surface_alpha(unsigned type, unsigned material);
 
+// The surface (PORT_PUDDLE_*) a floor of that type and sound material is (port_reflections.cpp).
+int port_puddle_surface_kind(unsigned type, unsigned material);
+
+// Viewing Angle: 0 off (every angle alike, as the game has it), 1 subtle, 2 realistic: reflections
+// stronger looking across puddles and water, weaker looking down into them.
+int port_reflection_view_angle(void);
+// Each surface's Blur (the Other page), 0 sharp to 10: how blurred reflections on it are.
+int port_puddle_surface_blur(int surface);
+// Whether any surface has Blur above 0.
+int port_reflection_blur_on(void);
+// Sun Glints: 0 off, 1 subtle, 2 bright: the sun's light bouncing off puddles and water.
+int port_sun_glints(void);
+// Water Depth: 0 off, 1 subtle, 2 strong: the sea, lakes and pools darker over deep ground.
+int port_water_depth(void);
+
 // Reflection Distance: the radius, in the game's units, of the disc around Mario that puddle
 // reflections are drawn over, fading out to its edge: 500, 750, 1000 (Original), 2000, 3000 or 5000.
 float port_puddle_reflection_distance(void);
