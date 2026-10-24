@@ -33,6 +33,7 @@ bool s_loaded;
 int s_index;       // into kScales: Original until chosen
 int s_reflections; // Puddle Reflections: 0 Mario only (as the game has it), 1 everything
 int s_surface;     // Reflections by Surface: 0 every puddle alike (as the game has it), 1 by its floor
+int s_water;       // Water Reflections: 0 none (as the game has it), 1 in the stage's water and wet ground
 const int kDistances[] = {500, 750, 1000, 2000, 3000, 5000};
 const char* const kDistanceNames[] = {"0.5x", "0.75x", "Original", "2x", "3x", "5x"};
 const int kDistanceCount = int(sizeof kDistances / sizeof kDistances[0]);
@@ -56,6 +57,8 @@ const Surface kSurfaces[PORT_PUDDLE_SURFACES] = {
     {"grass", "Grass", "Puddles on grass, in percent.", 75},
     {"canvas", "Canvas", "Puddles on canvas awnings, in percent.", 100},
     {"wet", "Wet Floors", "Puddles on wet, slippery floors, in percent.", 550},
+    {"water", "Water", "Sea, lakes, pools, fountains and streams, with Water Reflections, in percent.", 500},
+    {"wetground", "Wet Ground", "Wet ground itself, with Water Reflections, in percent.", 400},
 };
 const int kStep = 25;                       // 2.5%
 const int kSteps = 1000 / kStep + 1;        // 0 to 100%
@@ -130,9 +133,9 @@ std::string pathForLog() { return folder() + "/puddles.txt"; }
 
 // The settings in force, for the log.
 void logSettings(const char* why) {
-    port_log("[puddles] %s: lifetime %dx, reflections %s, by surface %s, distance %d (%s)\n", why,
+    port_log("[puddles] %s: lifetime %dx, reflections %s, by surface %s, distance %d, water %s (%s)\n", why,
              kScales[s_index], s_reflections ? "everything" : "Mario only", s_surface ? "on" : "off",
-             kDistances[s_distance], pathForLog().c_str());
+             kDistances[s_distance], s_water ? "on" : "off", pathForLog().c_str());
 }
 
 void load() {
@@ -155,6 +158,8 @@ void load() {
             s_reflections = value != 0;
         } else if (sscanf(line, " surface = %d", &value) == 1) {
             s_surface = value != 0;
+        } else if (sscanf(line, " waterreflections = %d", &value) == 1) {
+            s_water = value != 0;
         } else if (sscanf(line, " distance = %d", &value) == 1) {
             for (int i = 0; i < kDistanceCount; i++)
                 if (kDistances[i] == value) s_distance = i;
@@ -192,6 +197,8 @@ void save() {
     fprintf(f, "surface = %d\n", s_surface);
     fprintf(f, "# distance: how far from Mario reflections are drawn: 500, 750, 1000 (Original), 2000, 3000 or 5000.\n");
     fprintf(f, "distance = %d\n", kDistances[s_distance]);
+    fprintf(f, "# waterreflections: 1 the stage's water and wet ground reflect as puddles do, 0 not.\n");
+    fprintf(f, "waterreflections = %d\n", s_water);
     fprintf(f, "# How strongly puddles reflect on each surface, in percent (the menu's Other page).\n");
     for (int i = 0; i < PORT_PUDDLE_SURFACES; i++)
         fprintf(f, "%s = %d.%d\n", kSurfaces[i].key, s_strength[i] / 10, s_strength[i] % 10);
@@ -240,6 +247,19 @@ int surfaceSet(int i) {
     s_surface = i;
     save();
     logSettings("Reflections by Surface changed");
+    return 1;
+}
+
+int waterGet() {
+    load();
+    return s_water;
+}
+int waterSet(int i) {
+    if (i < 0 || i > 1) return 0;
+    load();
+    s_water = i;
+    save();
+    logSettings("Water Reflections changed");
     return 1;
 }
 
@@ -303,6 +323,9 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 98, "Reflection Distance",
      "How far from Mario puddles show reflections, fading out at the edge.", 0, nullptr, distanceCount,
      distanceName, distanceGet, distanceSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 99, "Water Reflections",
+     "The sea, pools, fountains, streams and wet ground reflect as puddles do.", 0, nullptr, offOnCount,
+     offOnName, waterGet, waterSet},
     SURFACE_ROW(PORT_PUDDLE_STONE, 10),
     SURFACE_ROW(PORT_PUDDLE_METAL, 20),
     SURFACE_ROW(PORT_PUDDLE_CLAY, 30),
@@ -311,6 +334,8 @@ const PortSetting kPuddleSettings[] = {
     SURFACE_ROW(PORT_PUDDLE_GRASS, 60),
     SURFACE_ROW(PORT_PUDDLE_CANVAS, 70),
     SURFACE_ROW(PORT_PUDDLE_WET, 80),
+    SURFACE_ROW(PORT_PUDDLE_WATER, 90),
+    SURFACE_ROW(PORT_PUDDLE_WET_GROUND, 100),
 };
 
 }  // namespace
@@ -340,6 +365,11 @@ int port_puddle_surface(void) {
 int port_puddle_surface_strength(int surface) {
     load();
     return surface >= 0 && surface < PORT_PUDDLE_SURFACES ? s_strength[surface] : 1000;
+}
+
+int port_water_reflections(void) {
+    load();
+    return s_water;
 }
 
 float port_puddle_reflection_distance(void) {

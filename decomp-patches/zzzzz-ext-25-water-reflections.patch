@@ -1,0 +1,69 @@
+Reason: Water Reflections (port_puddles.h, the settings menu's Graphics page): the stage's own water (sea, lakes, pools, fountains, streams) and wet ground show the reflections FLUDD's puddles do. TMirrorModelManager mirrors about the plane port_mirror_plane picks (the nearest water surface, else the floor under Mario, as ever), and TModelWaterManager draws the water's reflection after its puddles' (port_draw_water_mirror, ext/core/game/port_water_reflections.cpp); the puddles show none while it is mirrored about water. Off is the game as it was
+
+--- a/src/Map/MapMirror.cpp
++++ b/src/Map/MapMirror.cpp
+@@ -362,6 +362,11 @@
+ 
+ TMirrorModelManager* gpMirrorModelManager;
+ 
++#ifdef TARGET_PC
++// port: Water Reflections (ext/core/game/port_water_reflections.cpp)
++const TBGCheckData* port_mirror_plane(const TBGCheckData* ground);
++#endif
++
+ bool TMirrorModelManager::isUpperThanMirrorPlane(
+     const JGeometry::TVec3<f32>& param_1) const
+ {
+@@ -422,9 +427,18 @@
+ 	if (cue & CUE_MOVE) {
+ 		JGeometry::TVec3<f32> local_44 = *gpMarioPos;
+ 		unk18 = gpCubeMirror->getDataNo(gpCubeMirror->getInCubeNo(local_44));
++#ifdef TARGET_PC
++		// port: Water Reflections (port_puddles.h): the water surface nearest
++		// Mario may be the plane reflected about, not the floor under him.
++		// Off, the floor, as ever.
++		if (!isUnk18Present()
++		    && !gpMarioGroundPlane[0]->checkFlag(BG_CHECK_FLAG_ILLEGAL))
++			MapMirrorSetPlaneFromGround(this, port_mirror_plane(gpMarioGroundPlane[0]));
++#else
+ 		if (!isUnk18Present()
+ 		    && !gpMarioGroundPlane[0]->checkFlag(BG_CHECK_FLAG_ILLEGAL))
+ 			MapMirrorSetPlaneFromGround(this, gpMarioGroundPlane[0]);
++#endif
+ 	}
+ 
+ 	if (isUnk18Present()) {
+--- a/src/Player/ModelWaterManager.cpp
++++ b/src/Player/ModelWaterManager.cpp
+@@ -2210,6 +2210,11 @@
+ 		unk5D30->draw();
+ }
+ 
++#ifdef TARGET_PC
++// port: Water Reflections (ext/core/game/port_water_reflections.cpp)
++void port_draw_water_mirror(MtxPtr view);
++#endif
++
+ void TModelWaterManager::perform(u32 cue, JDrama::TGraphics* graphics)
+ {
+ 	MtxPtr r29 = graphics->mViewMtx;
+@@ -2238,8 +2243,19 @@
+ 		drawSilhouette(r29);
+ 		drawWaterVolume(r29);
+ 
++#ifdef TARGET_PC
++		// port: Water Reflections (port_puddles.h). While the reflection is
++		// mirrored about a water surface, the puddles on the floor show none
++		// (theirs would be about the wrong plane); the water's is drawn after.
++		if ((unk5D60 & 0x1) && !gpMirrorModelManager->isUnk18Present()) {
++			if (!port_water_mirror_on_water())
++				drawMirror(r29);
++			port_draw_water_mirror(r29);
++		}
++#else
+ 		if ((unk5D60 & 0x1) && !gpMirrorModelManager->isUnk18Present())
+ 			drawMirror(r29);
++#endif
+ 
+ 		MTXCopy(r29, unk5E10);
+ 		if ((unk5D60 & 0x100) && !(unk5D60 & 0x200))

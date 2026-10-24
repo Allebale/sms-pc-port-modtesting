@@ -30,6 +30,8 @@ enum {
 	PORT_PUDDLE_GRASS,
 	PORT_PUDDLE_CANVAS,
 	PORT_PUDDLE_WET,    // wet and slippery floors
+	PORT_PUDDLE_WATER,      // Water Reflections: the sea, lakes, pools, fountains and streams
+	PORT_PUDDLE_WET_GROUND, // Water Reflections: wet ground itself, puddle or not
 	PORT_PUDDLE_SURFACES
 };
 // How strongly a puddle on that surface reflects, in tenths of a percent of the game's own
@@ -42,6 +44,15 @@ unsigned port_puddle_surface_alpha(unsigned type, unsigned material);
 // Reflection Distance: the radius, in the game's units, of the disc around Mario that puddle
 // reflections are drawn over, fading out to its edge: 500, 750, 1000 (Original), 2000, 3000 or 5000.
 float port_puddle_reflection_distance(void);
+
+// Water Reflections: 1 when the stage's own water and wet ground show the reflections puddles
+// do (ext/core/game/port_water_reflections.cpp); 0 as the game has it.
+int port_water_reflections(void);
+// Whether water or wet ground shows reflections this frame.
+int port_water_mirror_active(void);
+// Whether this frame's reflections are mirrored about a water surface, not the floor under Mario
+// (FLUDD's puddles then show none: they are on another plane).
+int port_water_mirror_on_water(void);
 
 #ifdef __cplusplus
 }

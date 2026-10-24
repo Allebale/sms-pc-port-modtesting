@@ -1,0 +1,400 @@
+// Water Reflections (port_puddles.h, the settings menu's Graphics page): the reflections FLUDD's
+// puddles show (Mario, and with Puddle Reflections on, characters and objects) in the stage's own
+// water too: the sea, lakes, pools, fountains and streams, and wet ground. Game code, with the
+// game's flags and headers.
+//
+// How the game reflects in puddles (TMirrorModelManager, TModelWaterManager::drawMirror): each
+// frame the mirror camera draws the mirror scene (the copies of what is reflected) mirrored about
+// one plane, the floor under Mario, into a texture. drawMirror then marks the puddles in the frame's
+// alpha, fades that out over a disc around Mario, and lays the texture over what is marked.
+//
+// Here, as the frame starts (port_mirror_plane, from TMirrorModelManager::perform), the plane is
+// chosen: the water surface nearest Mario, when one is within the Reflection Distance and nearer
+// than any puddle or wet ground; else the floor under him, as in the game. After drawMirror
+// (port_draw_water_mirror, from TModelWaterManager::perform) the same is done for the water or wet
+// ground on that plane: its triangles, from the stage's collision, are marked as strongly as the
+// Other page says, the disc fades them out, and the texture is laid over them. Off, nothing of it
+// runs and the game is as it was.
+#include "port_ext.h"
+#include "port_puddles.h"
+
+#include <Map/MapCollisionData.hpp>
+#include <Map/MapData.hpp>
+#include <Map/MapMirror.hpp>
+#include <Camera/Camera.hpp>
+#include <JSystem/JMath.hpp>
+#include <Player/MarioAccess.hpp>
+#include <Player/ModelWaterManager.hpp>
+#include <dolphin/gx.h>
+#include <dolphin/mtx.h>
+
+#include <math.h>
+#include <stdio.h>
+
+namespace {
+
+// A water surface is flat: its normal's y at least this.
+const f32 kFlat = 0.95f;
+// How far above Mario a water surface may be and still be the one he is at (swimming, he is in it).
+const f32 kAbove = 200.0f;
+// How far below him it may be (looking down from a pier or a cliff).
+const f32 kBelowMario = 3000.0f;
+// How far apart in height two triangles may be and lie on one plane.
+const f32 kSamePlane = 20.0f;
+// The marks and the disc are raised this much over the plane, as the game raises its disc.
+const f32 kLift = 4.0f;
+// To keep from flickering between two planes as near: the other must be nearer by this much.
+const f32 kStick = 100.0f;
+// At most this many triangles are marked.
+const int kMostTriangles = 512;
+
+enum Kind { KIND_NONE, KIND_GROUND, KIND_WATER };
+
+// This frame's plane, and what is on it.
+const TBGCheckData* s_plane;
+int s_kind;
+const TBGCheckData* s_tris[kMostTriangles];
+int s_triCount;
+
+bool on() { return port_water_reflections() && gpMapCollisionData && gpMarioPos; }
+
+bool isWater(const TBGCheckData* d) { return d->isWaterSurface() && d->getNormal().y >= kFlat; }
+
+bool isWetGround(const TBGCheckData* d)
+{
+	return (d->mBGType & 0x3FFF) == BG_TYPE_WET_GROUND && d->getNormal().y >= kFlat;
+}
+
+// The plane's height at x, z.
+f32 heightAt(const TBGCheckData* d, f32 x, f32 z)
+{
+	const JGeometry::TVec3<f32>& n = d->getNormal();
+	return -(d->getPlaneDistance() + n.x * x + n.z * z) / n.y;
+}
+
+bool samePlane(const TBGCheckData* a, const TBGCheckData* b)
+{
+	const JGeometry::TVec3<f32>& na = a->getNormal();
+	const JGeometry::TVec3<f32>& nb = b->getNormal();
+	if (na.x * nb.x + na.y * nb.y + na.z * nb.z < 0.999f)
+		return false;
+	const f32 x = a->mPoint1.x, z = a->mPoint1.z;
+	return fabsf(heightAt(a, x, z) - heightAt(b, x, z)) <= kSamePlane;
+}
+
+f32 segmentDistance2(f32 px, f32 pz, f32 ax, f32 az, f32 bx, f32 bz)
+{
+	const f32 dx = bx - ax, dz = bz - az;
+	const f32 len = dx * dx + dz * dz;
+	f32 t         = len > 0.0f ? ((px - ax) * dx + (pz - az) * dz) / len : 0.0f;
+	t             = t < 0.0f ? 0.0f : t > 1.0f ? 1.0f : t;
+	const f32 ex = ax + t * dx - px, ez = az + t * dz - pz;
+	return ex * ex + ez * ez;
+}
+
+// How far, across the ground, a triangle is from x, z: 0 when over it.
+f32 distanceTo(const TBGCheckData* d, f32 x, f32 z)
+{
+	const JGeometry::TVec3<f32>& a = d->mPoint1;
+	const JGeometry::TVec3<f32>& b = d->mPoint2;
+	const JGeometry::TVec3<f32>& c = d->mPoint3;
+	const f32 s1 = (b.x - a.x) * (z - a.z) - (b.z - a.z) * (x - a.x);
+	const f32 s2 = (c.x - b.x) * (z - b.z) - (c.z - b.z) * (x - b.x);
+	const f32 s3 = (a.x - c.x) * (z - c.z) - (a.z - c.z) * (x - c.x);
+	if ((s1 >= 0 && s2 >= 0 && s3 >= 0) || (s1 <= 0 && s2 <= 0 && s3 <= 0))
+		return 0.0f;
+	f32 m       = segmentDistance2(x, z, a.x, a.z, b.x, b.z);
+	const f32 n = segmentDistance2(x, z, b.x, b.z, c.x, c.z);
+	const f32 o = segmentDistance2(x, z, c.x, c.z, a.x, a.z);
+	m           = n < m ? n : m;
+	m           = o < m ? o : m;
+	return sqrtf(m);
+}
+
+// Each ground triangle of the stage's collision within radius of x, z, once: the static map's
+// and the moving one's, from the 1024-unit grid the game keeps them in.
+template <class F>
+void eachGroundNear(f32 x, f32 z, f32 radius, F& f)
+{
+	const TMapCollisionData* map = gpMapCollisionData;
+	const int across             = map->unk8;
+	const int down               = map->unkC;
+	if (across <= 0 || down <= 0)
+		return;
+	int x0 = (int)((x - radius + map->mGridExtentX) * (1.0f / 1024));
+	int x1 = (int)((x + radius + map->mGridExtentX) * (1.0f / 1024));
+	int z0 = (int)((z - radius + map->mGridExtentY) * (1.0f / 1024));
+	int z1 = (int)((z + radius + map->mGridExtentY) * (1.0f / 1024));
+	x0     = x0 < 0 ? 0 : x0;
+	z0     = z0 < 0 ? 0 : z0;
+	x1     = x1 >= across ? across - 1 : x1;
+	z1     = z1 >= down ? down - 1 : z1;
+	for (int gz = z0; gz <= z1; gz++)
+		for (int gx = x0; gx <= x1; gx++)
+			for (int g = 0; g < 2; g++) {
+				const TBGCheckListRoot& root = g ? map->getGridRoot18(gx, gz) : map->getGridRoot14(gx, gz);
+				for (const TBGCheckList* l = root.getGroundList(); l; l = l->getNext())
+					if (l->unk8)
+						f(l->unk8);
+			}
+}
+
+// The nearest water surface Mario is at, or over.
+struct FindWater {
+	f32 x, y, z;
+	const TBGCheckData* best;
+	f32 bestDistance;
+	void operator()(const TBGCheckData* d)
+	{
+		if (!isWater(d))
+			return;
+		const f32 h = heightAt(d, x, z);
+		if (h > y + kAbove || h < y - kBelowMario)
+			return;
+		const f32 distance = distanceTo(d, x, z);
+		if (!best || distance < bestDistance) {
+			best         = d;
+			bestDistance = distance;
+		}
+	}
+};
+
+// The nearest wet ground on the floor under Mario.
+struct FindWetGround {
+	f32 x, z;
+	const TBGCheckData* ground;
+	f32 bestDistance;
+	bool found;
+	void operator()(const TBGCheckData* d)
+	{
+		if (!isWetGround(d) || !samePlane(d, ground))
+			return;
+		const f32 distance = distanceTo(d, x, z);
+		if (!found || distance < bestDistance) {
+			found        = true;
+			bestDistance = distance;
+		}
+	}
+};
+
+// The nearest of FLUDD's puddles on the floor, as far across the ground from Mario.
+bool nearestPuddle(f32 radius, f32* out)
+{
+	TModelWaterManager* water = gpModelWaterManager;
+	if (!water)
+		return false;
+	bool found = false;
+	f32 best   = radius;
+	for (int i = 0; i < water->getParticleCount(); i++) {
+		if ((water->mParticleFlagSOA[i] & 0xf) != 2)
+			continue;
+		const f32 dx = water->mParticlePositionSOA[i].x - gpMarioPos->x;
+		const f32 dz = water->mParticlePositionSOA[i].z - gpMarioPos->z;
+		const f32 d  = sqrtf(dx * dx + dz * dz);
+		if (d < best) {
+			best  = d;
+			found = true;
+		}
+	}
+	*out = best;
+	return found;
+}
+
+// What to mark on the plane: the water or the wet ground on it within the disc.
+struct Collect {
+	f32 x, z, radius;
+	const TBGCheckData* plane;
+	bool water;
+	void operator()(const TBGCheckData* d)
+	{
+		if (s_triCount >= kMostTriangles)
+			return;
+		if (water ? !isWater(d) : !isWetGround(d))
+			return;
+		if (!samePlane(d, plane) || distanceTo(d, x, z) >= radius)
+			return;
+		for (int i = 0; i < s_triCount; i++)  // in both grids, or in more than one cell
+			if (s_tris[i] == d)
+				return;
+		s_tris[s_triCount++] = d;
+	}
+};
+
+bool cameraAbove(const TBGCheckData* plane)
+{
+	if (!gpCamera)
+		return true;
+	const JGeometry::TVec3<f32>& c = gpCamera->mPosition;
+	return c.y > heightAt(plane, c.x, c.z);
+}
+
+// The disc's rim: as drawMirror's, on the plane.
+void discPoint(int i, f32 radius, JGeometry::TVec3<f32>* out)
+{
+	out->x = gpMarioPos->x + JMASSin(i * 0x2000) * radius;
+	out->z = gpMarioPos->z + JMASCos(i * 0x2000) * radius;
+	out->y = heightAt(s_plane, out->x, out->z) + kLift;
+}
+
+void drawDisc(f32 radius, u8 centre)
+{
+	JGeometry::TVec3<f32> rim[8];
+	for (int i = 0; i < 8; i++)
+		discPoint(i, radius, &rim[i]);
+	GXBegin(GX_TRIANGLEFAN, GX_VTXFMT0, 10);
+	GXPosition3f32(gpMarioPos->x, heightAt(s_plane, gpMarioPos->x, gpMarioPos->z) + kLift, gpMarioPos->z);
+	GXColor4u8(0xff, 0xff, 0xff, centre);
+	for (int i = 0; i <= 8; i++) {
+		const JGeometry::TVec3<f32>& p = rim[i & 7];
+		GXPosition3f32(p.x, p.y, p.z);
+		GXColor4u8(0, 0, 0, 0);
+	}
+	GXEnd();
+}
+
+void drawMarks(u8 alpha)
+{
+	GXBegin(GX_TRIANGLES, GX_VTXFMT0, (u16)(s_triCount * 3));
+	for (int i = 0; i < s_triCount; i++) {
+		const TBGCheckData* d = s_tris[i];
+		GXPosition3f32(d->mPoint1.x, d->mPoint1.y + kLift, d->mPoint1.z);
+		GXColor4u8(0xff, 0xff, 0xff, alpha);
+		GXPosition3f32(d->mPoint2.x, d->mPoint2.y + kLift, d->mPoint2.z);
+		GXColor4u8(0xff, 0xff, 0xff, alpha);
+		GXPosition3f32(d->mPoint3.x, d->mPoint3.y + kLift, d->mPoint3.z);
+		GXColor4u8(0xff, 0xff, 0xff, alpha);
+	}
+	GXEnd();
+}
+
+} // namespace
+
+// From TMirrorModelManager::perform (zzzzz-ext-25-water-reflections), as each frame starts: the
+// plane the mirror scene is mirrored about this frame. ground: the floor under Mario, the game's.
+const TBGCheckData* port_mirror_plane(const TBGCheckData* ground)
+{
+	s_plane    = ground;
+	s_kind     = KIND_NONE;
+	s_triCount = 0;
+	if (!on())
+		return ground;
+	const f32 radius = port_puddle_reflection_distance();
+	const f32 x = gpMarioPos->x, y = gpMarioPos->y, z = gpMarioPos->z;
+
+	// on the floor: the puddles, and the wet ground that lies on it
+	f32 groundDistance = radius;
+	bool groundFound   = nearestPuddle(radius, &groundDistance);
+	if (ground && ground->isLegal()) {
+		FindWetGround wet = {x, z, ground, 0.0f, false};
+		eachGroundNear(x, z, radius, wet);
+		if (wet.found && (!groundFound || wet.bestDistance < groundDistance)) {
+			groundDistance = wet.bestDistance;
+			groundFound    = true;
+		}
+	}
+
+	FindWater water = {x, y, z, nullptr, 0.0f};
+	eachGroundNear(x, z, radius, water);
+	bool useWater = water.best && water.bestDistance < radius && cameraAbove(water.best);
+	if (useWater && groundFound) {
+		static bool s_wasWater;
+		const f32 stick = s_wasWater ? kStick : -kStick;
+		useWater        = water.bestDistance < groundDistance + stick;
+		s_wasWater      = useWater;
+	}
+
+	if (useWater) {
+		s_plane = water.best;
+		s_kind  = KIND_WATER;
+	} else if (ground && ground->isLegal()) {
+		s_kind = KIND_GROUND;
+	} else {
+		return ground;
+	}
+	Collect collect = {x, z, radius, s_plane, s_kind == KIND_WATER};
+	eachGroundNear(x, z, radius, collect);
+	if (s_kind == KIND_GROUND && !s_triCount)
+		s_kind = KIND_NONE;  // no wet ground: the floor's puddles, as the game has them
+	return s_plane;
+}
+
+// Whether water or wet ground shows reflections this frame (port_reflections.cpp draws the copies
+// of characters and objects then, as it does while there are puddles).
+extern "C" int port_water_mirror_active(void) { return s_kind != KIND_NONE && s_triCount > 0; }
+
+extern "C" int port_water_mirror_on_water(void) { return s_kind == KIND_WATER; }
+
+// From TModelWaterManager::perform (zzzzz-ext-25-water-reflections), after drawMirror: the
+// reflection in the water or wet ground on this frame's plane. view: the camera's.
+void port_draw_water_mirror(MtxPtr view)
+{
+	if (!port_water_mirror_active() || !gpMirrorModelManager || !gpMirrorModelManager->unk24
+	    || !gpModelWaterManager)
+		return;
+	const int tenths = port_puddle_surface_strength(s_kind == KIND_WATER ? PORT_PUDDLE_WATER
+	                                                                      : PORT_PUDDLE_WET_GROUND);
+	const u8 strength = (u8)((tenths < 0 ? 0 : tenths > 1000 ? 1000 : tenths) * 255 / 1000);
+	if (!strength)
+		return;
+	const f32 radius = port_puddle_reflection_distance();
+
+	GXClearVtxDesc();
+	GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+	GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+	GXSetCurrentMtx(GX_PNMTX0);
+	GXLoadPosMtxImm(view, GX_PNMTX0);
+	GXSetCullMode(GX_CULL_NONE);
+	GXSetNumChans(1);
+	GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX, 0, GX_DF_NONE, GX_AF_NONE);
+	GXSetZCompLoc(GX_TRUE);
+	GXSetAlphaCompare(GX_ALWAYS, 0, GX_AOP_OR, GX_ALWAYS, 0);
+
+	// 1: the water marked in the frame's alpha, where it is seen
+	GXSetNumTexGens(0);
+	GXSetNumTevStages(1);
+	GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+	GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+	GXSetBlendMode(GX_BM_BLEND, GX_BL_ONE, GX_BL_ZERO, GX_LO_NOOP);
+	GXSetColorUpdate(GX_FALSE);
+	GXSetAlphaUpdate(GX_TRUE);
+	GXSetDstAlpha(GX_FALSE, 0);
+	GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+	drawMarks(strength);
+
+	// 2: faded out over the disc around Mario (the mark times the disc's alpha)
+	Mtx identity;
+	MTXIdentity(identity);
+	gpMirrorModelManager->unk24->drawSetting(identity);
+	GXSetCurrentMtx(GX_PNMTX0);
+	GXLoadPosMtxImm(view, GX_PNMTX0);
+	GXSetNumTexGens(1);
+	GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_POS, 0x1e, 0, 0x7d);
+	GXSetNumTevStages(1);
+	GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+	GXSetTevOp(GX_TEVSTAGE0, GX_MODULATE);
+	GXSetBlendMode(GX_BM_BLEND, GX_BL_ZERO, GX_BL_SRCALPHA, GX_LO_NOOP);
+	GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+	drawDisc(radius, gpModelWaterManager->unk5D64);
+
+	// 3: the mirror's picture laid over what is marked, and the alpha left clear
+	GXSetBlendMode(GX_BM_BLEND, GX_BL_DSTALPHA, GX_BL_INVDSTALPHA, GX_LO_NOOP);
+	GXSetColorUpdate(GX_TRUE);
+	GXSetAlphaUpdate(GX_TRUE);
+	GXSetDstAlpha(GX_TRUE, 0);
+	drawDisc(radius, gpModelWaterManager->unk5D64);
+
+	// 4: what of the marks lies outside the disc, cleared too
+	GXSetNumTexGens(0);
+	GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+	GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+	GXSetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_NOOP);
+	GXSetColorUpdate(GX_FALSE);
+	GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+	drawMarks(0);
+
+	GXSetColorUpdate(GX_TRUE);
+	GXSetAlphaUpdate(GX_FALSE);
+	GXSetDstAlpha(GX_FALSE, 0);
+}

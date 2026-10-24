@@ -59,7 +59,8 @@ public:
 private:
 	bool shown() const
 	{
-		if (!port_puddle_reflections() || !gpModelWaterManager || !gpModelWaterManager->getParticleCount())
+		if (!port_puddle_reflections() || !gpModelWaterManager
+		    || (!gpModelWaterManager->getParticleCount() && !port_water_mirror_active()))
 			return false;
 		if (mOwner->checkLiveFlag(LIVE_FLAG_DEAD | LIVE_FLAG_HIDDEN | LIVE_FLAG_CLIPPED_OUT))
 			return false;
