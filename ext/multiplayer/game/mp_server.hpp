@@ -38,6 +38,8 @@ int MpServerAfterFileSelect();
 int MpServerNoDamage();
 // The MPG_RULE_* bits in force (MPG_CMD_RULES).
 unsigned MpServerRules();
+// Marker i (MPG_CMD_MARKER) over a place, where (test aids).
+bool MpServerMarker(int i, float* at);
 // The game camera's eye and the point it looks at, about to be used: shaken (MPG_CMD_SHAKE).
 void MpServerCamera(float* eye, float* at);
 
@@ -48,6 +50,8 @@ void MpSpawnStageSetup();
 void MpSpawn(const MpgCmd& c);
 // The copy with that id (MPG_CMD_SPAWN's i[3]), or null.
 TLiveActor* MpSpawned(int id);
+// Spawned copy i (0 up) where it is (test aids).
+bool MpSpawnedPos(int i, float* at);
 // Its id, or 0: the stage's own.
 int MpSpawnedId(const TLiveActor* actor);
 

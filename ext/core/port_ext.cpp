@@ -14,6 +14,10 @@ int s_count;
 
 } // namespace
 
+// The file chosen at file select, for fileStarting: as saveFile last said;
+// none (-1, a new game) for one played without a memory card.
+static int s_startFile = -1, s_startNew = 1;
+
 extern "C" void port_ext_register(const PortExtension* ext)
 {
 	if (!ext || s_count >= kMaxExtensions)
@@ -93,6 +97,8 @@ extern "C" int port_ext_keep_coins_on_miss(void)
 
 extern "C" void port_ext_after_file_select(void)
 {
+	s_startFile = -1; // the next game's file comes with its own saveFile
+	s_startNew  = 1;
 	EACH(afterFileSelect) s_ext[i]->afterFileSelect();
 }
 
@@ -221,12 +227,28 @@ int port_ext_no_coaster_start;
 
 extern "C" void port_ext_save_file(int what, int file, int from)
 {
+	if (what == PORT_SAVE_FILE_LOADED || what == PORT_SAVE_FILE_NEW) {
+		s_startFile = file;
+		s_startNew  = what == PORT_SAVE_FILE_NEW;
+	}
 	EACH(saveFile) s_ext[i]->saveFile(what, file, from);
+}
+
+extern "C" int port_ext_file_starting(void)
+{
+	EACH(fileStarting) if (s_ext[i]->fileStarting(s_startFile, s_startNew)) return 1;
+	return 0;
 }
 
 extern "C" int port_ext_nozzle_fire(void* mario, int nozzle, int how)
 {
 	EACH(nozzleFire) if (s_ext[i]->nozzleFire(mario, nozzle, how)) return 1;
+	return 0;
+}
+
+extern "C" int port_ext_fludd_refill(void* mario, int source, void* from)
+{
+	EACH(fluddRefill) if (s_ext[i]->fluddRefill(mario, source, from)) return 1;
 	return 0;
 }
 
