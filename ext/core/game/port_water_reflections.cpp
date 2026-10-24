@@ -18,6 +18,7 @@
 #include "port_ext.h"
 #include "port_puddles.h"
 
+#include <Map/Map.hpp>
 #include <Map/MapCollisionData.hpp>
 #include <Map/MapData.hpp>
 #include <Map/MapMirror.hpp>
@@ -112,6 +113,45 @@ f32 distanceTo(const TBGCheckData* d, f32 x, f32 z)
 	return sqrtf(m);
 }
 
+// The point of a triangle nearest x, z across the ground (x, z itself when over it).
+void closestPoint(const TBGCheckData* d, f32 x, f32 z, f32* outX, f32* outZ)
+{
+	if (distanceTo(d, x, z) == 0.0f) {
+		*outX = x;
+		*outZ = z;
+		return;
+	}
+	const JGeometry::TVec3<f32>* p[3] = {&d->mPoint1, &d->mPoint2, &d->mPoint3};
+	f32 best = -1.0f;
+	for (int i = 0; i < 3; i++) {
+		const JGeometry::TVec3<f32>& a = *p[i];
+		const JGeometry::TVec3<f32>& b = *p[(i + 1) % 3];
+		const f32 dx = b.x - a.x, dz = b.z - a.z;
+		const f32 len = dx * dx + dz * dz;
+		f32 t         = len > 0.0f ? ((x - a.x) * dx + (z - a.z) * dz) / len : 0.0f;
+		t             = t < 0.0f ? 0.0f : t > 1.0f ? 1.0f : t;
+		const f32 cx = a.x + t * dx, cz = a.z + t * dz;
+		const f32 e  = (cx - x) * (cx - x) + (cz - z) * (cz - z);
+		if (best < 0.0f || e < best) {
+			best  = e;
+			*outX = cx;
+			*outZ = cz;
+		}
+	}
+}
+
+// Whether the water at x, z is open to the sky as far up as top: no land over it. A stage's sea
+// can run on under the land (the plaza's under its streets), where nothing of it is seen.
+bool openWater(const TBGCheckData* d, f32 x, f32 z, f32 top)
+{
+	if (!gpMap)
+		return true;
+	const f32 h = heightAt(d, x, z);
+	const TBGCheckData* floor;
+	const f32 g = gpMap->checkGroundIgnoreWaterSurface(x, (top > h ? top : h) + 50.0f, z, &floor);
+	return g <= h + 10.0f;
+}
+
 // Each ground triangle of the stage's collision within radius of x, z, once: the static map's
 // and the moving one's, from the 1024-unit grid the game keeps them in.
 template <class F>
@@ -152,7 +192,23 @@ struct FindWater {
 		const f32 h = heightAt(d, x, z);
 		if (h > y + kAbove || h < y - kBelowMario)
 			return;
-		const f32 distance = distanceTo(d, x, z);
+		// as near as the nearest of its points with no land over the water: the one nearest
+		// Mario, its corners and its middle (a pier over the sea is land over it where he stands)
+		f32 px[5], pz[5];
+		closestPoint(d, x, z, &px[0], &pz[0]);
+		px[1] = d->mPoint1.x, pz[1] = d->mPoint1.z;
+		px[2] = d->mPoint2.x, pz[2] = d->mPoint2.z;
+		px[3] = d->mPoint3.x, pz[3] = d->mPoint3.z;
+		px[4] = (px[1] + px[2] + px[3]) / 3.0f, pz[4] = (pz[1] + pz[2] + pz[3]) / 3.0f;
+		f32 distance = -1.0f;
+		for (int i = 0; i < 5; i++) {
+			const f32 dx = px[i] - x, dz = pz[i] - z;
+			const f32 e  = sqrtf(dx * dx + dz * dz);
+			if ((distance < 0.0f || e < distance) && openWater(d, px[i], pz[i], y + kAbove))
+				distance = e;
+		}
+		if (distance < 0.0f)
+			return;  // all under land
 		if (!best || distance < bestDistance) {
 			best         = d;
 			bestDistance = distance;
@@ -495,9 +551,11 @@ const TBGCheckData* port_mirror_plane(const TBGCheckData* ground)
 	const f32 radius = port_puddle_reflection_distance();
 	const f32 x = gpMarioPos->x, y = gpMarioPos->y, z = gpMarioPos->z;
 
-	// on the floor: the puddles, and the wet ground that lies on it
+	// on the floor: the puddles, and the wet ground that lies on it. FLUDD's puddles near Mario
+	// always keep the reflection on the floor, so that they never lose theirs to water near by.
 	f32 groundDistance = radius;
 	bool groundFound   = nearestPuddle(radius, &groundDistance);
+	const bool puddles = groundFound;
 	if (ground && ground->isLegal()) {
 		FindWetGround wet = {x, z, ground, 0.0f, false};
 		eachGroundNear(x, z, radius, wet);
@@ -509,12 +567,26 @@ const TBGCheckData* port_mirror_plane(const TBGCheckData* ground)
 
 	FindWater water = {x, y, z, nullptr, 0.0f};
 	eachGroundNear(x, z, radius, water);
-	bool useWater = water.best && water.bestDistance < radius && cameraAbove(water.best);
+	bool useWater = !puddles && water.best && water.bestDistance < radius && cameraAbove(water.best);
 	if (useWater && groundFound) {
 		static bool s_wasWater;
 		const f32 stick = s_wasWater ? kStick : -kStick;
 		useWater        = water.bestDistance < groundDistance + stick;
 		s_wasWater      = useWater;
+	}
+
+	// the log: each time the reflection moves from the floor to water or back
+	static int s_logged = -1;
+	static s32 s_loggedAt;
+	if ((int)useWater != s_logged && nowMs() - s_loggedAt > 1000) {
+		s_logged   = useWater;
+		s_loggedAt = nowMs();
+		if (useWater)
+			fprintf(stderr, "[puddles] reflections on water (its surface at %.0f, Mario at %.0f, %.0f away)\n",
+			         heightAt(water.best, x, z), y, water.bestDistance);
+		else
+			fprintf(stderr, "[puddles] reflections on the floor (%s)\n",
+			         puddles ? "FLUDD's puddles near" : "no open water near, or wet ground nearer");
 	}
 
 	if (useWater) {
