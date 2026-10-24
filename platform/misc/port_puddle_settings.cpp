@@ -65,6 +65,7 @@ bool isKind(const char* line, int* value) {
 int s_ripples = 1; // Water Ripples: 0 off, 1 gentle, 2 strong
 int s_puddleRipples = 1; // Puddle Ripples: 0 off, 1 gentle, 2 strong
 int s_beatMirrors = 1;    // Puddles Beat Mirrors
+int s_level = 0;          // Reflect the Level: 0 off (as the game has it), 1 the stage itself too
 int s_water;       // Water Reflections: 0 none (as the game has it), 1 in the stage's water and wet ground
 const int kDistances[] = {500, 750, 1000, 2000, 3000, 5000};
 const char* const kDistanceNames[] = {"0.5x", "0.75x", "Original", "2x", "3x", "5x"};
@@ -206,6 +207,8 @@ void load() {
             s_depth = value < 0 ? 0 : value > 2 ? 2 : value;
         } else if (isKind(line, &value)) {
             // done by isKind
+        } else if (sscanf(line, " level = %d", &value) == 1) {
+            s_level = value != 0;
         } else if (sscanf(line, " beatmirrors = %d", &value) == 1) {
             s_beatMirrors = value != 0;
         } else if (sscanf(line, " puddleripples = %d", &value) == 1) {
@@ -255,6 +258,8 @@ void save() {
     fprintf(f, "ripples = %d\n", s_ripples);
     fprintf(f, "# puddleripples: rings spread in puddles where drops land and Mario runs: 0 off, 1 gentle, 2 strong.\n");
     fprintf(f, "puddleripples = %d\n", s_puddleRipples);
+    fprintf(f, "# level: 1 the stage itself (ground, buildings, sky) in puddles and water too, 0 not.\n");
+    fprintf(f, "level = %d\n", s_level);
     fprintf(f, "# beatmirrors: 1 puddles near Mario take the reflection from a real mirror's area, 0 not.\n");
     fprintf(f, "beatmirrors = %d\n", s_beatMirrors);
     fprintf(f, "# viewangle: reflections by how slanting the view is: 0 off, 1 subtle, 2 realistic.\n");
@@ -358,6 +363,19 @@ int puddleRipplesSet(int i) {
     s_puddleRipples = i;
     save();
     port_log("[puddles] Puddle Ripples changed: %s\n", ripplesName(i));
+    return 1;
+}
+
+int levelGet() {
+    load();
+    return s_level;
+}
+int levelSet(int i) {
+    if (i < 0 || i > 1) return 0;
+    load();
+    s_level = i;
+    save();
+    port_log("[puddles] Reflect the Level changed: %s (from the next area)\n", i ? "on" : "off");
     return 1;
 }
 
@@ -512,6 +530,9 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 11, "Puddle Ripples",
      "New puddles and Mario's steps ripple the reflection, calming over 2 seconds.", 0, nullptr, ripplesCount,
      ripplesName, puddleRipplesGet, puddleRipplesSet},
+    {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 5, "Reflect the Level",
+     "Buildings, trees and the sky in puddles and water too. From the next area.", 1, nullptr, offOnCount,
+     offOnName, levelGet, levelSet},
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 4, "Puddles Beat Mirrors",
      "Near a puddle in a mirror's area, the puddle shows reflections, not the mirror.", 0, nullptr, offOnCount,
      offOnName, beatGet, beatSet},
@@ -606,6 +627,11 @@ int port_sun_glints(void) {
 int port_water_depth(void) {
     load();
     return s_depth;
+}
+
+int port_reflect_level(void) {
+    load();
+    return s_level;
 }
 
 int port_puddles_beat_mirrors(void) {

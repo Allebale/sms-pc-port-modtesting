@@ -18,6 +18,8 @@
 #include <Camera/Camera.hpp>
 #include <Map/Map.hpp>
 #include <Map/MapData.hpp>
+#include <Map/MapModel.hpp>
+#include <Map/Sky.hpp>
 #include <JSystem/J3D/J3DGraphAnimator/J3DModel.hpp>
 #include <JSystem/JDrama/JDRNameRefGen.hpp>
 #include <JSystem/JDrama/JDRViewObjPtrList.hpp>
@@ -214,6 +216,57 @@ void showPlayerCopies()
 // Leaving the stage: its copies go with it.
 void moveStage() { s_playerCount = 0; }
 
+// ------------------------------------------------------------------ Reflect the Level
+// The stage itself in the reflection: its map models (the ground, the buildings) and its sky get
+// a copy in the mirror scene too, drawn mirrored as the characters' are while there are puddles or
+// the water reflects. The mirror camera looks up from under the mirror's surface, so all of the
+// stage on that side of it (the ground's underside, the sea floor) would cover the picture: the
+// port's renderer cuts it away at the surface while the mirror's picture is drawn
+// (port_mirror_clip, from TMirrorCamera::perform). Made as an area loads, with the setting on.
+class TPortLevelMirror : public TMirrorActor {
+public:
+	TPortLevelMirror()
+	    : TMirrorActor("port level reflection")
+	{
+	}
+
+	virtual void perform(u32 cue, JDrama::TGraphics* graphics)
+	{
+		if (port_reflect_level() && gpModelWaterManager
+		    && (gpModelWaterManager->getParticleCount() || port_water_mirror_active()))
+			TMirrorActor::perform(cue, graphics);
+	}
+};
+
+// A copy of model for the level's reflection, unless it has one, or memory is short.
+bool levelCopy(J3DModel* model, JKRHeap* heap)
+{
+	if (!model || known(model) || !heap || heap->getTotalFreeSize() < kHeapRoom || s_modelCount >= kMostModels)
+		return false;
+	TPortLevelMirror* mirror = new TPortLevelMirror();
+	mirror->init(model, (u16)(0x20 | (dynamic_cast<SDLModel*>(model) ? 8 : 0)));
+	remember(model);
+	return true;
+}
+
+void makeLevelMirrors()
+{
+	if (!port_reflect_level() || !gpMap || !gpMap->getModelManager())
+		return;
+	JKRHeap* heap   = JKRHeap::getCurrentHeap();
+	const s32 start = heap ? heap->getTotalFreeSize() : 0;
+	int made        = 0;
+	TMapModelManager* models = gpMap->getModelManager();
+	for (int i = 0; i < models->getJointModelNum(); i++)
+		if (TJointModel* joint = models->getJointModel(i))
+			made += levelCopy(joint->getModel(), heap);
+	TSky* sky = JDrama::TNameRefGen::search<TSky>("\x8B\xF3");  // "空" in Shift-JIS
+	if (sky && sky->getMActor())
+		made += levelCopy(sky->getMActor()->getModel(), heap);
+	fprintf(stderr, "[puddles] the level reflected: %d of its models, the sky %s (%d KB)\n", made,
+	        sky ? "too" : "none", heap ? (int)((start - heap->getTotalFreeSize()) / 1024) : 0);
+}
+
 void stageSetup()
 {
 	JDrama::TViewObjPtrListT<JDrama::TViewObj>* scene
@@ -221,8 +274,6 @@ void stageSetup()
 	if (!scene)
 		return;
 	rememberPlayerCopies(scene);
-	if (!port_puddle_reflections() || !gpConductor)
-		return;
 
 	// the models the game gave a copy already (Mario, FLUDD, Yoshi, coins...)
 	s_modelCount = 0;
@@ -230,6 +281,10 @@ void stageSetup()
 	for (JGadget::TList_pointer<JDrama::TViewObj*>::iterator it = children.begin(); it != children.end(); ++it)
 		if (TMirrorActor* mirror = dynamic_cast<TMirrorActor*>(*it))
 			remember(mirror->getUnk10());
+
+	makeLevelMirrors();
+	if (!port_puddle_reflections() || !gpConductor)
+		return;
 
 	JKRHeap* heap   = JKRHeap::getCurrentHeap();
 	const s32 start = heap ? heap->getTotalFreeSize() : 0;
@@ -381,4 +436,25 @@ extern "C" int port_puddle_surface_kind(unsigned type, unsigned material) { retu
 extern "C" unsigned port_puddle_surface_alpha(unsigned type, unsigned material)
 {
 	return surfaceAlpha(type, material);
+}
+
+// From TMirrorCamera::perform (zzzzz-ext-25-water-reflections), its projection just set: with
+// Reflect the Level on and the mirror's surface a puddle's or the water's (no real mirror near),
+// the renderer cuts away what is below that surface while the mirror's picture is drawn. The
+// surface (unk84, unk90: n . p + d = 0, the side to keep where it is above 0) is taken into the
+// mirror camera's view (unk30, world to view: v = A p + t, so the plane there is A n, d - A n . t)
+// and raised 3 units, so the surface itself goes too. The next projection set turns it off.
+extern "C" void GXPC_SetUserClipPlane(int on, const float* plane);
+
+void port_mirror_clip(TMirrorCamera* mirror)
+{
+	if (!port_reflect_level() || !mirror || !gpMirrorModelManager || gpMirrorModelManager->isUnk18Present())
+		return;
+	MtxPtr v                       = mirror->unk30;
+	const JGeometry::TVec3<f32>& n = mirror->unk84;
+	f32 plane[4];
+	for (int r = 0; r < 3; r++)
+		plane[r] = v[r][0] * n.x + v[r][1] * n.y + v[r][2] * n.z;
+	plane[3] = mirror->unk90 - (plane[0] * v[0][3] + plane[1] * v[1][3] + plane[2] * v[2][3]) - 3.0f;
+	GXPC_SetUserClipPlane(1, plane);
 }

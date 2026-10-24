@@ -1,8 +1,35 @@
-Reason: Water Reflections (port_puddles.h, the settings menu's Graphics page): the stage's own water (sea, lakes, pools, fountains, streams) and wet ground show the reflections FLUDD's puddles do. TMirrorModelManager mirrors about the plane port_mirror_plane picks (the nearest water surface, else the floor under Mario, as ever), and TModelWaterManager draws the water's reflection after its puddles' (port_draw_water_mirror, ext/core/game/port_water_reflections.cpp); the puddles show none while it is mirrored about water. Puddle Ripples: while rings spread, drawMirror's disc is drawn by port_draw_puddle_disc, its reflection rippling. Puddle Lifetime: as the water's slots fill, puddles dry faster, back to the game's speed when all are in use, so that the oldest dry away rather than blink out. Puddles Beat Mirrors: by FLUDD's puddles in a real mirror's area, TMirrorModelManager puts the mirror aside (the floor is reflected about; the mirror is still drawn) and TMirrorActor::checkIsInMirror takes no notice of mirror areas. With Puddle Ripples, Viewing Angle, Reflection Blur or Sun Glints in use, drawMirror's disc is drawn by the port (port_draw_puddle_reflection) over the puddles as marked. Off and Original are the game as it was
+Reason: Water Reflections (port_puddles.h, the settings menu's Graphics page): the stage's own water (sea, lakes, pools, fountains, streams) and wet ground show the reflections FLUDD's puddles do. TMirrorModelManager mirrors about the plane port_mirror_plane picks (the nearest water surface, else the floor under Mario, as ever), and TModelWaterManager draws the water's reflection after its puddles' (port_draw_water_mirror, ext/core/game/port_water_reflections.cpp); the puddles show none while it is mirrored about water. Puddle Ripples: while rings spread, drawMirror's disc is drawn by port_draw_puddle_disc, its reflection rippling. Puddle Lifetime: as the water's slots fill, puddles dry faster, back to the game's speed when all are in use, so that the oldest dry away rather than blink out. Puddles Beat Mirrors: by FLUDD's puddles in a real mirror's area, TMirrorModelManager puts the mirror aside (the floor is reflected about; the mirror is still drawn) and TMirrorActor::checkIsInMirror takes no notice of mirror areas. With Puddle Ripples, Viewing Angle, Reflection Blur or Sun Glints in use, drawMirror's disc is drawn by the port (port_draw_puddle_reflection) over the puddles as marked. Reflect the Level: TMirrorCamera::perform, its projection set, asks the port to cut the stage away below the mirror's surface (port_mirror_clip). Off and Original are the game as it was
 
 --- a/src/Map/MapMirror.cpp
 +++ b/src/Map/MapMirror.cpp
-@@ -362,6 +362,18 @@
+@@ -91,6 +91,10 @@
+ // TODO: frame 0x40 short (0x28 vs 0x68), instructions exact. Camera, matrix
+ // and projection binders price +8 each at most (SMSGetCamera() reads 0); no
+ // single spelling reaches 0x40.
++#ifdef TARGET_PC
++void port_mirror_clip(TMirrorCamera* mirror);  // ext/core/game/port_reflections.cpp
++#endif
++
+ void TMirrorCamera::perform(u32 cue, JDrama::TGraphics* graphics)
+ {
+ 	if (cue & (CUE_CALC_VIEW | CUE_SET_PROJECTION)) {
+@@ -103,8 +107,14 @@
+ 		MTXCopy(unk30, graphics->mViewMtx);
+ 		graphics->mNearPlane = SMSGetCamera()->mNear;
+ 		graphics->mFarPlane  = SMSGetCamera()->getFar();
+-		if (cue & CUE_SET_PROJECTION)
++		if (cue & CUE_SET_PROJECTION) {
+ 			GXSetProjection(projMtx, GX_PERSPECTIVE);
++#ifdef TARGET_PC
++			// port: Reflect the Level (port_puddles.h): the stage cut away
++			// below the mirror's surface while the mirror's picture is drawn.
++			port_mirror_clip(this);
++#endif
++		}
+ 		GXSetAlphaUpdate(GX_TRUE);
+ 	}
+ }
+@@ -362,6 +372,18 @@
  
  TMirrorModelManager* gpMirrorModelManager;
  
@@ -21,7 +48,7 @@ Reason: Water Reflections (port_puddles.h, the settings menu's Graphics page): t
  bool TMirrorModelManager::isUpperThanMirrorPlane(
      const JGeometry::TVec3<f32>& param_1) const
  {
-@@ -422,9 +434,27 @@
+@@ -422,9 +444,27 @@
  	if (cue & CUE_MOVE) {
  		JGeometry::TVec3<f32> local_44 = *gpMarioPos;
  		unk18 = gpCubeMirror->getDataNo(gpCubeMirror->getInCubeNo(local_44));
@@ -49,7 +76,7 @@ Reason: Water Reflections (port_puddles.h, the settings menu's Graphics page): t
  	}
  
  	if (isUnk18Present()) {
-@@ -439,6 +469,17 @@
+@@ -439,6 +479,17 @@
  			unk1C[unk18]->entry();
  		}
  	}

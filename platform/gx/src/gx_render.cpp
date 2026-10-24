@@ -1017,6 +1017,7 @@ static void postPresent(GLuint tex, int w, int h, int ox, int oy, int vw, int vh
     glDisable(GL_COLOR_LOGIC_OP);
     glDisable(GL_CLIP_DISTANCE0);
     glDisable(GL_CLIP_DISTANCE0 + 1);
+    glDisable(GL_CLIP_DISTANCE0 + 2);
     glDisable(GL_SCISSOR_TEST);
     glBindSampler(0, 0);
     glActiveTexture(GL_TEXTURE0);
@@ -1671,6 +1672,7 @@ static void applyGlState() {
     bool clipOn = g.xfReg[0x05] == 0;
     glcCap(GL_CLIP_DISTANCE0, c.clip0, clipOn);
     glcCap(GL_CLIP_DISTANCE0 + 1, c.clip1, clipOn);
+    glcCap(GL_CLIP_DISTANCE0 + 2, c.clip2, g.userClipOn);
     glcCap(GL_DEPTH_CLAMP, c.depthClamp, clipOn);
     uint32_t lp = g.bp[BP_LPSIZE];
     float pt = float((lp >> 8) & 0xFF) / 6.0f * float(s_scale);
@@ -1793,6 +1795,9 @@ static void uploadUniforms(const ShaderProgram* sp, float texW[8], float texH[8]
         ch[4 * i + 3] = float(v & 255) / 255.0f;
     }
     UNI(uAmbMat, ambmat, ch, glUniform4fv(sp->uAmbMat, 4, ch));
+    float uclip[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    if (g.userClipOn) memcpy(uclip, g.userClip, sizeof uclip);
+    UNI(uUserClip, uclip, uclip, glUniform4fv(sp->uUserClip, 1, uclip));
 #undef UNI
     uc.init = true;
 }
@@ -2775,6 +2780,7 @@ static void copyEfb(uint32_t ctrl) {
     glDisable(GL_CULL_FACE);
     glDisable(GL_CLIP_DISTANCE0);
     glDisable(GL_CLIP_DISTANCE0 + 1);
+    glDisable(GL_CLIP_DISTANCE0 + 2);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
     if (disp) {
@@ -3395,7 +3401,7 @@ void main() { o_color = texture(u_color, v_uv); }
     }
     GLint activeUnit = 0, boundTex = 0, rowLength = 0, unpackAlign = 4;
     GLint program = 0, vao = 0, drawFbo = 0, viewport[4], colorMask[4];
-    GLint blend = 0, depth = 0, stencil = 0, cull = 0, scissor = 0, logic = 0, clip0 = 0, clip1 = 0;
+    GLint blend = 0, depth = 0, stencil = 0, cull = 0, scissor = 0, logic = 0, clip0 = 0, clip1 = 0, clip2 = 0;
     GLint srcRGB = 0, dstRGB = 0, srcAlpha = 0, dstAlpha = 0, eqRGB = 0, eqAlpha = 0;
     glGetIntegerv(GL_ACTIVE_TEXTURE, &activeUnit);
     glActiveTexture(GL_TEXTURE0);
@@ -3415,6 +3421,7 @@ void main() { o_color = texture(u_color, v_uv); }
     glGetIntegerv(GL_COLOR_LOGIC_OP, &logic);
     glGetIntegerv(GL_CLIP_DISTANCE0, &clip0);
     glGetIntegerv(GL_CLIP_DISTANCE1, &clip1);
+    glGetIntegerv(GL_CLIP_DISTANCE2, &clip2);
     glGetIntegerv(GL_BLEND_SRC_RGB, &srcRGB);
     glGetIntegerv(GL_BLEND_DST_RGB, &dstRGB);
     glGetIntegerv(GL_BLEND_SRC_ALPHA, &srcAlpha);
@@ -3447,6 +3454,7 @@ void main() { o_color = texture(u_color, v_uv); }
     glDisable(GL_COLOR_LOGIC_OP);
     glDisable(GL_CLIP_DISTANCE0);
     glDisable(GL_CLIP_DISTANCE1);
+    glDisable(GL_CLIP_DISTANCE2);
     glEnable(GL_BLEND);
     glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
     glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
@@ -3480,6 +3488,7 @@ void main() { o_color = texture(u_color, v_uv); }
     if (logic) glEnable(GL_COLOR_LOGIC_OP);
     if (clip0) glEnable(GL_CLIP_DISTANCE0);
     if (clip1) glEnable(GL_CLIP_DISTANCE1);
+    if (clip2) glEnable(GL_CLIP_DISTANCE2);
 }
 
 extern "C" {

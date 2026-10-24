@@ -75,6 +75,10 @@ int port_reflect_kind(int kind);
 // it (the puddles then show none).
 int port_puddles_beat_mirrors(void);
 
+// Reflect the Level: 1 when the stage itself (its ground, buildings and sky) is reflected in
+// puddles and water too, from the next area (ext/core/game/port_reflections.cpp).
+int port_reflect_level(void);
+
 // Water Reflections: 1 when the stage's own water and wet ground show the reflections puddles
 // do (ext/core/game/port_water_reflections.cpp); 0 as the game has it.
 int port_water_reflections(void);

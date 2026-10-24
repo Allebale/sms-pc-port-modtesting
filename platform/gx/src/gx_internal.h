@@ -92,6 +92,11 @@ struct State {
     uint8_t lineWidth, pointSize;
     // draw sync
     uint16_t drawSyncToken;
+    // the port's own clip plane (GXPC_SetUserClipPlane), in view space: a vertex is kept where
+    // dot(plane, (view position, 1)) >= 0. Off: (0, 0, 0, 1), keeping all. GXSetProjection turns
+    // it off, so it lasts only for the camera it was set for.
+    float userClip[4];
+    bool userClipOn;
 };
 
 extern State g;
@@ -333,12 +338,13 @@ struct UniformCache {
     int tevreg[16], konst[16], alpharef[2];
     float texscale[16], texsize[16], fog[4], fogcolor[4], indmtx[24], efb[2], proj[8], vp[8], ambmat[16];
     float linewidth[1];
+    float uclip[4];
 };
 struct ShaderProgram {
     unsigned prog;
     int id;  // creation order; SMS_GX_DUMP_SHADERS=dir writes dir/prog<id>.vs/.fs
     int uTevReg, uKonst, uTexScale, uAlphaRef, uFog, uFogColor, uIndMtx, uTexSize, uEfb,
-        uProj, uViewport, uAmbMat, uDstAlpha, uLineWidth;
+        uProj, uViewport, uAmbMat, uDstAlpha, uLineWidth, uUserClip;
     mutable UniformCache uc;
 };
 bool shaderHasEarlyFragmentTests();

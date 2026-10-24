@@ -109,6 +109,7 @@ uniform vec4 u_proj[2];
 uniform vec4 u_vp[2];
 uniform vec2 u_efb;
 uniform vec4 u_chan[4];
+uniform vec4 u_uclip;
 in vec3 a_pos; in vec3 a_nrm; in vec3 a_bin; in vec3 a_tan;
 in vec4 a_clr0; in vec4 a_clr1;
 in vec2 a_tex0; in vec2 a_tex1; in vec2 a_tex2; in vec2 a_tex3;
@@ -189,6 +190,8 @@ static std::string genVS(const ShaderKey& k) {
          "  gl_Position.w = clip.w;\n";
     if (k.clip) s += "  gl_ClipDistance[0] = clip.z + clip.w;\n  gl_ClipDistance[1] = -clip.z;\n";
     else s += "  gl_ClipDistance[0] = 1.0;\n  gl_ClipDistance[1] = 1.0;\n";
+    // the port's own clip plane (State::userClip): (0, 0, 0, 1) while off
+    s += "  gl_ClipDistance[2] = dot(vec4(vpos, 1.0), u_uclip);\n";
 
     // lighting: channels 0/1, colour and alpha controlled separately
     const char* vtx[2] = {"a_clr0", "a_clr1"};
@@ -611,6 +614,7 @@ static void setupProgram(GLuint p, ShaderProgram& sp, bool aside = false) {
     sp.uViewport = glGetUniformLocation(p, "u_vp");
     sp.uAmbMat = glGetUniformLocation(p, "u_chan");
     sp.uLineWidth = glGetUniformLocation(p, "u_linewidth");
+    sp.uUserClip = glGetUniformLocation(p, "u_uclip");
     sp.uDstAlpha = -1;
     if (aside) glUseProgram(GLuint(bound));
 }
@@ -1077,8 +1081,9 @@ static std::string genLineGS() {
         snprintf(buf, sizeof buf,
                  "  gl_Position = gl_in[%d].gl_Position + vec4(%soff * gl_in[%d].gl_Position.w, 0.0, 0.0);\n"
                  "  gl_ClipDistance[0] = gl_in[%d].gl_ClipDistance[0];\n"
-                 "  gl_ClipDistance[1] = gl_in[%d].gl_ClipDistance[1];\n",
-                 e, i & 1 ? "" : "-", e, e, e);
+                 "  gl_ClipDistance[1] = gl_in[%d].gl_ClipDistance[1];\n"
+                 "  gl_ClipDistance[2] = gl_in[%d].gl_ClipDistance[2];\n",
+                 e, i & 1 ? "" : "-", e, e, e, e);
         s += buf;
         for (const auto& v : kLineVaryings) s += std::string("  v_") + v[1] + " = vl_" + v[1] + "[" + char('0' + e) + "];\n";
         s += "  EmitVertex();\n";

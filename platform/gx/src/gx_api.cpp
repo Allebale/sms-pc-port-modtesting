@@ -566,6 +566,13 @@ void GXGetCullMode(GXCullMode* mode) { *mode = GXCullMode(g.cullMode); }
 void GXSetCoPlanar(GXBool enable) { bpField(BP_GENMODE, 1, 19, enable); }
 
 // ================================================================== GXTransform
+// The port's own clip plane, in view space (State::userClip): on until the next GXSetProjection.
+// Puddle and water reflections cut the mirrored stage at the mirror's surface with it.
+extern "C" void GXPC_SetUserClipPlane(int on, const float* plane) {
+    g.userClipOn = on != 0;
+    if (on && plane) memcpy(g.userClip, plane, sizeof g.userClip);
+}
+
 void GXSetProjection(f32 mtx[4][4], GXProjectionType type) {
     float p[7];
     p[0] = float(type);
@@ -583,6 +590,7 @@ void GXSetProjection(f32 mtx[4][4], GXProjectionType type) {
     GXSetProjectionv(p);
 }
 void GXSetProjectionv(f32* ptr) {
+    g.userClipOn = false;  // the port's clip plane is for the camera it was set for
     traceNoteProjection(ptr);
     memcpy(g.projection, ptr, sizeof(g.projection));
     uint32_t w[7];

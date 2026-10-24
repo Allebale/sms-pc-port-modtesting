@@ -719,15 +719,22 @@ void drawReflection(MtxPtr view, const TBGCheckData* plane, f32 radius, u8 centr
 		drawWeb(0, WEB_GLINT, 0, false);
 	}
 
-	// the marks times the disc's alpha times the picture's (where something is reflected)
-	GXSetNumTexGens(1);
-	GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
-	GXSetTevOp(GX_TEVSTAGE0, GX_MODULATE);
+	// the marks times the disc's alpha times the picture's (where something is reflected; with
+	// Reflect the Level, the stage and its sky fill the picture: everywhere)
+	if (port_reflect_level()) {
+		GXSetNumTexGens(0);
+		GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+		GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+	} else {
+		GXSetNumTexGens(1);
+		GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+		GXSetTevOp(GX_TEVSTAGE0, GX_MODULATE);
+	}
 	GXSetBlendMode(GX_BM_BLEND, GX_BL_ZERO, GX_BL_SRCALPHA, GX_LO_NOOP);
 	GXSetColorUpdate(GX_FALSE);
 	GXSetAlphaUpdate(GX_TRUE);
 	GXSetDstAlpha(GX_FALSE, 0);
-	drawWeb(0, WEB_ALPHA, 0, true);
+	drawWeb(0, WEB_ALPHA, 0, !port_reflect_level());
 
 	// the colour there darkened by as much ...
 	GXSetNumTexGens(0);
@@ -839,7 +846,7 @@ void drawDepth(MtxPtr view, f32 radius, const TBGCheckData* plane, f32 fade)
 // Whether the port draws the disc itself (anything of the above in use), not the game's.
 bool ownDisc(int rippleKind)
 {
-	if (port_reflection_view_angle() || port_sun_glints() || port_reflection_blur())
+	if (port_reflection_view_angle() || port_sun_glints() || port_reflection_blur() || port_reflect_level())
 		return true;
 	if (rippleKind == 1)
 		return port_water_ripples() != 0;
