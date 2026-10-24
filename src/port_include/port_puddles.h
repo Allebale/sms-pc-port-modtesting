@@ -63,6 +63,9 @@ int port_water_reflections(void);
 // Water Ripples: 0 off (the reflection in water still), 1 gentle, 2 strong. Puddles and wet
 // ground stay still.
 int port_water_ripples(void);
+// Puddle Ripples: 0 off (puddles always still), 1 gentle, 2 strong: rings spread in the puddles'
+// and wet ground's reflection from each drop of FLUDD's water as it lands and from Mario's feet.
+int port_puddle_ripples(void);
 // Whether water or wet ground shows reflections this frame.
 int port_water_mirror_active(void);
 // Whether this frame's reflections are mirrored about a water surface, not the floor under Mario

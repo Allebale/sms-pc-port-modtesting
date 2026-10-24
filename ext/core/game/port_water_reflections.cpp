@@ -252,31 +252,162 @@ void drawDisc(f32 radius, u8 centre)
 	GXEnd();
 }
 
-// Water Ripples: the reflection in water wobbles. The disc is drawn as a fine web of rings, each
-// point keeping its place but showing the mirror's picture from a little beside it, the offset
-// two crossing waves that move with the game's clock (still while it is paused). The texture's
-// coordinates are worked out here, as the mirror camera's matrix would give them from the place
+// Water Ripples and Puddle Ripples. The disc is drawn as a fine web of rings, each point keeping
+// its place but showing the mirror's picture from a little beside it. The texture's coordinates
+// are worked out here, as the mirror camera's matrix would give them from the place
 // (TMirrorCamera::drawSetting), so that they can be moved.
+//
+// Water (Water Ripples): two crossing waves that roll on with the game's clock (still while it is
+// paused). Puddles and wet ground (Puddle Ripples): still, until something disturbs them; then
+// rings spread out from it and fade, from each drop of FLUDD's water as it lands in a puddle and
+// from Mario's feet as he runs through one.
 const int kRings    = 48;
 const int kSegments = 96;
 
+// Puddle rings: where, and when (the game's clock, TModelWaterManager::unk5E00).
+struct RingSource {
+	f32 x, z;
+	int start;
+};
+const int kMostRings   = 24;
+const int kRingLife    = 70;     // ticks
+const f32 kRingSpeed   = 2.5f;   // units a tick
+const f32 kRingWidth   = 45.0f;  // how wide a ring's wave train is
+const f32 kRingLength  = 28.0f;  // its waves' length
+RingSource s_rings[kMostRings];
+int s_ringCount;
+int s_ringNext;  // the next to make room for, when all are in use
+
+int now() { return gpModelWaterManager ? gpModelWaterManager->unk5E00 : 0; }
+
+void addRing(f32 x, f32 z)
+{
+	RingSource& r = s_ringCount < kMostRings ? s_rings[s_ringCount++] : s_rings[s_ringNext++ % kMostRings];
+	r.x     = x;
+	r.z     = z;
+	r.start = now();
+}
+
+bool ringsLive()
+{
+	const int t = now();
+	for (int i = 0; i < s_ringCount; i++)
+		if (t - s_rings[i].start < kRingLife)
+			return true;
+	return false;
+}
+
+// Each tick (from port_mirror_plane): new rings where drops have landed in puddles and where
+// Mario's feet are as he runs through them.
+void updateRings(const TBGCheckData* ground)
+{
+	static u8 s_wasPuddle[256];
+	static f32 s_lastX, s_lastZ;
+	static int s_lastStep;
+	TModelWaterManager* water = gpModelWaterManager;
+	if (!port_puddle_ripples() || !water || !gpMarioPos) {
+		s_ringCount = 0;
+		return;
+	}
+	const f32 mx = gpMarioPos->x, mz = gpMarioPos->z;
+	const int count = water->getParticleCount();
+	int made        = 0;
+	bool puddleAtFeet = false;
+	for (int i = 0; i < 256; i++) {
+		const bool puddle = i < count && (water->mParticleFlagSOA[i] & 0xf) == 2;
+		if (puddle) {
+			const JGeometry::TVec3<f32>& p = water->mParticlePositionSOA[i];
+			const f32 dx = p.x - mx, dz = p.z - mz;
+			const f32 d2 = dx * dx + dz * dz;
+			if (!s_wasPuddle[i] && made < 3 && d2 < 3000.0f * 3000.0f) {  // a drop has just landed
+				addRing(p.x, p.z);
+				made++;
+			}
+			if (d2 < 80.0f * 80.0f)
+				puddleAtFeet = true;
+		}
+		s_wasPuddle[i] = puddle;
+	}
+	if (!puddleAtFeet && ground && ground->isLegal() && isWetGround(ground))
+		puddleAtFeet = true;
+	// on the ground, and moving: a ring from his feet every few steps
+	const f32 dx = mx - s_lastX, dz = mz - s_lastZ;
+	s_lastX = mx;
+	s_lastZ = mz;
+	const bool onGround = ground && ground->isLegal()
+	                      && gpMarioPos->y - heightAt(ground, mx, mz) < 10.0f && ground->getNormal().y > 0.5f;
+	if (puddleAtFeet && onGround && dx * dx + dz * dz > 2.0f * 2.0f && dx * dx + dz * dz < 200.0f * 200.0f
+	    && now() - s_lastStep >= 10) {
+		addRing(mx, mz);
+		s_lastStep = now();
+	}
+}
+
 struct Ripple {
 	Mtx tex;     // world place to the mirror texture (s, t, q)
+	const TBGCheckData* plane;
+	bool rings;  // puddle rings, else water's waves
 	f32 amp;     // how far beside, in the game's units
 	f32 k;       // 2 pi over the waves' length
 	f32 phase;
+	int time;
 	u8 centre;   // the disc's alpha at its middle
 	f32 radius;
 };
 
+void setUpRipple(Ripple* r, const TBGCheckData* plane, bool rings, int strength, f32 radius, u8 centre)
+{
+	TMirrorCamera* mirror = gpMirrorModelManager->unk24;
+	Mtx project;
+	C_MTXLightPerspective(project, mirror->unk80 * gpCamera->mFovy, gpCamera->mAspect, 0.5f, -0.5f, 0.5f, 0.5f);
+	MTXConcat(project, mirror->unk30, r->tex);
+	r->plane  = plane;
+	r->rings  = rings;
+	r->radius = radius;
+	r->centre = centre;
+	r->time   = now();
+	if (rings) {
+		r->amp = strength == 2 ? 6.0f : 2.5f;
+		r->k   = 6.2831853f / kRingLength;
+	} else {
+		const f32 spacing = radius / kRings;
+		const f32 length  = spacing * 5.0f > 140.0f ? spacing * 5.0f : 140.0f;
+		r->amp            = strength == 2 ? 10.0f : 4.0f;
+		r->k              = 6.2831853f / length;
+	}
+	r->phase = (f32)r->time * 0.06f;
+}
+
 void rippleTexCoord(const Ripple& r, f32 x, f32 z)
 {
 	f32 sx = x, sz = z;
-	if (r.amp > 0.0f) {
+	if (!r.rings) {
 		sx += r.amp * (sinf(x * r.k + r.phase) + 0.5f * sinf((x + z) * r.k * 1.7f + r.phase * 1.3f));
 		sz += r.amp * (cosf(z * r.k * 1.1f - r.phase * 0.9f) + 0.5f * cosf((x - z) * r.k * 1.5f + r.phase * 1.1f));
+	} else {
+		for (int i = 0; i < s_ringCount; i++) {
+			const RingSource& src = s_rings[i];
+			const int age         = r.time - src.start;
+			if (age < 0 || age >= kRingLife)
+				continue;
+			const f32 dx = x - src.x, dz = z - src.z;
+			const f32 d2 = dx * dx + dz * dz;
+			const f32 front = kRingSpeed * age;
+			const f32 reach = front + kRingWidth;
+			if (d2 > reach * reach || d2 < 1.0f)
+				continue;
+			const f32 d = sqrtf(d2);
+			const f32 u = d - front;
+			if (u < -kRingWidth || u > kRingWidth)
+				continue;
+			// the train's middle strongest, fading as it grows old and wide
+			const f32 env = (1.0f - fabsf(u) / kRingWidth) * (1.0f - (f32)age / kRingLife) / (1.0f + front / 60.0f);
+			const f32 w   = r.amp * env * sinf(u * r.k) / d;
+			sx += dx * w;
+			sz += dz * w;
+		}
 	}
-	const f32 sy = heightAt(s_plane, sx, sz) + kLift;
+	const f32 sy = heightAt(r.plane, sx, sz) + kLift;
 	const f32 s  = r.tex[0][0] * sx + r.tex[0][1] * sy + r.tex[0][2] * sz + r.tex[0][3];
 	const f32 t  = r.tex[1][0] * sx + r.tex[1][1] * sy + r.tex[1][2] * sz + r.tex[1][3];
 	f32 q        = r.tex[2][0] * sx + r.tex[2][1] * sy + r.tex[2][2] * sz + r.tex[2][3];
@@ -291,13 +422,23 @@ void rippleVertex(const Ripple& r, int ring, int segment)
 	const f32 angle = (f32)segment * (6.2831853f / kSegments);
 	const f32 x     = gpMarioPos->x + sinf(angle) * r.radius * along;
 	const f32 z     = gpMarioPos->z + cosf(angle) * r.radius * along;
-	GXPosition3f32(x, heightAt(s_plane, x, z) + kLift, z);
+	GXPosition3f32(x, heightAt(r.plane, x, z) + kLift, z);
 	GXColor4u8(0xff, 0xff, 0xff, (u8)(r.centre * (1.0f - along)));
 	rippleTexCoord(r, x, z);
 }
 
+// The disc as the web, its texture coordinates given; the vertex format and the texture's
+// coordinates are left as the game's disc wants them (place and colour, from the place).
 void drawRippleDisc(const Ripple& r)
 {
+	GXClearVtxDesc();
+	GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+	GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+	GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+	GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
 	for (int ring = 0; ring < kRings; ring++) {
 		GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, (u16)(2 * (kSegments + 1)));
 		for (int seg = 0; seg <= kSegments; seg++) {
@@ -306,6 +447,10 @@ void drawRippleDisc(const Ripple& r)
 		}
 		GXEnd();
 	}
+	GXClearVtxDesc();
+	GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+	GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+	GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_POS, 0x1e, 0, 0x7d);
 }
 
 void drawMarks(u8 alpha)
@@ -332,6 +477,7 @@ const TBGCheckData* port_mirror_plane(const TBGCheckData* ground)
 	s_plane    = ground;
 	s_kind     = KIND_NONE;
 	s_triCount = 0;
+	updateRings(ground);
 	if (!on())
 		return ground;
 	const f32 radius = port_puddle_reflection_distance();
@@ -420,10 +566,9 @@ void port_draw_water_mirror(MtxPtr view)
 	drawMarks(strength);
 
 	// 2: faded out over the disc around Mario (the mark times the disc's alpha)
-	TMirrorCamera* mirror = gpMirrorModelManager->unk24;
 	Mtx identity;
 	MTXIdentity(identity);
-	mirror->drawSetting(identity);
+	gpMirrorModelManager->unk24->drawSetting(identity);
 	GXSetCurrentMtx(GX_PNMTX0);
 	GXLoadPosMtxImm(view, GX_PNMTX0);
 	GXSetNumTexGens(1);
@@ -433,28 +578,12 @@ void port_draw_water_mirror(MtxPtr view)
 	GXSetBlendMode(GX_BM_BLEND, GX_BL_ZERO, GX_BL_SRCALPHA, GX_LO_NOOP);
 	GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
 
-	const int ripples = s_kind == KIND_WATER ? port_water_ripples() : 0;
+	// water: its waves; wet ground: the puddles' rings, while there are any
+	const int rippleStrength = s_kind == KIND_WATER ? port_water_ripples() : port_puddle_ripples();
+	const bool rippled = rippleStrength && gpCamera && (s_kind == KIND_WATER || ringsLive());
 	Ripple ripple;
-	if (ripples && gpCamera) {
-		// as drawSetting's: the mirror's view, then its projection into the texture
-		Mtx project;
-		C_MTXLightPerspective(project, mirror->unk80 * gpCamera->mFovy, gpCamera->mAspect, 0.5f, -0.5f, 0.5f,
-		                      0.5f);
-		MTXConcat(project, mirror->unk30, ripple.tex);
-		const f32 spacing = radius / kRings;
-		const f32 length  = spacing * 5.0f > 140.0f ? spacing * 5.0f : 140.0f;
-		ripple.amp        = ripples == 2 ? 10.0f : 4.0f;
-		ripple.k          = 6.2831853f / length;
-		ripple.phase      = (f32)gpModelWaterManager->unk5E00 * 0.06f;
-		ripple.centre     = gpModelWaterManager->unk5D64;
-		ripple.radius     = radius;
-
-		GXClearVtxDesc();
-		GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-		GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
-		GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-		GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
-		GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
+	if (rippled) {
+		setUpRipple(&ripple, s_plane, s_kind != KIND_WATER, rippleStrength, radius, gpModelWaterManager->unk5D64);
 		drawRippleDisc(ripple);
 	} else {
 		GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_POS, 0x1e, 0, 0x7d);
@@ -466,14 +595,10 @@ void port_draw_water_mirror(MtxPtr view)
 	GXSetColorUpdate(GX_TRUE);
 	GXSetAlphaUpdate(GX_TRUE);
 	GXSetDstAlpha(GX_TRUE, 0);
-	if (ripples && gpCamera) {
+	if (rippled)
 		drawRippleDisc(ripple);
-		GXClearVtxDesc();
-		GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-		GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
-	} else {
+	else
 		drawDisc(radius, gpModelWaterManager->unk5D64);
-	}
 
 	// 4: what of the marks lies outside the disc, cleared too
 	GXSetNumTexGens(0);
@@ -487,4 +612,19 @@ void port_draw_water_mirror(MtxPtr view)
 	GXSetColorUpdate(GX_TRUE);
 	GXSetAlphaUpdate(GX_FALSE);
 	GXSetDstAlpha(GX_FALSE, 0);
+}
+
+// From TModelWaterManager::drawMirror (zzzzz-ext-25-water-reflections), for each of its two passes
+// over the disc around Mario: with Puddle Ripples on and rings spreading, the disc drawn as the
+// web, the puddles' reflection rippling; 1 done. 0: the game's own disc, as ever.
+int port_draw_puddle_disc(f32 radius, u8 centre)
+{
+	const int strength = port_puddle_ripples();
+	if (!strength || !gpCamera || !gpMirrorModelManager || !gpMirrorModelManager->unk24 || !gpMarioGroundPlane
+	    || !*gpMarioGroundPlane || !(*gpMarioGroundPlane)->isLegal() || !ringsLive())
+		return 0;
+	Ripple ripple;
+	setUpRipple(&ripple, *gpMarioGroundPlane, true, strength, radius, centre);
+	drawRippleDisc(ripple);
+	return 1;
 }

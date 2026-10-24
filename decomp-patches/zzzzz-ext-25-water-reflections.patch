@@ -1,4 +1,4 @@
-Reason: Water Reflections (port_puddles.h, the settings menu's Graphics page): the stage's own water (sea, lakes, pools, fountains, streams) and wet ground show the reflections FLUDD's puddles do. TMirrorModelManager mirrors about the plane port_mirror_plane picks (the nearest water surface, else the floor under Mario, as ever), and TModelWaterManager draws the water's reflection after its puddles' (port_draw_water_mirror, ext/core/game/port_water_reflections.cpp); the puddles show none while it is mirrored about water. Off is the game as it was
+Reason: Water Reflections (port_puddles.h, the settings menu's Graphics page): the stage's own water (sea, lakes, pools, fountains, streams) and wet ground show the reflections FLUDD's puddles do. TMirrorModelManager mirrors about the plane port_mirror_plane picks (the nearest water surface, else the floor under Mario, as ever), and TModelWaterManager draws the water's reflection after its puddles' (port_draw_water_mirror, ext/core/game/port_water_reflections.cpp); the puddles show none while it is mirrored about water. Puddle Ripples: while rings spread, drawMirror's disc is drawn by port_draw_puddle_disc, its reflection rippling. Off is the game as it was
 
 --- a/src/Map/MapMirror.cpp
 +++ b/src/Map/MapMirror.cpp
@@ -35,7 +35,63 @@ Reason: Water Reflections (port_puddles.h, the settings menu's Graphics page): t
  	if (isUnk18Present()) {
 --- a/src/Player/ModelWaterManager.cpp
 +++ b/src/Player/ModelWaterManager.cpp
-@@ -2210,6 +2210,11 @@
+@@ -1402,6 +1402,11 @@
+ 	GXSetDstAlpha(GX_FALSE, 0);
+ }
+ 
++#ifdef TARGET_PC
++// port: Puddle Ripples (ext/core/game/port_water_reflections.cpp)
++int port_draw_puddle_disc(f32 radius, u8 centre);
++#endif
++
+ void TModelWaterManager::drawMirror(MtxPtr param_1)
+ {
+ 
+@@ -1498,6 +1503,11 @@
+ 	GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+ 	GXSetAlphaCompare(GX_ALWAYS, 0, GX_AOP_OR, GX_ALWAYS, 0);
+ 
++#ifdef TARGET_PC
++	// port: Puddle Ripples (port_puddles.h): while rings spread, the disc is
++	// drawn finely, its reflection rippling. Off or still, the game's own.
++	if (!port_draw_puddle_disc(portRadius, unk5D64)) {
++#endif
+ 	GXBegin(GX_TRIANGLEFAN, GX_VTXFMT0, 10);
+ 	GXPosition3f32(SMS_GetMarioPos().x, SMS_GetMarioPos().y + 4.0f,
+ 	               SMS_GetMarioPos().z);
+@@ -1521,6 +1531,9 @@
+ 	GXPosition3f32(local_bc[0].x, local_bc[0].y, local_bc[0].z);
+ 	GXColor4u8(0, 0, 0, 0);
+ 	GXEnd();
++#ifdef TARGET_PC
++	}
++#endif
+ 
+ 	GXClearVtxDesc();
+ 	GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+@@ -1532,6 +1545,11 @@
+ 	GXSetAlphaUpdate(GX_TRUE);
+ 	GXSetDstAlpha(GX_TRUE, 0);
+ 
++#ifdef TARGET_PC
++	// port: Puddle Ripples (port_puddles.h): while rings spread, the disc is
++	// drawn finely, its reflection rippling. Off or still, the game's own.
++	if (!port_draw_puddle_disc(portRadius, unk5D64)) {
++#endif
+ 	GXBegin(GX_TRIANGLEFAN, GX_VTXFMT0, 10);
+ 	GXPosition3f32(SMS_GetMarioPos().x, SMS_GetMarioPos().y + 4.0f,
+ 	               SMS_GetMarioPos().z);
+@@ -1555,6 +1573,9 @@
+ 	GXPosition3f32(local_bc[0].x, local_bc[0].y, local_bc[0].z);
+ 	GXColor4u8(0, 0, 0, 0);
+ 	GXEnd();
++#ifdef TARGET_PC
++	}
++#endif
+ 
+ 	GXSetColorUpdate(GX_TRUE);
+ 	GXSetAlphaUpdate(GX_FALSE);
+@@ -2210,6 +2231,11 @@
  		unk5D30->draw();
  }
  
@@ -47,7 +103,7 @@ Reason: Water Reflections (port_puddles.h, the settings menu's Graphics page): t
  void TModelWaterManager::perform(u32 cue, JDrama::TGraphics* graphics)
  {
  	MtxPtr r29 = graphics->mViewMtx;
-@@ -2238,8 +2243,19 @@
+@@ -2238,8 +2264,19 @@
  		drawSilhouette(r29);
  		drawWaterVolume(r29);
  
