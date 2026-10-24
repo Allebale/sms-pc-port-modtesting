@@ -34,6 +34,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 namespace {
 
@@ -60,6 +61,15 @@ int s_kind;
 const TBGCheckData* s_tris[kMostTriangles];
 int s_triCount;
 f32 s_depthRadius;  // Water Depth reaches further than the reflection: at least this
+// Water Depth fades in as the reflection moves to water and out as it leaves, over kDepthFadeMs,
+// drawn on the last water's plane (s_depthPlane) while it fades out; its own triangles.
+const s32 kDepthFadeMs = 900;
+const TBGCheckData* s_depthPlane;
+const TBGCheckData* s_depthTris[kMostTriangles];
+int s_depthTriCount;
+bool s_depthWanted;
+f32 s_depthFade;
+s32 s_depthFadeAt;
 
 bool on() { return port_water_reflections() && gpMapCollisionData && gpMarioPos; }
 
@@ -277,6 +287,22 @@ struct Collect {
 			if (s_tris[i] == d)
 				return;
 		s_tris[s_triCount++] = d;
+	}
+};
+
+// The water on the depth's plane, out to its radius.
+struct CollectDepth {
+	f32 x, z, radius;
+	const TBGCheckData* plane;
+	void operator()(const TBGCheckData* d)
+	{
+		if (s_depthTriCount >= kMostTriangles || !isWater(d) || !samePlane(d, plane)
+		    || distanceTo(d, x, z) >= radius)
+			return;
+		for (int i = 0; i < s_depthTriCount; i++)
+			if (s_depthTris[i] == d)
+				return;
+		s_depthTris[s_depthTriCount++] = d;
 	}
 };
 
@@ -779,10 +805,10 @@ void drawReflection(MtxPtr view, const TBGCheckData* plane, f32 radius, u8 centr
 // Drawn over the water's marks (strength 255) on a coarse web, before the reflection's marks.
 const u8 kDeep[3] = {16, 56, 72};
 
-void drawDepth(MtxPtr view, f32 radius)
+void drawDepth(MtxPtr view, f32 radius, const TBGCheckData* plane, f32 fade)
 {
 	const int level = port_water_depth();
-	if (!level || !gpMap)
+	if (!level || !gpMap || !plane)
 		return;
 	const f32 most = level == 2 ? 0.75f : 0.45f;
 	static f32 px[(kCoarseRings + 1) * kCoarseSegments], py[(kCoarseRings + 1) * kCoarseSegments],
@@ -795,7 +821,7 @@ void drawDepth(MtxPtr view, f32 radius)
 			const f32 angle = (f32)seg * (6.2831853f / kCoarseSegments);
 			const f32 x     = gpMarioPos->x + sinf(angle) * radius * along;
 			const f32 z     = gpMarioPos->z + cosf(angle) * radius * along;
-			const f32 h     = heightAt(s_plane, x, z);
+			const f32 h     = heightAt(plane, x, z);
 			const TBGCheckData* floor;
 			const f32 g = gpMap->checkGroundIgnoreWaterSurface(x, h, z, &floor);
 			f32 depth   = h - g;
@@ -805,7 +831,7 @@ void drawDepth(MtxPtr view, f32 radius)
 			// fading out over the last fifth of the disc
 			const f32 edge = along > 0.8f ? (1.0f - along) * 5.0f : 1.0f;
 			px[i] = x, py[i] = h + kLift, pz[i] = z;
-			pa[i] = (u8)(most * dark * edge * 255.0f);
+			pa[i] = (u8)(most * dark * edge * fade * 255.0f);
 		}
 
 	GXClearVtxDesc();
@@ -857,11 +883,13 @@ bool ownDisc(int rippleKind)
 	return port_puddle_ripples() && ringsLive();
 }
 
-void drawMarks(u8 alpha)
+void drawTriangles(const TBGCheckData* const* tris, int count, u8 alpha)
 {
-	GXBegin(GX_TRIANGLES, GX_VTXFMT0, (u16)(s_triCount * 3));
-	for (int i = 0; i < s_triCount; i++) {
-		const TBGCheckData* d = s_tris[i];
+	if (!count)
+		return;
+	GXBegin(GX_TRIANGLES, GX_VTXFMT0, (u16)(count * 3));
+	for (int i = 0; i < count; i++) {
+		const TBGCheckData* d = tris[i];
 		GXPosition3f32(d->mPoint1.x, d->mPoint1.y + kLift, d->mPoint1.z);
 		GXColor4u8(0xff, 0xff, 0xff, alpha);
 		GXPosition3f32(d->mPoint2.x, d->mPoint2.y + kLift, d->mPoint2.z);
@@ -872,7 +900,11 @@ void drawMarks(u8 alpha)
 	GXEnd();
 }
 
+void drawMarks(u8 alpha) { drawTriangles(s_tris, s_triCount, alpha); }
+
 } // namespace
+
+const TBGCheckData* choosePlane(const TBGCheckData* ground);
 
 // From TMirrorModelManager::perform (zzzzz-ext-25-water-reflections), as each frame starts: the
 // plane the mirror scene is mirrored about this frame. ground: the floor under Mario, the game's.
@@ -882,6 +914,23 @@ const TBGCheckData* port_mirror_plane(const TBGCheckData* ground)
 	s_kind     = KIND_NONE;
 	s_triCount = 0;
 	updateRings(ground);
+	const TBGCheckData* plane = choosePlane(ground);
+	// Water Depth: on the water while the reflection is on it, fading out on the last one after
+	s_depthWanted   = s_kind == KIND_WATER && port_water_depth();
+	s_depthTriCount = 0;
+	if (s_depthWanted)
+		s_depthPlane = s_plane;
+	if (s_depthPlane && gpMarioPos && (s_depthWanted || s_depthFade > 0.0f)) {
+		s_depthRadius = port_puddle_reflection_distance();
+		s_depthRadius = s_depthRadius > 2500.0f ? s_depthRadius : 2500.0f;
+		CollectDepth depth = {gpMarioPos->x, gpMarioPos->z, s_depthRadius, s_depthPlane};
+		eachGroundNear(gpMarioPos->x, gpMarioPos->z, s_depthRadius, depth);
+	}
+	return plane;
+}
+
+const TBGCheckData* choosePlane(const TBGCheckData* ground)
+{
 	if (!on())
 		return ground;
 	const f32 radius = port_puddle_reflection_distance();
@@ -933,9 +982,7 @@ const TBGCheckData* port_mirror_plane(const TBGCheckData* ground)
 	} else {
 		return ground;
 	}
-	s_depthRadius = radius > 2500.0f ? radius : 2500.0f;
-	Collect collect = {x, z, s_kind == KIND_WATER && port_water_depth() ? s_depthRadius : radius, s_plane,
-	                   s_kind == KIND_WATER};
+	Collect collect = {x, z, radius, s_plane, s_kind == KIND_WATER};
 	eachGroundNear(x, z, radius, collect);
 	if (s_kind == KIND_GROUND && !s_triCount)
 		s_kind = KIND_NONE;  // no wet ground: the floor's puddles, as the game has them
@@ -950,8 +997,62 @@ extern "C" int port_water_mirror_on_water(void) { return s_kind == KIND_WATER; }
 
 // From TModelWaterManager::perform (zzzzz-ext-25-water-reflections), after drawMirror: the
 // reflection in the water or wet ground on this frame's plane. view: the camera's.
+// Water Depth, each frame: fading toward wanted or not, and drawn (its own marks, then cleared).
+void drawDepthFrame(MtxPtr view)
+{
+	const s32 t  = nowMs();
+	s32 dt       = t - s_depthFadeAt;
+	s_depthFadeAt = t;
+	dt           = dt < 0 ? 0 : dt > 200 ? 200 : dt;  // a pause or a save state: no jump
+	const f32 step = (f32)dt / kDepthFadeMs;
+	if (s_depthWanted)
+		s_depthFade = s_depthFade + step > 1.0f ? 1.0f : s_depthFade + step;
+	else
+		s_depthFade = s_depthFade - step < 0.0f ? 0.0f : s_depthFade - step;
+	if (s_depthFade <= 0.0f || !s_depthPlane || !s_depthTriCount || !gpMarioPos || !port_water_depth())
+		return;
+	// eased: slow to start and to finish
+	const f32 fade = s_depthFade * s_depthFade * (3.0f - 2.0f * s_depthFade);
+
+	GXClearVtxDesc();
+	GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+	GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+	GXSetCurrentMtx(GX_PNMTX0);
+	GXLoadPosMtxImm(view, GX_PNMTX0);
+	GXSetCullMode(GX_CULL_NONE);
+	GXSetNumChans(1);
+	GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX, 0, GX_DF_NONE, GX_AF_NONE);
+	GXSetZCompLoc(GX_TRUE);
+	GXSetAlphaCompare(GX_ALWAYS, 0, GX_AOP_OR, GX_ALWAYS, 0);
+	GXSetNumTexGens(0);
+	GXSetNumTevStages(1);
+	GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+	GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+	// the water marked, where it is seen
+	GXSetBlendMode(GX_BM_BLEND, GX_BL_ONE, GX_BL_ZERO, GX_LO_NOOP);
+	GXSetColorUpdate(GX_FALSE);
+	GXSetAlphaUpdate(GX_TRUE);
+	GXSetDstAlpha(GX_FALSE, 0);
+	GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+	drawTriangles(s_depthTris, s_depthTriCount, 255);
+	drawDepth(view, s_depthRadius, s_depthPlane, fade);
+	// the marks cleared
+	GXSetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_NOOP);
+	GXSetColorUpdate(GX_FALSE);
+	GXSetAlphaUpdate(GX_TRUE);
+	GXSetDstAlpha(GX_TRUE, 0);
+	GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+	drawTriangles(s_depthTris, s_depthTriCount, 0);
+	GXSetColorUpdate(GX_TRUE);
+	GXSetAlphaUpdate(GX_FALSE);
+	GXSetDstAlpha(GX_FALSE, 0);
+}
+
 void port_draw_water_mirror(MtxPtr view)
 {
+	drawDepthFrame(view);
 	if (!port_water_mirror_active() || !gpMirrorModelManager || !gpMirrorModelManager->unk24
 	    || !gpModelWaterManager)
 		return;
@@ -985,12 +1086,6 @@ void port_draw_water_mirror(MtxPtr view)
 	GXSetAlphaUpdate(GX_TRUE);
 	GXSetDstAlpha(GX_FALSE, 0);
 	GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
-	if (s_kind == KIND_WATER && port_water_depth()) {
-		drawMarks(255);
-		drawDepth(view, s_depthRadius);
-		GXSetBlendMode(GX_BM_BLEND, GX_BL_ONE, GX_BL_ZERO, GX_LO_NOOP);
-		GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
-	}
 	drawMarks(strength);
 
 	// 2-3: the reflection over them (the port's own disc, or as the game's)
@@ -1074,3 +1169,25 @@ int port_puddles_beat_mirror(int mirror)
 	s_active = active;
 	return active;
 }
+
+namespace {
+// A new area: the last area's water is gone.
+void resetDepth()
+{
+	s_depthPlane    = nullptr;
+	s_depthTriCount = 0;
+	s_depthWanted   = false;
+	s_depthFade     = 0.0f;
+}
+PortExtension s_depthExtension;
+struct RegisterDepth {
+	RegisterDepth()
+	{
+		memset(&s_depthExtension, 0, sizeof s_depthExtension);
+		s_depthExtension.name       = "water depth";
+		s_depthExtension.stageSetup = resetDepth;
+		s_depthExtension.moveStage  = resetDepth;
+		port_ext_register(&s_depthExtension);
+	}
+} s_registerDepth;
+} // namespace
