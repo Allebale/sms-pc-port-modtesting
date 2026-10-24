@@ -11,7 +11,10 @@
 #include "port_puddles.h"
 
 #include <Enemy/Conductor.hpp>
+#include <Enemy/BossGesso.hpp>
+#include <Enemy/BossPakkun.hpp>
 #include <Enemy/Enemy.hpp>
+#include <Enemy/GateKeeper.hpp>
 #include <MoveBG/Item.hpp>
 #include <MoveBG/MapObjBall.hpp>
 #include <NPC/NpcBase.hpp>
@@ -267,6 +270,16 @@ void makeLevelMirrors()
 	        sky ? "too" : "none", heap ? (int)((start - heap->getTotalFreeSize()) / 1024) : 0);
 }
 
+// Actors given no reflection. The goop Piranha bosses (the airstrip's, the plaza's gatekeepers)
+// and Gooper Blooper drive their model through a calculation they set on its shared data each
+// frame (setMtxCalc on joint 0); with a copy of the model drawn too, the real one came out torn
+// into streaks and mostly not drawn at all. They are left out.
+bool noReflection(TLiveActor* actor)
+{
+	return dynamic_cast<TBossPakkun*>(actor) || dynamic_cast<TGateKeeperBase*>(actor)
+	       || dynamic_cast<TBossGesso*>(actor);
+}
+
 void stageSetup()
 {
 	JDrama::TViewObjPtrListT<JDrama::TViewObj>* scene
@@ -294,7 +307,7 @@ void stageSetup()
 	     !full && it != gpConductor->unk10.end(); ++it)
 		for (int i = 0; *it && i < (*it)->getObjNum(); i++) {
 			TLiveActor* actor = (*it)->getObj(i);
-			if (!actor || !actor->getMActor())
+			if (!actor || !actor->getMActor() || noReflection(actor))
 				continue;
 			J3DModel* model = actor->getMActor()->getModel();
 			if (!model || known(model))
