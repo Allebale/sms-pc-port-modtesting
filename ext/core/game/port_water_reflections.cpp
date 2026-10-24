@@ -471,7 +471,6 @@ struct Ripple {
 	int time;
 	s32 ms;      // the clock, for puddles
 	f32 radius;
-	f32 ringAmp, ringK;  // rings on water (where it was disturbed), with its waves
 };
 
 void setUpRipple(Ripple* r, const TBGCheckData* plane, int rippleKind, int strength, f32 radius)
@@ -487,8 +486,6 @@ void setUpRipple(Ripple* r, const TBGCheckData* plane, int rippleKind, int stren
 	r->ms         = nowMs();
 	r->amp        = 0.0f;
 	r->k          = 1.0f;
-	r->ringAmp    = 0.0f;
-	r->ringK      = 6.2831853f / kRingLength;
 	if (r->rippleKind == 2) {
 		r->amp = strength == 2 ? 10.0f : 5.0f;
 		r->k   = 6.2831853f / kRingLength;
@@ -497,8 +494,6 @@ void setUpRipple(Ripple* r, const TBGCheckData* plane, int rippleKind, int stren
 		const f32 length  = spacing * 5.0f > 140.0f ? spacing * 5.0f : 140.0f;
 		r->amp            = strength == 2 ? 10.0f : 4.0f;
 		r->k              = 6.2831853f / length;
-		r->ringAmp        = strength == 2 ? 22.0f : 14.0f;
-		r->ringK          = 6.2831853f / 90.0f;  // longer waves than a puddle's
 	}
 	r->phase = (f32)r->time * 0.06f;
 }
@@ -547,8 +542,6 @@ void rippleAt(const Ripple& r, f32 x, f32 z, f32* ox, f32* oz, f32* sx, f32* sz)
 		*oz = r.amp * (cosf(b1) + 0.5f * cosf(b2));
 		*sx = r.amp * r.k * (cosf(a1) + 0.85f * cosf(a2)) * 0.25f;
 		*sz = -r.amp * r.k * (1.1f * sinf(b1) + 0.75f * sinf(b2)) * 0.25f;
-		if (r.ringAmp > 0.0f)
-			ringsAt(r, x, z, r.ringAmp, r.ringK, ox, oz, sx, sz);
 	} else if (r.rippleKind == 2) {
 		ringsAt(r, x, z, r.amp, r.k, ox, oz, sx, sz);
 	}
@@ -900,74 +893,6 @@ const TBGCheckData* choosePlane(const TBGCheckData* ground);
 
 namespace {
 
-// ------------------------------------------------------------------ disturbances on water
-// While the reflection is on water (with Water Ripples on), rings run out over it, as over the
-// puddles, where it is disturbed: where FLUDD's water comes down onto it (a drop above the surface
-// one tick that is at it or gone the next), and from Mario as he wades and swims through it.
-// Rings on water stir it further than in a puddle.
-const f32 kWaterRingSpread = 360.0f;
-
-// The log: the first few rings on water in each area, and then one a second.
-void logWaterRing(const char* what, f32 x, f32 z)
-{
-	static int s_count;
-	static s32 s_last;
-	if (++s_count > 5 && nowMs() - s_last < 1000)
-		return;
-	s_last = nowMs();
-	fprintf(stderr, "[puddles] a ring on water from %s at %.0f %.0f\n", what, x, z);
-}
-
-void updateWaterRings()
-{
-	static u8 s_flying[256];
-	static f32 s_px[256], s_py[256], s_pz[256];
-	static f32 s_lastX, s_lastZ;
-	static s32 s_lastWade;
-	TModelWaterManager* water = gpModelWaterManager;
-	const bool on = s_kind == KIND_WATER && s_plane && port_water_ripples() && water && gpMarioPos;
-	const int count = water ? water->getParticleCount() : 0;
-	int made        = 0;
-	for (int i = 0; i < 256; i++) {
-		const bool flying = i < count && (water->mParticleFlagSOA[i] & 0xf) == 1;
-		if (on && s_flying[i] && made < 4) {
-			// last tick above the surface, near it; now down at it, or gone (it hit the water)
-			const f32 was = s_py[i] - heightAt(s_plane, s_px[i], s_pz[i]);
-			const f32 now = flying ? water->mParticlePositionSOA[i].y
-			                             - heightAt(s_plane, water->mParticlePositionSOA[i].x,
-			                                        water->mParticlePositionSOA[i].z)
-			                       : -1.0f;
-			const f32 dx = s_px[i] - gpMarioPos->x, dz = s_pz[i] - gpMarioPos->z;
-			if (was > 0.0f && was < 120.0f && now <= 5.0f && dx * dx + dz * dz < 3000.0f * 3000.0f
-			    && distanceTo(s_plane, s_px[i], s_pz[i]) == 0.0f) {
-				addRing(s_px[i], s_pz[i], kWaterRingSpread);
-				made++;
-				logWaterRing("FLUDD's water", s_px[i], s_pz[i]);
-			}
-		}
-		s_flying[i] = flying;
-		if (flying) {
-			s_px[i] = water->mParticlePositionSOA[i].x;
-			s_py[i] = water->mParticlePositionSOA[i].y;
-			s_pz[i] = water->mParticlePositionSOA[i].z;
-		}
-	}
-	if (!on)
-		return;
-	// Mario in the water, moving: a ring from him every few strokes
-	const f32 mx = gpMarioPos->x, mz = gpMarioPos->z;
-	const f32 dx = mx - s_lastX, dz = mz - s_lastZ;
-	s_lastX = mx;
-	s_lastZ = mz;
-	const f32 depth = heightAt(s_plane, mx, mz) - gpMarioPos->y;
-	if (depth > -20.0f && depth < 150.0f && dx * dx + dz * dz > 1.5f * 1.5f && dx * dx + dz * dz < 200.0f * 200.0f
-	    && nowMs() - s_lastWade >= 350) {
-		addRing(mx, mz, kWaterRingSpread);
-		s_lastWade = nowMs();
-		logWaterRing("Mario", mx, mz);
-	}
-}
-
 // ------------------------------------------------------------------ Wet Footprints
 // After Mario runs through a puddle (or over wet ground), his next steps on dry ground leave damp
 // prints that fade. Each print a dark oval on the floor, left and right in turn, along the way he
@@ -1088,7 +1013,6 @@ const TBGCheckData* port_mirror_plane(const TBGCheckData* ground)
 	updateRings(ground);
 	updateFootprints(ground);
 	const TBGCheckData* plane = choosePlane(ground);
-	updateWaterRings();
 	// Water Depth: on the water while the reflection is on it, fading out on the last one after
 	s_depthWanted   = s_kind == KIND_WATER && port_water_depth();
 	s_depthTriCount = 0;
