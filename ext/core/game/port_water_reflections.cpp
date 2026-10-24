@@ -27,6 +27,7 @@
 #include <Player/ModelWaterManager.hpp>
 #include <dolphin/gx.h>
 #include <dolphin/mtx.h>
+#include <dolphin/os.h>
 
 #include <math.h>
 #include <stdio.h>
@@ -258,39 +259,42 @@ void drawDisc(f32 radius, u8 centre)
 // (TMirrorCamera::drawSetting), so that they can be moved.
 //
 // Water (Water Ripples): two crossing waves that roll on with the game's clock (still while it is
-// paused). Puddles and wet ground (Puddle Ripples): still, until something disturbs them; then
-// rings spread out from it and fade, from each drop of FLUDD's water as it lands in a puddle and
-// from Mario's feet as he runs through one.
+// paused). Puddles and wet ground (Puddle Ripples): still, until something disturbs them: where a
+// puddle forms (each drop of FLUDD's water that lands) and where Mario's feet fall as he runs
+// through one, the water around rings out at full strength and calms, evenly, to still in two
+// seconds (by the clock, not the game's ticks, whose rate the frame rate may change).
 const int kRings    = 48;
 const int kSegments = 96;
 
-// Puddle rings: where, and when (the game's clock, TModelWaterManager::unk5E00).
+// Puddle disturbances: where, and when (milliseconds).
 struct RingSource {
 	f32 x, z;
-	int start;
+	s32 start;
 };
 const int kMostRings   = 24;
-const int kRingLife    = 70;     // ticks
-const f32 kRingSpeed   = 2.5f;   // units a tick
-const f32 kRingWidth   = 45.0f;  // how wide a ring's wave train is
-const f32 kRingLength  = 28.0f;  // its waves' length
+const s32 kRingLife    = 2000;   // ms: full strength to still
+const f32 kRingSpread  = 160.0f; // how far around it the water is stirred
+const f32 kRingLength  = 50.0f;  // its waves' length
+const f32 kRingSpeed   = 120.0f; // how fast they run out, units a second
 RingSource s_rings[kMostRings];
 int s_ringCount;
 int s_ringNext;  // the next to make room for, when all are in use
 
 int now() { return gpModelWaterManager ? gpModelWaterManager->unk5E00 : 0; }
 
+s32 nowMs() { return (s32)OSTicksToMilliseconds(OSGetTime()); }
+
 void addRing(f32 x, f32 z)
 {
 	RingSource& r = s_ringCount < kMostRings ? s_rings[s_ringCount++] : s_rings[s_ringNext++ % kMostRings];
 	r.x     = x;
 	r.z     = z;
-	r.start = now();
+	r.start = nowMs();
 }
 
 bool ringsLive()
 {
-	const int t = now();
+	const s32 t = nowMs();
 	for (int i = 0; i < s_ringCount; i++)
 		if (t - s_rings[i].start < kRingLife)
 			return true;
@@ -303,7 +307,7 @@ void updateRings(const TBGCheckData* ground)
 {
 	static u8 s_wasPuddle[256];
 	static f32 s_lastX, s_lastZ;
-	static int s_lastStep;
+	static s32 s_lastStep;
 	TModelWaterManager* water = gpModelWaterManager;
 	if (!port_puddle_ripples() || !water || !gpMarioPos) {
 		s_ringCount = 0;
@@ -337,9 +341,9 @@ void updateRings(const TBGCheckData* ground)
 	const bool onGround = ground && ground->isLegal()
 	                      && gpMarioPos->y - heightAt(ground, mx, mz) < 10.0f && ground->getNormal().y > 0.5f;
 	if (puddleAtFeet && onGround && dx * dx + dz * dz > 2.0f * 2.0f && dx * dx + dz * dz < 200.0f * 200.0f
-	    && now() - s_lastStep >= 10) {
+	    && nowMs() - s_lastStep >= 300) {
 		addRing(mx, mz);
-		s_lastStep = now();
+		s_lastStep = nowMs();
 	}
 }
 
@@ -351,6 +355,7 @@ struct Ripple {
 	f32 k;       // 2 pi over the waves' length
 	f32 phase;
 	int time;
+	s32 ms;      // the clock, for puddles
 	u8 centre;   // the disc's alpha at its middle
 	f32 radius;
 };
@@ -366,8 +371,9 @@ void setUpRipple(Ripple* r, const TBGCheckData* plane, bool rings, int strength,
 	r->radius = radius;
 	r->centre = centre;
 	r->time   = now();
+	r->ms     = nowMs();
 	if (rings) {
-		r->amp = strength == 2 ? 6.0f : 2.5f;
+		r->amp = strength == 2 ? 10.0f : 5.0f;
 		r->k   = 6.2831853f / kRingLength;
 	} else {
 		const f32 spacing = radius / kRings;
@@ -385,27 +391,33 @@ void rippleTexCoord(const Ripple& r, f32 x, f32 z)
 		sx += r.amp * (sinf(x * r.k + r.phase) + 0.5f * sinf((x + z) * r.k * 1.7f + r.phase * 1.3f));
 		sz += r.amp * (cosf(z * r.k * 1.1f - r.phase * 0.9f) + 0.5f * cosf((x - z) * r.k * 1.5f + r.phase * 1.1f));
 	} else {
+		// round each disturbance, waves running out from it, as strong as it is young (100% as it
+		// starts, 0% two seconds on) and fading to its edge; together, never more than one at full
+		f32 ox = 0.0f, oz = 0.0f, total = 0.0f;
+		const f32 run = r.k * kRingSpeed / 1000.0f;  // the waves' phase, a millisecond
 		for (int i = 0; i < s_ringCount; i++) {
 			const RingSource& src = s_rings[i];
-			const int age         = r.time - src.start;
+			const s32 age         = r.ms - src.start;
 			if (age < 0 || age >= kRingLife)
 				continue;
 			const f32 dx = x - src.x, dz = z - src.z;
 			const f32 d2 = dx * dx + dz * dz;
-			const f32 front = kRingSpeed * age;
-			const f32 reach = front + kRingWidth;
-			if (d2 > reach * reach || d2 < 1.0f)
+			if (d2 >= kRingSpread * kRingSpread || d2 < 1.0f)
 				continue;
-			const f32 d = sqrtf(d2);
-			const f32 u = d - front;
-			if (u < -kRingWidth || u > kRingWidth)
-				continue;
-			// the train's middle strongest, fading as it grows old and wide
-			const f32 env = (1.0f - fabsf(u) / kRingWidth) * (1.0f - (f32)age / kRingLife) / (1.0f + front / 60.0f);
-			const f32 w   = r.amp * env * sinf(u * r.k) / d;
-			sx += dx * w;
-			sz += dz * w;
+			const f32 d      = sqrtf(d2);
+			const f32 edge   = 1.0f - d / kRingSpread;
+			const f32 weight = (1.0f - (f32)age / kRingLife) * edge * edge;
+			const f32 w      = weight * sinf(d * r.k - age * run) / d;
+			ox += dx * w;
+			oz += dz * w;
+			total += weight;
 		}
+		if (total > 1.0f) {
+			ox /= total;
+			oz /= total;
+		}
+		sx += r.amp * ox;
+		sz += r.amp * oz;
 	}
 	const f32 sy = heightAt(r.plane, sx, sz) + kLift;
 	const f32 s  = r.tex[0][0] * sx + r.tex[0][1] * sy + r.tex[0][2] * sz + r.tex[0][3];

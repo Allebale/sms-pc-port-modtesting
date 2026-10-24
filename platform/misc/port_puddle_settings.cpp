@@ -418,7 +418,7 @@ const PortSetting kPuddleSettings[] = {
      "The reflection in water wobbles with moving waves. Puddles stay still.", 0, nullptr, ripplesCount,
      ripplesName, ripplesGet, ripplesSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 101, "Puddle Ripples",
-     "Rings spread in puddles where FLUDD's drops land and where Mario runs.", 0, nullptr, ripplesCount,
+     "New puddles and Mario's steps ripple the reflection, calming over 2 seconds.", 0, nullptr, ripplesCount,
      ripplesName, puddleRipplesGet, puddleRipplesSet},
     SHOW_ROW(PORT_REFLECT_MARIO, 1),
     SHOW_ROW(PORT_REFLECT_CHARACTERS, 2),
