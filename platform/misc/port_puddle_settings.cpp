@@ -47,7 +47,7 @@ const Kind kKinds[PORT_REFLECT_KINDS] = {
     {"showitems", "Reflect Items", "Fruit and other things to take. Needs Puddle Reflections on Everything."},
     {"showobjects", "Reflect Objects", "Crates, trees, doors and the like. Needs Puddle Reflections on Everything."},
 };
-int s_show[PORT_REFLECT_KINDS] = {1, 1, 1, 1, 1};
+int s_show[PORT_REFLECT_KINDS] = {1, 0, 0, 0, 0};  // Mario and Yoshi only
 int kindIndex(const char* key) {
     for (int i = 0; i < PORT_REFLECT_KINDS; i++)
         if (!strcmp(key, kKinds[i].key)) return i;
@@ -62,10 +62,10 @@ bool isKind(const char* line, int* value) {
     s_show[i] = *value != 0;
     return true;
 }
-int s_ripples = 1; // Water Ripples: 0 off, 1 gentle, 2 strong
-int s_puddleRipples = 1; // Puddle Ripples: 0 off, 1 gentle, 2 strong
-int s_beatMirrors = 1;    // Puddles Beat Mirrors
-int s_footprints = 1;     // Wet Footprints
+int s_ripples = 0; // Water Ripples: 0 off, 1 gentle, 2 strong
+int s_puddleRipples = 0; // Puddle Ripples: 0 off, 1 gentle, 2 strong
+int s_beatMirrors = 0;    // Puddles Beat Mirrors
+int s_footprints = 0;     // Wet Footprints
 int s_level = 0;          // Reflect the Level: 0 off (as the game has it), 1 the stage itself too
 int s_water;       // Water Reflections: 0 none (as the game has it), 1 in the stage's water and wet ground
 // 0.5x to 5x the game's 1000 units, in steps of 0.25x (250 units)
@@ -84,21 +84,21 @@ struct Surface {
     int tenths;        // the default
 };
 const Surface kSurfaces[PORT_PUDDLE_SURFACES] = {
-    {"stone", "Stone and Carpets", "Puddles on stone tiles, carpets and other floors, in percent.", 450},
+    {"stone", "Stone and Carpets", "Puddles on stone tiles, carpets and other floors, in percent.", 300},
     {"metal", "Metal", "Puddles on metal roofs and manhole covers, in percent.", 500},
     {"clay", "Clay Roof Tiles", "Puddles on clay roof tiles, in percent.", 400},
-    {"wood", "Wood", "Puddles on wooden boardwalks, in percent.", 325},
-    {"sand", "Sand", "Puddles on sand, in percent.", 100},
-    {"grass", "Grass", "Puddles on grass, in percent.", 75},
+    {"wood", "Wood", "Puddles on wooden boardwalks, in percent.", 330},
+    {"sand", "Sand", "Puddles on sand, in percent.", 50},
+    {"grass", "Grass", "Puddles on grass, in percent.", 60},
     {"canvas", "Canvas", "Puddles on canvas awnings, in percent.", 100},
     {"wet", "Wet Floors", "Puddles on wet, slippery floors, in percent.", 550},
     {"water", "Water", "Sea, lakes, pools, fountains and streams, with Water Reflections, in percent.", 500},
-    {"wetground", "Wet Ground", "Wet ground itself, with Water Reflections, in percent.", 400},
+    {"wetground", "Wet Ground", "Wet ground itself, with Water Reflections, in percent.", 450},
 };
 const int kStep = 10;                       // 1%
 const int kSteps = 1000 / kStep + 1;        // 0 to 100%
 int s_strength[PORT_PUDDLE_SURFACES];
-int s_blur = 8;        // Reflection Blur, in quarters: 0 sharp to 40 (10), 8 is 2
+int s_blur = 0;        // Reflection Blur, in quarters: 0 sharp to 40 (10), 8 is 2
 // A Blur in quarters as the menu shows it: "0", "0.25", ... "10".
 const char* blurName(int i) {
     static char text[16];
@@ -108,9 +108,9 @@ const char* blurName(int i) {
     return text;
 }
 bool s_strengthSet;
-int s_viewAngle = 1;  // Viewing Angle: 0 off, 1 subtle, 2 realistic
-int s_glints = 1;     // Sun Glints: 0 off, 1 subtle, 2 bright
-int s_depth = 1;      // Water Depth: 0 off, 1 subtle, 2 strong
+int s_viewAngle = 0;  // Viewing Angle: 0 off, 1 subtle, 2 realistic
+int s_glints = 0;     // Sun Glints: 0 off, 1 subtle, 2 bright
+int s_depth = 0;      // Water Depth: 0 off, 1 subtle, 2 strong
 
 // "blur = 2.25": to the nearest quarter, within 0 to 10.
 bool readBlur(const char* line) {
