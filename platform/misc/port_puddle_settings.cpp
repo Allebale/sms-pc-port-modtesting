@@ -93,13 +93,11 @@ const Surface kSurfaces[PORT_PUDDLE_SURFACES] = {
     {"wet", "Wet Floors", "Puddles on wet, slippery floors, in percent.", 550},
     {"water", "Water", "Sea, lakes, pools, fountains and streams, with Water Reflections, in percent.", 500},
     {"wetground", "Wet Ground", "Wet ground itself, with Water Reflections, in percent.", 400},
-    {"goop", "Goop", "Goop on the ground, its glossy sheen, in percent. Not burning or electric goop.", 120},
 };
 const int kStep = 10;                       // 1%
 const int kSteps = 1000 / kStep + 1;        // 0 to 100%
 int s_strength[PORT_PUDDLE_SURFACES];
 int s_blur = 8;        // Reflection Blur, in quarters: 0 sharp to 40 (10), 8 is 2
-int s_goopBlur = 14;   // Goop Blur, in quarters: 14 is 3.5
 // A Blur in quarters as the menu shows it: "0", "0.25", ... "10".
 const char* blurName(int i) {
     static char text[16];
@@ -113,15 +111,12 @@ int s_viewAngle = 1;  // Viewing Angle: 0 off, 1 subtle, 2 realistic
 int s_glints = 1;     // Sun Glints: 0 off, 1 subtle, 2 bright
 int s_depth = 1;      // Water Depth: 0 off, 1 subtle, 2 strong
 
-// "blur = 2.25" (or "goopblur = 3.5"): to the nearest quarter, within 0 to 10.
+// "blur = 2.25": to the nearest quarter, within 0 to 10.
 bool readBlur(const char* line) {
     float v;
-    int* into = nullptr;
-    if (sscanf(line, " blur = %f", &v) == 1) into = &s_blur;
-    else if (sscanf(line, " goopblur = %f", &v) == 1) into = &s_goopBlur;
-    if (!into) return false;
+    if (sscanf(line, " blur = %f", &v) != 1) return false;
     int q = int(v * 4.0f + (v < 0 ? -0.5f : 0.5f));
-    *into = q < 0 ? 0 : q > 40 ? 40 : q;
+    s_blur = q < 0 ? 0 : q > 40 ? 40 : q;
     return true;
 }
 
@@ -295,8 +290,6 @@ void save() {
     fprintf(f, "depth = %d\n", s_depth);
     fprintf(f, "# blur: how blurred reflections in puddles and water are, 0 sharp to 10 in steps of 0.25.\n");
     fprintf(f, "blur = %s\n", blurName(s_blur));
-    fprintf(f, "# goopblur: how blurred reflections in goop are, 0 sharp to 10 in steps of 0.25.\n");
-    fprintf(f, "goopblur = %s\n", blurName(s_goopBlur));
     fprintf(f, "# What is reflected (the menu's Reflections page): 1 on, 0 off.\n");
     for (int i = 0; i < PORT_REFLECT_KINDS; i++) fprintf(f, "%s = %d\n", kKinds[i].key, s_show[i]);
     fprintf(f, "# waterreflections: 1 the stage's water and wet ground reflect as puddles do, 0 not.\n");
@@ -452,18 +445,6 @@ int depthSet(int i) {
 }
 
 int blurCount() { return 41; }  // 0 to 10 in steps of 0.25
-int goopBlurGet() {
-    load();
-    return s_goopBlur;
-}
-int goopBlurSet(int i) {
-    if (i < 0 || i > 40) return 0;
-    load();
-    s_goopBlur = i;
-    save();
-    port_log("[puddles] Goop Blur: %s\n", blurName(i));
-    return 1;
-}
 int blurGet() {
     load();
     return s_blur;
@@ -587,9 +568,6 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 15, "Reflection Blur",
      "How blurred reflections in puddles and water are, 0 sharp to 10.", 0, nullptr, blurCount, blurName,
      blurGet, blurSet},
-    {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 16, "Goop Blur",
-     "How blurred reflections in goop are, 0 sharp to 10.", 0, nullptr, blurCount, blurName, goopBlurGet,
-     goopBlurSet},
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 14, "Water Depth",
      "The sea, lakes and pools darken toward blue-green over deep ground.", 0, nullptr, levelCount3, depthName,
      depthGet, depthSet},
@@ -608,7 +586,6 @@ const PortSetting kPuddleSettings[] = {
     SURFACE_ROW(PORT_PUDDLE_WET, 47),
     SURFACE_ROW(PORT_PUDDLE_WATER, 48),
     SURFACE_ROW(PORT_PUDDLE_WET_GROUND, 49),
-    SURFACE_ROW(PORT_PUDDLE_GOOP, 50),
 };
 
 }  // namespace
@@ -658,16 +635,6 @@ int port_reflect_kind(int kind) {
 int port_reflection_view_angle(void) {
     load();
     return s_viewAngle;
-}
-
-int port_reflections_goop(void) {
-    load();
-    return s_strength[PORT_PUDDLE_GOOP] > 0;
-}
-
-int port_goop_blur(void) {
-    load();
-    return s_goopBlur;
 }
 
 int port_reflection_blur(void) {

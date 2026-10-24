@@ -75,8 +75,7 @@ private:
 	bool shown() const
 	{
 		if (!port_puddle_reflections() || !gpModelWaterManager
-		    || (!gpModelWaterManager->getParticleCount() && !port_water_mirror_active()
-		        && !port_goop_mirror_active()))
+		    || (!gpModelWaterManager->getParticleCount() && !port_water_mirror_active()))
 			return false;
 		if (!port_reflect_kind(mKind))
 			return false;
@@ -237,8 +236,7 @@ public:
 	virtual void perform(u32 cue, JDrama::TGraphics* graphics)
 	{
 		if (port_reflect_level() && gpModelWaterManager
-		    && (gpModelWaterManager->getParticleCount() || port_water_mirror_active()
-		        || port_goop_mirror_active()))
+		    && (gpModelWaterManager->getParticleCount() || port_water_mirror_active()))
 			TMirrorActor::perform(cue, graphics);
 	}
 };
