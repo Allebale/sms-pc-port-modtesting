@@ -22,13 +22,6 @@
 #include <Map/MapCollisionData.hpp>
 #include <Map/MapData.hpp>
 #include <Map/MapMirror.hpp>
-#include <Map/Sky.hpp>
-#include <M3DUtil/MActor.hpp>
-#include <JSystem/J3D/J3DGraphAnimator/J3DModel.hpp>
-#include <JSystem/J3D/J3DGraphBase/J3DTexture.hpp>
-#include <JSystem/JDrama/JDRNameRefGen.hpp>
-#include <JSystem/ResTIMG.hpp>
-#include <string.h>
 #include <Camera/Camera.hpp>
 #include <JSystem/JMath.hpp>
 #include <Player/MarioAccess.hpp>
@@ -544,144 +537,6 @@ void drawMarks(u8 alpha)
 	GXEnd();
 }
 
-// ------------------------------------------------------------------ Sky in Reflections
-// Where nothing stands in a puddle's or the water's reflection, real water shows the sky: more
-// of it looking across it than looking down into it. Here the stage's sky (its TSky, "空") is
-// measured as the stage loads, the average colour of its model's textures, and laid faintly
-// over the puddles and water marked for the reflection, added as light is, as strongly as the
-// setting says, times how slanting the view is (Schlick's approximation, with a floor), fading
-// out over the disc around Mario as the reflection does.
-u8 s_sky[3];
-bool s_skyKnown;
-
-void measureSky()
-{
-	s_skyKnown = false;
-	TSky* sky = JDrama::TNameRefGen::search<TSky>("\x8B\xF3");  // "空" in Shift-JIS
-	if (!sky || !sky->getMActor() || !sky->getMActor()->getModel()) {
-		fprintf(stderr, "[puddles] no sky in this area: no sky in reflections\n");
-		return;
-	}
-	J3DModelData* data = sky->getMActor()->getModel()->getModelData();
-	J3DTexture* textures = data ? data->getTexture() : nullptr;
-	f32 r = 0.0f, g = 0.0f, b = 0.0f, total = 0.0f;
-	for (u16 i = 0; textures && i < textures->getNum(); i++) {
-		const ResTIMG* t = textures->getResTIMG(i);
-		if (!t)
-			continue;
-		const u8* base   = (const u8*)t;
-		const void* tlut = t->isIndexTexture ? base + t->paletteOffset : nullptr;
-		unsigned char rgb[3];
-		unsigned weight;
-		if (!port_texture_average(base + t->imageDataOffset, t->format, t->width, t->height, tlut, t->colorFormat,
-		                          rgb, &weight))
-			continue;
-		r += rgb[0] * (f32)weight;
-		g += rgb[1] * (f32)weight;
-		b += rgb[2] * (f32)weight;
-		total += weight;
-	}
-	if (total <= 0.0f) {
-		fprintf(stderr, "[puddles] the sky's colour could not be measured: no sky in reflections\n");
-		return;
-	}
-	s_sky[0]   = (u8)(r / total);
-	s_sky[1]   = (u8)(g / total);
-	s_sky[2]   = (u8)(b / total);
-	s_skyKnown = true;
-	fprintf(stderr, "[puddles] the sky's colour: %d %d %d\n", s_sky[0], s_sky[1], s_sky[2]);
-}
-
-const int kSkyRings    = 16;
-const int kSkySegments = 32;
-
-void skyVertex(const TBGCheckData* plane, f32 radius, f32 strength, int ring, int segment)
-{
-	const f32 along = (f32)ring / kSkyRings;
-	const f32 angle = (f32)segment * (6.2831853f / kSkySegments);
-	const f32 x     = gpMarioPos->x + sinf(angle) * radius * along;
-	const f32 z     = gpMarioPos->z + cosf(angle) * radius * along;
-	const f32 y     = heightAt(plane, x, z) + kLift;
-	// how slanting the view is: looking across, more sky; looking down, little
-	const JGeometry::TVec3<f32>& c = gpCamera->mPosition;
-	const JGeometry::TVec3<f32>& n = plane->getNormal();
-	f32 dx = x - c.x, dy = y - c.y, dz = z - c.z;
-	const f32 len = sqrtf(dx * dx + dy * dy + dz * dz);
-	f32 cosine    = len > 0.0f ? fabsf(dx * n.x + dy * n.y + dz * n.z) / len : 1.0f;
-	cosine        = cosine > 1.0f ? 1.0f : cosine;
-	const f32 m   = 1.0f - cosine;
-	const f32 slant = 0.1f + 0.9f * m * m * m * m;
-	f32 a = strength * slant * (1.0f - along) * 255.0f;
-	a     = a > 255.0f ? 255.0f : a;
-	GXPosition3f32(x, y, z);
-	GXColor4u8(s_sky[0], s_sky[1], s_sky[2], (u8)a);
-}
-
-} // namespace
-
-// From TModelWaterManager::drawMirror (zzzzz-ext-25-water-reflections) and port_draw_water_mirror,
-// with the puddles or water marked in the frame's alpha: the sky laid over them (Sky in
-// Reflections). The marks are kept; what the caller set up after them is put back as it was.
-void port_draw_reflection_sky(MtxPtr view, const TBGCheckData* plane, f32 radius)
-{
-	const int level = port_sky_reflections();
-	if (!level || !s_skyKnown || !port_reflections_on() || !plane || !plane->isLegal() || !gpCamera || !gpMarioPos
-	    || plane->getNormal().y <= 0.1f)
-		return;
-	const f32 strength = level == 3 ? 0.5f : level == 2 ? 0.3f : 0.15f;
-
-	GXClearVtxDesc();
-	GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-	GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
-	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
-	GXSetCurrentMtx(GX_PNMTX0);
-	GXLoadPosMtxImm(view, GX_PNMTX0);
-	GXSetCullMode(GX_CULL_NONE);
-	GXSetNumChans(1);
-	GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX, 0, GX_DF_NONE, GX_AF_NONE);
-	GXSetNumTexGens(0);
-	GXSetNumTevStages(1);
-	GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
-	// the sky's colour times how strongly it shows here, added where the marks say
-	GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_RASC, GX_CC_RASA, GX_CC_ZERO);
-	GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-	GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_RASA);
-	GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-	GXSetBlendMode(GX_BM_BLEND, GX_BL_DSTALPHA, GX_BL_ONE, GX_LO_NOOP);
-	GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
-	GXSetAlphaCompare(GX_ALWAYS, 0, GX_AOP_OR, GX_ALWAYS, 0);
-	GXSetColorUpdate(GX_TRUE);
-	GXSetAlphaUpdate(GX_FALSE);
-	GXSetDstAlpha(GX_FALSE, 0);
-
-	for (int ring = 0; ring < kSkyRings; ring++) {
-		GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, (u16)(2 * (kSkySegments + 1)));
-		for (int seg = 0; seg <= kSkySegments; seg++) {
-			skyVertex(plane, radius, strength, ring + 1, seg % kSkySegments);
-			skyVertex(plane, radius, strength, ring, seg % kSkySegments);
-		}
-		GXEnd();
-	}
-
-	// as the marks were drawn: alpha only
-	GXSetColorUpdate(GX_FALSE);
-	GXSetAlphaUpdate(GX_TRUE);
-	GXSetDstAlpha(GX_FALSE, 0);
-	GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
-}
-
-namespace {
-PortExtension s_skyExtension;
-struct RegisterSky {
-	RegisterSky()
-	{
-		memset(&s_skyExtension, 0, sizeof s_skyExtension);
-		s_skyExtension.name       = "sky in reflections";
-		s_skyExtension.stageSetup = measureSky;
-		port_ext_register(&s_skyExtension);
-	}
-} s_registerSky;
 } // namespace
 
 // From TMirrorModelManager::perform (zzzzz-ext-25-water-reflections), as each frame starts: the
@@ -794,7 +649,6 @@ void port_draw_water_mirror(MtxPtr view)
 	GXSetDstAlpha(GX_FALSE, 0);
 	GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
 	drawMarks(strength);
-	port_draw_reflection_sky(view, s_plane, radius);
 
 	// 2: faded out over the disc around Mario (the mark times the disc's alpha)
 	Mtx identity;

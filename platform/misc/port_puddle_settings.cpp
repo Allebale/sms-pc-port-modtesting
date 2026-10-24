@@ -64,7 +64,6 @@ bool isKind(const char* line, int* value) {
 int s_ripples = 1; // Water Ripples: 0 off, 1 gentle, 2 strong
 int s_puddleRipples = 1; // Puddle Ripples: 0 off, 1 gentle, 2 strong
 int s_beatMirrors = 1;    // Puddles Beat Mirrors
-int s_sky = 1;            // Sky in Reflections: 0 off, 1 faint, 2 medium, 3 strong
 int s_reflectionsOn = 1;  // the REFLECTIONS_TOGGLE key: all off while 0 (this run only)
 int s_water;       // Water Reflections: 0 none (as the game has it), 1 in the stage's water and wet ground
 const int kDistances[] = {500, 750, 1000, 2000, 3000, 5000};
@@ -193,8 +192,6 @@ void load() {
             s_surface = value != 0;
         } else if (isKind(line, &value)) {
             // done by isKind
-        } else if (sscanf(line, " sky = %d", &value) == 1) {
-            s_sky = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " beatmirrors = %d", &value) == 1) {
             s_beatMirrors = value != 0;
         } else if (sscanf(line, " puddleripples = %d", &value) == 1) {
@@ -244,8 +241,6 @@ void save() {
     fprintf(f, "ripples = %d\n", s_ripples);
     fprintf(f, "# puddleripples: rings spread in puddles where drops land and Mario runs: 0 off, 1 gentle, 2 strong.\n");
     fprintf(f, "puddleripples = %d\n", s_puddleRipples);
-    fprintf(f, "# sky: the sky's colour in puddles and water: 0 off, 1 faint, 2 medium, 3 strong.\n");
-    fprintf(f, "sky = %d\n", s_sky);
     fprintf(f, "# beatmirrors: 1 puddles near Mario take the reflection from a real mirror's area, 0 not.\n");
     fprintf(f, "beatmirrors = %d\n", s_beatMirrors);
     fprintf(f, "# What is reflected (the menu's Other page): 1 on, 0 off.\n");
@@ -341,21 +336,6 @@ int puddleRipplesSet(int i) {
     s_puddleRipples = i;
     save();
     port_log("[puddles] Puddle Ripples changed: %s\n", ripplesName(i));
-    return 1;
-}
-
-int skyCount() { return 4; }
-const char* skyName(int i) { return i == 3 ? "Strong" : i == 2 ? "Medium" : i == 1 ? "Faint" : "Off"; }
-int skyGet() {
-    load();
-    return s_sky;
-}
-int skySet(int i) {
-    if (i < 0 || i > 3) return 0;
-    load();
-    s_sky = i;
-    save();
-    port_log("[puddles] Sky in Reflections changed: %s\n", skyName(i));
     return 1;
 }
 
@@ -462,9 +442,6 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 102, "Puddles Beat Mirrors",
      "Near a puddle in a mirror's area, the puddle shows reflections, not the mirror.", 0, nullptr, offOnCount,
      offOnName, beatGet, beatSet},
-    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 103, "Sky in Reflections",
-     "The sky's colour in puddles and water, stronger looking across them.", 0, nullptr, skyCount, skyName,
-     skyGet, skySet},
     SHOW_ROW(PORT_REFLECT_MARIO, 1),
     SHOW_ROW(PORT_REFLECT_CHARACTERS, 2),
     SHOW_ROW(PORT_REFLECT_ENEMIES, 3),
@@ -525,11 +502,6 @@ int port_reflect_kind(int kind) {
     load();
     if (!s_reflectionsOn) return 0;
     return kind >= 0 && kind < PORT_REFLECT_KINDS ? s_show[kind] : 1;
-}
-
-int port_sky_reflections(void) {
-    load();
-    return s_sky;
 }
 
 int port_puddles_beat_mirrors(void) {
