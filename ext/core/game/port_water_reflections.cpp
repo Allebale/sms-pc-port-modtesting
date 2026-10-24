@@ -350,9 +350,10 @@ void addRing(f32 x, f32 z)
 
 bool ringsLive()
 {
+	// a ring from the future is one a save state brought back from another run's clock: done
 	const s32 t = nowMs();
 	for (int i = 0; i < s_ringCount; i++)
-		if (t - s_rings[i].start < kRingLife)
+		if (t - s_rings[i].start >= 0 && t - s_rings[i].start < kRingLife)
 			return true;
 	return false;
 }
