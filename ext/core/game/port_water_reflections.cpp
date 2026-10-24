@@ -1,4 +1,4 @@
-// Water Reflections (port_puddles.h, the settings menu's Graphics page): the reflections FLUDD's
+// Water Reflections and Water Ripples (port_puddles.h, the settings menu's Graphics page): the reflections FLUDD's
 // puddles show (Mario, and with Puddle Reflections on, characters and objects) in the stage's own
 // water too: the sea, lakes, pools, fountains and streams, and wet ground. Game code, with the
 // game's flags and headers.
@@ -252,6 +252,62 @@ void drawDisc(f32 radius, u8 centre)
 	GXEnd();
 }
 
+// Water Ripples: the reflection in water wobbles. The disc is drawn as a fine web of rings, each
+// point keeping its place but showing the mirror's picture from a little beside it, the offset
+// two crossing waves that move with the game's clock (still while it is paused). The texture's
+// coordinates are worked out here, as the mirror camera's matrix would give them from the place
+// (TMirrorCamera::drawSetting), so that they can be moved.
+const int kRings    = 48;
+const int kSegments = 96;
+
+struct Ripple {
+	Mtx tex;     // world place to the mirror texture (s, t, q)
+	f32 amp;     // how far beside, in the game's units
+	f32 k;       // 2 pi over the waves' length
+	f32 phase;
+	u8 centre;   // the disc's alpha at its middle
+	f32 radius;
+};
+
+void rippleTexCoord(const Ripple& r, f32 x, f32 z)
+{
+	f32 sx = x, sz = z;
+	if (r.amp > 0.0f) {
+		sx += r.amp * (sinf(x * r.k + r.phase) + 0.5f * sinf((x + z) * r.k * 1.7f + r.phase * 1.3f));
+		sz += r.amp * (cosf(z * r.k * 1.1f - r.phase * 0.9f) + 0.5f * cosf((x - z) * r.k * 1.5f + r.phase * 1.1f));
+	}
+	const f32 sy = heightAt(s_plane, sx, sz) + kLift;
+	const f32 s  = r.tex[0][0] * sx + r.tex[0][1] * sy + r.tex[0][2] * sz + r.tex[0][3];
+	const f32 t  = r.tex[1][0] * sx + r.tex[1][1] * sy + r.tex[1][2] * sz + r.tex[1][3];
+	f32 q        = r.tex[2][0] * sx + r.tex[2][1] * sy + r.tex[2][2] * sz + r.tex[2][3];
+	if (fabsf(q) < 0.0001f)
+		q = q < 0.0f ? -0.0001f : 0.0001f;
+	GXTexCoord2f32(s / q, t / q);
+}
+
+void rippleVertex(const Ripple& r, int ring, int segment)
+{
+	const f32 along = (f32)ring / kRings;
+	const f32 angle = (f32)segment * (6.2831853f / kSegments);
+	const f32 x     = gpMarioPos->x + sinf(angle) * r.radius * along;
+	const f32 z     = gpMarioPos->z + cosf(angle) * r.radius * along;
+	GXPosition3f32(x, heightAt(s_plane, x, z) + kLift, z);
+	GXColor4u8(0xff, 0xff, 0xff, (u8)(r.centre * (1.0f - along)));
+	rippleTexCoord(r, x, z);
+}
+
+void drawRippleDisc(const Ripple& r)
+{
+	for (int ring = 0; ring < kRings; ring++) {
+		GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, (u16)(2 * (kSegments + 1)));
+		for (int seg = 0; seg <= kSegments; seg++) {
+			rippleVertex(r, ring + 1, seg % kSegments);
+			rippleVertex(r, ring, seg % kSegments);
+		}
+		GXEnd();
+	}
+}
+
 void drawMarks(u8 alpha)
 {
 	GXBegin(GX_TRIANGLES, GX_VTXFMT0, (u16)(s_triCount * 3));
@@ -364,26 +420,60 @@ void port_draw_water_mirror(MtxPtr view)
 	drawMarks(strength);
 
 	// 2: faded out over the disc around Mario (the mark times the disc's alpha)
+	TMirrorCamera* mirror = gpMirrorModelManager->unk24;
 	Mtx identity;
 	MTXIdentity(identity);
-	gpMirrorModelManager->unk24->drawSetting(identity);
+	mirror->drawSetting(identity);
 	GXSetCurrentMtx(GX_PNMTX0);
 	GXLoadPosMtxImm(view, GX_PNMTX0);
 	GXSetNumTexGens(1);
-	GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_POS, 0x1e, 0, 0x7d);
 	GXSetNumTevStages(1);
 	GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
 	GXSetTevOp(GX_TEVSTAGE0, GX_MODULATE);
 	GXSetBlendMode(GX_BM_BLEND, GX_BL_ZERO, GX_BL_SRCALPHA, GX_LO_NOOP);
 	GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
-	drawDisc(radius, gpModelWaterManager->unk5D64);
+
+	const int ripples = s_kind == KIND_WATER ? port_water_ripples() : 0;
+	Ripple ripple;
+	if (ripples && gpCamera) {
+		// as drawSetting's: the mirror's view, then its projection into the texture
+		Mtx project;
+		C_MTXLightPerspective(project, mirror->unk80 * gpCamera->mFovy, gpCamera->mAspect, 0.5f, -0.5f, 0.5f,
+		                      0.5f);
+		MTXConcat(project, mirror->unk30, ripple.tex);
+		const f32 spacing = radius / kRings;
+		const f32 length  = spacing * 5.0f > 140.0f ? spacing * 5.0f : 140.0f;
+		ripple.amp        = ripples == 2 ? 10.0f : 4.0f;
+		ripple.k          = 6.2831853f / length;
+		ripple.phase      = (f32)gpModelWaterManager->unk5E00 * 0.06f;
+		ripple.centre     = gpModelWaterManager->unk5D64;
+		ripple.radius     = radius;
+
+		GXClearVtxDesc();
+		GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+		GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+		GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+		GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+		GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
+		drawRippleDisc(ripple);
+	} else {
+		GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_POS, 0x1e, 0, 0x7d);
+		drawDisc(radius, gpModelWaterManager->unk5D64);
+	}
 
 	// 3: the mirror's picture laid over what is marked, and the alpha left clear
 	GXSetBlendMode(GX_BM_BLEND, GX_BL_DSTALPHA, GX_BL_INVDSTALPHA, GX_LO_NOOP);
 	GXSetColorUpdate(GX_TRUE);
 	GXSetAlphaUpdate(GX_TRUE);
 	GXSetDstAlpha(GX_TRUE, 0);
-	drawDisc(radius, gpModelWaterManager->unk5D64);
+	if (ripples && gpCamera) {
+		drawRippleDisc(ripple);
+		GXClearVtxDesc();
+		GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+		GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+	} else {
+		drawDisc(radius, gpModelWaterManager->unk5D64);
+	}
 
 	// 4: what of the marks lies outside the disc, cleared too
 	GXSetNumTexGens(0);

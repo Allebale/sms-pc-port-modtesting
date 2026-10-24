@@ -61,6 +61,7 @@ bool isKind(const char* line, int* value) {
     s_show[i] = *value != 0;
     return true;
 }
+int s_ripples = 1; // Water Ripples: 0 off, 1 gentle, 2 strong
 int s_water;       // Water Reflections: 0 none (as the game has it), 1 in the stage's water and wet ground
 const int kDistances[] = {500, 750, 1000, 2000, 3000, 5000};
 const char* const kDistanceNames[] = {"0.5x", "0.75x", "Original", "2x", "3x", "5x"};
@@ -188,6 +189,8 @@ void load() {
             s_surface = value != 0;
         } else if (isKind(line, &value)) {
             // done by isKind
+        } else if (sscanf(line, " ripples = %d", &value) == 1) {
+            s_ripples = value < 0 ? 0 : value > 2 ? 2 : value;
         } else if (sscanf(line, " waterreflections = %d", &value) == 1) {
             s_water = value != 0;
         } else if (sscanf(line, " distance = %d", &value) == 1) {
@@ -227,6 +230,8 @@ void save() {
     fprintf(f, "surface = %d\n", s_surface);
     fprintf(f, "# distance: how far from Mario reflections are drawn: 500, 750, 1000 (Original), 2000, 3000 or 5000.\n");
     fprintf(f, "distance = %d\n", kDistances[s_distance]);
+    fprintf(f, "# ripples: the reflection in water wobbles: 0 off, 1 gentle, 2 strong.\n");
+    fprintf(f, "ripples = %d\n", s_ripples);
     fprintf(f, "# What is reflected (the menu's Other page): 1 on, 0 off.\n");
     for (int i = 0; i < PORT_REFLECT_KINDS; i++) fprintf(f, "%s = %d\n", kKinds[i].key, s_show[i]);
     fprintf(f, "# waterreflections: 1 the stage's water and wet ground reflect as puddles do, 0 not.\n");
@@ -292,6 +297,21 @@ int waterSet(int i) {
     s_water = i;
     save();
     logSettings("Water Reflections changed");
+    return 1;
+}
+
+int ripplesCount() { return 3; }
+const char* ripplesName(int i) { return i == 2 ? "Strong" : i == 1 ? "Gentle" : "Off"; }
+int ripplesGet() {
+    load();
+    return s_ripples;
+}
+int ripplesSet(int i) {
+    if (i < 0 || i > 2) return 0;
+    load();
+    s_ripples = i;
+    save();
+    port_log("[puddles] Water Ripples changed: %s\n", ripplesName(i));
     return 1;
 }
 
@@ -376,6 +396,9 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 99, "Water Reflections",
      "The sea, pools, fountains, streams and wet ground reflect as puddles do.", 0, nullptr, offOnCount,
      offOnName, waterGet, waterSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 100, "Water Ripples",
+     "The reflection in water wobbles with moving waves. Puddles stay still.", 0, nullptr, ripplesCount,
+     ripplesName, ripplesGet, ripplesSet},
     SHOW_ROW(PORT_REFLECT_MARIO, 1),
     SHOW_ROW(PORT_REFLECT_CHARACTERS, 2),
     SHOW_ROW(PORT_REFLECT_ENEMIES, 3),
@@ -420,6 +443,11 @@ int port_puddle_surface(void) {
 int port_puddle_surface_strength(int surface) {
     load();
     return surface >= 0 && surface < PORT_PUDDLE_SURFACES ? s_strength[surface] : 1000;
+}
+
+int port_water_ripples(void) {
+    load();
+    return s_ripples;
 }
 
 int port_reflect_kind(int kind) {

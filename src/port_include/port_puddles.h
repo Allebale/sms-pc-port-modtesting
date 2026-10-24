@@ -60,6 +60,9 @@ int port_reflect_kind(int kind);
 // Water Reflections: 1 when the stage's own water and wet ground show the reflections puddles
 // do (ext/core/game/port_water_reflections.cpp); 0 as the game has it.
 int port_water_reflections(void);
+// Water Ripples: 0 off (the reflection in water still), 1 gentle, 2 strong. Puddles and wet
+// ground stay still.
+int port_water_ripples(void);
 // Whether water or wet ground shows reflections this frame.
 int port_water_mirror_active(void);
 // Whether this frame's reflections are mirrored about a water surface, not the floor under Mario
