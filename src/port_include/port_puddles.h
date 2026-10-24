@@ -10,7 +10,7 @@
 extern "C" {
 #endif
 
-// 1 (Original), 2, 4 or 8.
+// 1 (Original) to 8.
 int port_puddle_life_scale(void);
 // Puddle Reflections: 1 when characters and objects are reflected in the puddles, not only
 // Mario (ext/core/game/port_reflections.cpp). Their reflections are made as an area loads.
@@ -47,7 +47,8 @@ int port_puddle_surface_kind(unsigned type, unsigned material);
 // Viewing Angle: 0 off (every angle alike, as the game has it), 1 subtle, 2 realistic: reflections
 // stronger looking across puddles and water, weaker looking down into them.
 int port_reflection_view_angle(void);
-// Reflection Blur: how blurred reflections in puddles and water are, 0 sharp to 10.
+// Reflection Blur: how blurred reflections in puddles and water are, in quarters: 0 sharp to 40
+// (10, in steps of 0.25).
 int port_reflection_blur(void);
 // Sun Glints: 0 off, 1 subtle, 2 bright: the sun's light bouncing off puddles and water.
 int port_sun_glints(void);
@@ -55,7 +56,7 @@ int port_sun_glints(void);
 int port_water_depth(void);
 
 // Reflection Distance: the radius, in the game's units, of the disc around Mario that puddle
-// reflections are drawn over, fading out to its edge: 500, 750, 1000 (Original), 2000, 3000 or 5000.
+// reflections are drawn over, fading out to its edge: 500 to 5000 in steps of 250 (1000 Original).
 float port_puddle_reflection_distance(void);
 
 // The settings menu's Reflect switches (its Reflections page): what is reflected, in puddles and water

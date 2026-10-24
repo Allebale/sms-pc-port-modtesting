@@ -26,8 +26,8 @@ extern "C" void port_log(const char* fmt, ...);
 
 namespace {
 
-const int kScales[] = {1, 2, 4, 8};
-const char* const kNames[] = {"Original", "2x", "4x", "8x"};
+const int kScales[] = {1, 2, 3, 4, 5, 6, 7, 8};
+const char* const kNames[] = {"Original", "2x", "3x", "4x", "5x", "6x", "7x", "8x"};
 const int kCount = int(sizeof kScales / sizeof kScales[0]);
 
 bool s_loaded;
@@ -67,10 +67,11 @@ int s_puddleRipples = 1; // Puddle Ripples: 0 off, 1 gentle, 2 strong
 int s_beatMirrors = 1;    // Puddles Beat Mirrors
 int s_level = 0;          // Reflect the Level: 0 off (as the game has it), 1 the stage itself too
 int s_water;       // Water Reflections: 0 none (as the game has it), 1 in the stage's water and wet ground
-const int kDistances[] = {500, 750, 1000, 2000, 3000, 5000};
-const char* const kDistanceNames[] = {"0.5x", "0.75x", "Original", "2x", "3x", "5x"};
-const int kDistanceCount = int(sizeof kDistances / sizeof kDistances[0]);
-const int kDistanceOriginal = 2;      // 1000, the game's
+// 0.5x to 5x the game's 1000 units, in steps of 0.25x (250 units)
+const int kDistanceStep = 250;
+const int kDistanceCount = (5000 - 500) / kDistanceStep + 1;
+const int kDistanceOriginal = (1000 - 500) / kDistanceStep;  // 1000, the game's
+int distanceAt(int i) { return 500 + i * kDistanceStep; }
 int s_distance = kDistanceOriginal;   // Reflection Distance: into kDistances
 
 // Reflections by Surface's strengths, the Reflections page: tenths of a percent of the game's own, in
@@ -93,14 +94,31 @@ const Surface kSurfaces[PORT_PUDDLE_SURFACES] = {
     {"water", "Water", "Sea, lakes, pools, fountains and streams, with Water Reflections, in percent.", 500},
     {"wetground", "Wet Ground", "Wet ground itself, with Water Reflections, in percent.", 400},
 };
-const int kStep = 25;                       // 2.5%
+const int kStep = 10;                       // 1%
 const int kSteps = 1000 / kStep + 1;        // 0 to 100%
 int s_strength[PORT_PUDDLE_SURFACES];
-int s_blur = 2;        // Reflection Blur: 0 sharp to 10
+int s_blur = 8;        // Reflection Blur, in quarters: 0 sharp to 40 (10), 8 is 2
+// A Blur in quarters as the menu shows it: "0", "0.25", ... "10".
+const char* blurName(int i) {
+    static char text[16];
+    i = i < 0 ? 0 : i > 40 ? 40 : i;
+    if (i % 4) snprintf(text, sizeof text, "%d.%s", i / 4, i % 4 == 1 ? "25" : i % 4 == 2 ? "5" : "75");
+    else snprintf(text, sizeof text, "%d", i / 4);
+    return text;
+}
 bool s_strengthSet;
 int s_viewAngle = 1;  // Viewing Angle: 0 off, 1 subtle, 2 realistic
 int s_glints = 1;     // Sun Glints: 0 off, 1 subtle, 2 bright
 int s_depth = 1;      // Water Depth: 0 off, 1 subtle, 2 strong
+
+// "blur = 2.25": to the nearest quarter, within 0 to 10.
+bool readBlur(const char* line) {
+    float v;
+    if (sscanf(line, " blur = %f", &v) != 1) return false;
+    int q = int(v * 4.0f + (v < 0 ? -0.5f : 0.5f));
+    s_blur = q < 0 ? 0 : q > 40 ? 40 : q;
+    return true;
+}
 
 void defaultStrengths() {
     if (s_strengthSet) return;
@@ -174,7 +192,7 @@ std::string pathForLog() { return folder() + "/puddles.txt"; }
 void logSettings(const char* why) {
     port_log("[puddles] %s: lifetime %dx, reflections %s, by surface %s, distance %d, water %s (%s)\n", why,
              kScales[s_index], s_reflections ? "everything" : "Mario only", s_surface ? "on" : "off",
-             kDistances[s_distance], s_water ? "on" : "off", pathForLog().c_str());
+             distanceAt(s_distance), s_water ? "on" : "off", pathForLog().c_str());
 }
 
 void load() {
@@ -197,8 +215,8 @@ void load() {
             s_reflections = value != 0;
         } else if (sscanf(line, " surface = %d", &value) == 1) {
             s_surface = value != 0;
-        } else if (sscanf(line, " blur = %d", &value) == 1) {
-            s_blur = value < 0 ? 0 : value > 10 ? 10 : value;
+        } else if (readBlur(line)) {
+            // done by readBlur
         } else if (sscanf(line, " viewangle = %d", &value) == 1) {
             s_viewAngle = value < 0 ? 0 : value > 2 ? 2 : value;
         } else if (sscanf(line, " glints = %d", &value) == 1) {
@@ -218,8 +236,10 @@ void load() {
         } else if (sscanf(line, " waterreflections = %d", &value) == 1) {
             s_water = value != 0;
         } else if (sscanf(line, " distance = %d", &value) == 1) {
-            for (int i = 0; i < kDistanceCount; i++)
-                if (kDistances[i] == value) s_distance = i;
+            {  // to the nearest step, within 0.5x to 5x
+                int i = (value - 500 + kDistanceStep / 2) / kDistanceStep;
+                s_distance = i < 0 ? 0 : i >= kDistanceCount ? kDistanceCount - 1 : i;
+            }
         } else {
             char key[32];
             float percent;
@@ -246,14 +266,14 @@ void save() {
         return;
     }
     fprintf(f, "# FLUDD's puddles (the pause menu's Settings, Graphics).\n");
-    fprintf(f, "# lifetime: 1 (Original), 2, 4 or 8 times as long.\n");
+    fprintf(f, "# lifetime: 1 (Original) to 8 times as long.\n");
     fprintf(f, "lifetime = %d\n", kScales[s_index]);
     fprintf(f, "# reflections: 1 characters and objects in the puddles too, 0 Mario only.\n");
     fprintf(f, "reflections = %d\n", s_reflections);
     fprintf(f, "# surface: 1 puddles reflect more or less by the floor under them, 0 all alike.\n");
     fprintf(f, "surface = %d\n", s_surface);
-    fprintf(f, "# distance: how far from Mario reflections are drawn: 500, 750, 1000 (Original), 2000, 3000 or 5000.\n");
-    fprintf(f, "distance = %d\n", kDistances[s_distance]);
+    fprintf(f, "# distance: how far from Mario reflections are drawn: 500 to 5000 in steps of 250 (1000 is Original).\n");
+    fprintf(f, "distance = %d\n", distanceAt(s_distance));
     fprintf(f, "# ripples: the reflection in water wobbles: 0 off, 1 gentle, 2 strong.\n");
     fprintf(f, "ripples = %d\n", s_ripples);
     fprintf(f, "# puddleripples: rings spread in puddles where drops land and Mario runs: 0 off, 1 gentle, 2 strong.\n");
@@ -268,8 +288,8 @@ void save() {
     fprintf(f, "glints = %d\n", s_glints);
     fprintf(f, "# depth: water darker over deep ground: 0 off, 1 subtle, 2 strong.\n");
     fprintf(f, "depth = %d\n", s_depth);
-    fprintf(f, "# blur: how blurred reflections in puddles and water are, 0 sharp to 10.\n");
-    fprintf(f, "blur = %d\n", s_blur);
+    fprintf(f, "# blur: how blurred reflections in puddles and water are, 0 sharp to 10 in steps of 0.25.\n");
+    fprintf(f, "blur = %s\n", blurName(s_blur));
     fprintf(f, "# What is reflected (the menu's Reflections page): 1 on, 0 off.\n");
     for (int i = 0; i < PORT_REFLECT_KINDS; i++) fprintf(f, "%s = %d\n", kKinds[i].key, s_show[i]);
     fprintf(f, "# waterreflections: 1 the stage's water and wet ground reflect as puddles do, 0 not.\n");
@@ -424,22 +444,17 @@ int depthSet(int i) {
     return 1;
 }
 
-int blurCount() { return 11; }
-const char* blurName(int i) {
-    static char text[8];
-    snprintf(text, sizeof text, "%d", i < 0 ? 0 : i > 10 ? 10 : i);
-    return text;
-}
+int blurCount() { return 41; }  // 0 to 10 in steps of 0.25
 int blurGet() {
     load();
     return s_blur;
 }
 int blurSet(int i) {
-    if (i < 0 || i > 10) return 0;
+    if (i < 0 || i > 40) return 0;
     load();
     s_blur = i;
     save();
-    port_log("[puddles] Reflection Blur: %d\n", i);
+    port_log("[puddles] Reflection Blur: %s\n", blurName(i));
     return 1;
 }
 
@@ -459,8 +474,16 @@ int showSet(int i) {
 }
 
 int distanceCount() { return kDistanceCount; }
+// "0.5x", "0.75x", "Original", "1.25x", ... "5x"
 const char* distanceName(int i) {
-    return i >= 0 && i < kDistanceCount ? kDistanceNames[i] : kDistanceNames[kDistanceOriginal];
+    static char text[16];
+    i = i < 0 ? 0 : i >= kDistanceCount ? kDistanceCount - 1 : i;
+    if (i == kDistanceOriginal) return "Original";
+    const int quarters = distanceAt(i) / 250;  // in quarters of 1x
+    const int whole = quarters / 4, rest = quarters % 4;
+    if (!rest) snprintf(text, sizeof text, "%dx", whole);
+    else snprintf(text, sizeof text, "%d.%sx", whole, rest == 1 ? "25" : rest == 2 ? "5" : "75");
+    return text;
 }
 int distanceGet() {
     load();
@@ -616,7 +639,7 @@ int port_reflection_view_angle(void) {
 
 int port_reflection_blur(void) {
     load();
-    return s_blur;
+    return s_blur;  // quarters
 }
 
 int port_sun_glints(void) {
@@ -647,7 +670,7 @@ int port_water_reflections(void) {
 
 float port_puddle_reflection_distance(void) {
     load();
-    return (float)kDistances[s_distance];
+    return (float)distanceAt(s_distance);
 }
 
 }  // extern "C"

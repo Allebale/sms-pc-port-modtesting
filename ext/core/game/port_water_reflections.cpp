@@ -578,7 +578,7 @@ void buildWeb(const Ripple& r, u8 centre)
 	const JGeometry::TVec3<f32>& cam = gpCamera->mPosition;
 	const JGeometry::TVec3<f32>& n0  = r.plane->getNormal();
 
-	const f32 b = (f32)port_reflection_blur() * 3.0f;  // how far around, in the game's units
+	const f32 b = (f32)port_reflection_blur() * 0.75f;  // quarters: 3 units a whole step
 	s_taps      = b > 0.0f ? kMostTaps : 1;
 
 	for (int ring = 0; ring <= kRings; ring++) {
