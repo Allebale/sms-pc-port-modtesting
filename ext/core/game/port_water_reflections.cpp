@@ -1049,10 +1049,19 @@ void updateWetness()
 	    && (st == MARIO_STATUS_DIVE || st == MARIO_STATUS_SPEED_SLIDING || st == MARIO_STATUS_SLIP_FORE
 	        || st == MARIO_STATUS_SLIP_BACK))
 		soak = 1.0f;
-	if (s_wetness < soak)
+	static bool s_toldWet;
+	if (s_wetness < soak) {
+		if (!s_toldWet)
+			fprintf(stderr, "[puddles] Mario is wet (%s)\n", soak < 1.0f ? "wading" : "swimming, or diving into a puddle");
+		s_toldWet = true;
 		s_wetness = soak;
-	if (s_wetness < 0.0f)
+	}
+	if (s_wetness < 0.0f) {
+		if (s_toldWet)
+			fprintf(stderr, "[puddles] Mario is dry again\n");
+		s_toldWet = false;
 		s_wetness = 0.0f;
+	}
 }
 
 } // namespace
