@@ -58,7 +58,7 @@ Reason: port: code-mod hooks (sms_modhook.h): BSE per-area scenario counts in th
  
  // rogue includes needed for matching sinit & bss
  #include <MSound/MSSetSound.hpp>
-@@ -300,6 +350,22 @@
+@@ -315,6 +365,22 @@
  	}
  
  	mMenuScreen      = new J2DSetScreen("scenario_select_1.blo", pArch);
@@ -81,7 +81,7 @@ Reason: port: code-mod hooks (sms_modhook.h): BSE per-area scenario counts in th
  	mLetterBoxTop    = new TExPane(mMenuScreen, 'msk1');
  	mLetterBoxBottom = new TExPane(mMenuScreen, 'msk2');
  	mStageName       = (J2DTextBox*)mMenuScreen->search('map');
-@@ -397,7 +463,17 @@
+@@ -412,7 +478,17 @@
  		s32 digit2 = numCoins % 10;
  		coinDigits[2]->changeTexture(mCoinNumTex[digit2]->getTexInfo(), 0);
  
@@ -100,7 +100,7 @@ Reason: port: code-mod hooks (sms_modhook.h): BSE per-area scenario counts in th
  			mMenuScreen->search('sc_s')->show();
  		}
  
-@@ -406,8 +482,21 @@
+@@ -421,8 +497,21 @@
  sharedShineSetup:
  	{
  		s8 count = 0;
@@ -123,7 +123,7 @@ Reason: port: code-mod hooks (sms_modhook.h): BSE per-area scenario counts in th
  				count++;
  			}
  		}
-@@ -443,11 +532,49 @@
+@@ -458,11 +547,49 @@
  
  		mMenuScreen->search('bi_0')->hide();
  
@@ -173,7 +173,7 @@ Reason: port: code-mod hooks (sms_modhook.h): BSE per-area scenario counts in th
  		mStageBannerShadow
  		    = new TBoundPane(mMenuScreen, tags[mStage] * 0x100 + 'b');
  		mStageBannerShadow->getPane()->show();
-@@ -461,6 +588,18 @@
+@@ -476,6 +603,18 @@
  		// initData 91.5 -> 89.8).
  		mStageBmg = JKRGetResource("/common/2d/stagename.bmg");
  
@@ -192,7 +192,7 @@ Reason: port: code-mod hooks (sms_modhook.h): BSE per-area scenario counts in th
  		mShineUnlockStates[0] = 2;
  		mShineUnlockStates[1] = 2;
  		mShineUnlockStates[2] = 2;
-@@ -469,19 +608,52 @@
+@@ -484,19 +623,52 @@
  		mShineUnlockStates[5] = 2;
  		mShineUnlockStates[6] = 2;
  		mShineUnlockStates[7] = 2;
@@ -247,7 +247,7 @@ Reason: port: code-mod hooks (sms_modhook.h): BSE per-area scenario counts in th
  
  		if (mNumUnlockedShines == 0) {
  			mNumUnlockedShines = 1;
-@@ -493,9 +665,20 @@
+@@ -508,9 +680,20 @@
  		}
  		mSelectedShine = lastShineIdx;
  
@@ -268,7 +268,7 @@ Reason: port: code-mod hooks (sms_modhook.h): BSE per-area scenario counts in th
  
  		// Show arrows if we have more than one shine unlocked.
  		if (mNumUnlockedShines > 1) {
-@@ -515,6 +698,10 @@
+@@ -530,6 +713,10 @@
  			}
  		}
  
@@ -279,7 +279,7 @@ Reason: port: code-mod hooks (sms_modhook.h): BSE per-area scenario counts in th
  		mShineMarks[0] = nullptr;
  		mShineMarks[1] = nullptr;
  		mShineMarks[2] = nullptr;
-@@ -527,6 +714,55 @@
+@@ -542,6 +729,55 @@
  		// This code displays the icons of the unlocked shines at the bottom of
  		// the screen. It handles even and odd numbers differently to centre
  		// them correctly.
@@ -335,7 +335,7 @@ Reason: port: code-mod hooks (sms_modhook.h): BSE per-area scenario counts in th
  		s32 i = 0;
  		if ((mNumUnlockedShines & 1) == 1) {
  			// Odd number of shines.
-@@ -567,6 +803,7 @@
+@@ -582,6 +818,7 @@
  				i++;
  			}
  		}
@@ -343,7 +343,7 @@ Reason: port: code-mod hooks (sms_modhook.h): BSE per-area scenario counts in th
  
  		mSelectedMarkCol
  		    = ((J2DPicture*)mMenuScreen->search('i_o0'))->getWhite();
-@@ -577,11 +814,23 @@
+@@ -592,11 +829,23 @@
  		((J2DPicture*)mMenuScreen->search('i_o0'))->setWhite(mMarkCol);
  		((J2DPicture*)mMenuScreen->search('i_o0'))->setAlpha(mMarkAlpha);
  
@@ -367,7 +367,7 @@ Reason: port: code-mod hooks (sms_modhook.h): BSE per-area scenario counts in th
  		mScenarioShadow1->changeTexture(
  		    mScenarioTex[mSelectedShine]->getTexInfo(), 0);
  
-@@ -632,6 +881,11 @@
+@@ -656,6 +905,11 @@
  // (0x718 vs 0x7b0): retail has 8 more bytes of update() locals between each
  // pair of banner-case `bounds`, 0x10 more temporaries between the letterbox
  // TColors and the JUTPoints, and 0x70 more below draw's J2DOrthoGraph.
@@ -379,7 +379,7 @@ Reason: port: code-mod hooks (sms_modhook.h): BSE per-area scenario counts in th
  inline void TSelectMenu::update()
  {
  	switch (mMenuState) {
-@@ -811,7 +1065,14 @@
+@@ -835,7 +1089,14 @@
  
  			JGeometry::TVec3<f32> emitterPos(300.0f, 244.0f, 0.0f);
  			JPAEmitterManager* emitter = mSelectDir->unk34;
@@ -395,8 +395,8 @@ Reason: port: code-mod hooks (sms_modhook.h): BSE per-area scenario counts in th
  				emitter->createEmitter(emitterPos, 5, nullptr, nullptr);
  			} else {
  				emitter->createEmitter(emitterPos, 4, nullptr, nullptr);
-@@ -842,16 +1103,41 @@
- 				mScenarioPane1->setPaneOffset(10, mScenarioPaneDist, 0, 0,
+@@ -866,16 +1127,41 @@
+ 				mScenarioPane1->setPaneOffset(PORT_SELECT_FRAMES(10), mScenarioPaneDist, 0, 0,
  				                              0);
  
 +#ifdef TARGET_PC
@@ -437,7 +437,7 @@ Reason: port: code-mod hooks (sms_modhook.h): BSE per-area scenario counts in th
  				        SMSGetMessageData(
  				            mScenarioBmg2,
  				            (u16)SMS_getNormalStage(SMS_getShineID(
-@@ -859,15 +1145,32 @@
+@@ -883,15 +1169,32 @@
  				                false))),
  				        127);
  
@@ -470,7 +470,7 @@ Reason: port: code-mod hooks (sms_modhook.h): BSE per-area scenario counts in th
  				        SMSGetMessageData(
  				            mScenarioBmg2,
  				            (u16)SMS_getNormalStage(SMS_getShineID(
-@@ -875,11 +1178,21 @@
+@@ -899,11 +1202,21 @@
  				                false))),
  				        127);
  
@@ -492,8 +492,8 @@ Reason: port: code-mod hooks (sms_modhook.h): BSE per-area scenario counts in th
  
  				if (mNumUnlockedShines > 1) {
  					if ((mSelectedShine != 0) && !mArrowL->isVisible()) {
-@@ -915,41 +1228,101 @@
- 				mScenarioPane1->setPaneOffset(10, -mScenarioPaneDist, 0, 0,
+@@ -939,41 +1252,101 @@
+ 				mScenarioPane1->setPaneOffset(PORT_SELECT_FRAMES(10), -mScenarioPaneDist, 0, 0,
  				                              0);
  
 +#ifdef TARGET_PC
@@ -594,7 +594,7 @@ Reason: port: code-mod hooks (sms_modhook.h): BSE per-area scenario counts in th
  
  				if (mNumUnlockedShines > 1) {
  					if ((mSelectedShine != (mNumUnlockedShines - 1))
-@@ -1040,7 +1413,13 @@
+@@ -1064,7 +1437,13 @@
  				mMenuState = MENU_INPUT_LOOP;
  			}
  		}
@@ -607,8 +607,8 @@ Reason: port: code-mod hooks (sms_modhook.h): BSE per-area scenario counts in th
 +#endif
  		if (mMarkPulseDir) {
  			u8 alphaRef = mSelectedMarkAlpha;
- 			alpha       = alpha + 6;
-@@ -1055,7 +1434,11 @@
+ 			alpha       = alpha + PORT_SELECT_STEP(6);
+@@ -1079,7 +1458,11 @@
  				alpha         = 64;
  			}
  		}
@@ -620,7 +620,7 @@ Reason: port: code-mod hooks (sms_modhook.h): BSE per-area scenario counts in th
  
  	} break;
  	case DISAPPEAR_MENU: {
-@@ -1150,6 +1533,9 @@
+@@ -1174,6 +1557,9 @@
  		break;
  	}
  }

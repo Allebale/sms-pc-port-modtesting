@@ -24,7 +24,6 @@
 #include <math.h>
 #include <stdio.h>
 
-#include "port_framerate.h"
 #include "port_menu_draw.h"
 #include "port_settings.h"
 #include "port_settings_menu.h"
@@ -62,7 +61,7 @@ int sSelected;           // the selected row of the list being shown
 int sSelectedPage;       // the page row to come back to
 f32 sFirst;              // the first row shown, chasing its target
 u8 sAlpha;               // the pause menu's fade
-u32 sTicks;              // frames open, for the selected row's bounce
+u32 sTicks;              // movement ticks open (120 a second), for the selected row's bounce
 char sNote[96];          // what the last change did, when it did not go as asked
 bool sPreview;           // X is held: the menu steps aside to show the picture
 Art sArt;
@@ -183,7 +182,7 @@ void drawRow(int index, f32 y, u8 alpha)
 {
 	const bool selected = index == sSelected;
 	// the selected row breathes as the pause menu's options do
-	const f32 pulse = selected ? 1.0f + 0.025f * sinf(sTicks * port_frame_scale() * 0.2f) : 1.0f;
+	const f32 pulse = selected ? 1.0f + 0.025f * sinf(sTicks * 0.1f) : 1.0f;
 	art(sArt.brush, kRowX + kRowW / 2, y + kBarH / 2, kRowW * pulse, kBarH * pulse, 0.0f,
 	    selected ? kSelectedRow : kOtherRow, (u8)(alpha * (selected ? 0.95f : 0.72f)));
 	const f32 textTop = y + (selected ? 7.0f : 8.0f);
@@ -279,7 +278,9 @@ void SettingsMenuMove(TMarioGamePad* pad)
 		}
 		return;
 	}
-	sFirst += (listTarget() - sFirst) * port_frame_chase(0.3f);
+	// Move steps on every 1/120 s movement tick (TPauseMenu2::move) at any
+	// frame rate, so the chase is per tick: 0.3 a 60 fps frame.
+	sFirst += (listTarget() - sFirst) * (1.0f - sqrtf(0.7f));
 }
 
 void SettingsMenuSetAlpha(u8 alpha) { sAlpha = alpha; }

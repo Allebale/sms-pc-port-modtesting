@@ -123,6 +123,23 @@ Reason: port: code-mod hooks (sms_modhook.h): TMario movement, jumping, state ma
  		setMissJumping();
  	else {
  		if (considerRotateJumpStart())
+@@ -1628,8 +1701,16 @@
+ 		mInput |= 0x2000;
+ 	}
+ 
++#ifdef TARGET_PC
++	// moveset's Long Jump/Crouch Button setting moves this test of the ground
++	// pound's meaning (retail 0x80252124, 0x2000) to the crouch meaning
++	// (0x1000), which it then gives L.
++	if ((getGamePad()->mEnabledFrameMeaning & SMS_MOD_MASK(0x80252124, 0x2000))
++	    || (unk108->mFrameInput & 0x40)) {
++#else
+ 	if ((getGamePad()->mEnabledFrameMeaning & 0x2000)
+ 	    || (unk108->mFrameInput & 0x40)) {
++#endif
+ 		if (checkStatusType(MARIO_STATUS_FLAG_JUMPING) == true)
+ 			mInput |= 0x8000;
+ 	}
 @@ -1740,7 +1813,20 @@
  
  void TMario::checkCurrentPlane()

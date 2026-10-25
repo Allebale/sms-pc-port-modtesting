@@ -94,7 +94,8 @@ namespace {
 
 const int kMaxFlags = 1024;
 const int kMaxItems = 2048;
-const int kNoticeFrames = 150; // about five seconds at 30 frames a second
+// about five seconds: frame() comes once per displayed frame
+int noticeFrames() { return 5 * (port_active_frame_rate > 0 ? port_active_frame_rate : 30); }
 
 int s_role = -1; // MPG_ROLE_*, -1 before the first frame
 bool s_playing, s_wasPlaying;
@@ -172,8 +173,8 @@ void overlay(int panel, const char* text)
 void showNotice(const char* text)
 {
 	snprintf(s_notice, sizeof s_notice, "%s", text);
-	s_noticeFrames = kNoticeFrames;
-	s_statusFrames = kNoticeFrames * 2;
+	s_noticeFrames = noticeFrames();
+	s_statusFrames = noticeFrames() * 2;
 }
 
 // ------------------------------------------------------------------- items
@@ -1054,7 +1055,7 @@ void selectFrame()
 		snprintf(text, sizeof text, "%s is choosing the episode", mpg_display_name(0));
 		showNotice(text);
 	}
-	s_noticeFrames = kNoticeFrames; // the line stays while we watch
+	s_noticeFrames = noticeFrames(); // the line stays while we watch
 	if (want < 0 || want > 7 || state != TSelectMenu::MENU_INPUT_LOOP || (s_selectFrames & 1))
 		return; // a press, then a frame without (the menu takes each as it starts)
 	if (menu->mSelectedShine != want && s_selectSteps > 16) {
@@ -1121,7 +1122,7 @@ void guestCardNotice()
 		showNotice(text);
 		s_statusFrames = 0; // the player list would cover it (why the link ended was its own notice)
 	}
-	s_noticeFrames = kNoticeFrames;
+	s_noticeFrames = noticeFrames();
 }
 
 // The host left while we were in its game (closed it, went back to the title,
@@ -2059,7 +2060,7 @@ void spectateFrame(TMarDirector* dir)
 			showWatching();
 		}
 	}
-	s_noticeFrames = kNoticeFrames; // the line stays while we watch
+	s_noticeFrames = noticeFrames(); // the line stays while we watch
 }
 
 // Every tick while out of lives: Mario is out of play (not moved, not drawn,

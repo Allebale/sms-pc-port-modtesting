@@ -28,8 +28,8 @@ widescreen = on
 # edges (counters to the left edge, the water gauge to the right one).
 # widescreen_hud = centre
 
-# Frame rate during gameplay: 30 (GameCube native), 60 (port default), or 120.
-# Logos, menus and movies stay at 30. Higher rates need more GPU performance;
+# Frame rate for the title, file select, episode select and stages: 30 (GameCube
+# native), 60 (port default), or 120. The boot logos and movies stay at 30. Higher rates need more GPU performance;
 # a 120 Hz or faster display shows the full benefit of 120 fps.
 frame_rate = 60
 
@@ -73,6 +73,15 @@ frame_rate = 60
 # above 1 brighter).
 # sharpen = 0
 # brightness = 1.0
+# Colour correction, as Dolphin's: color_space shows the colours of the TVs
+# the game was made for (ntsc-m: America's, ntsc-j: Japan's, bluer white; pal:
+# Europe's) as today's displays show them; game_gamma is those TVs' gamma
+# (2.35 for NTSC, nearer 2.8 for PAL; 2.2 to 2.8), which gives the picture the
+# darker midtones it had on them, encoded for display_gamma (srgb, or 1.8 to
+# 2.8). Off by default.
+# color_space = off
+# game_gamma = off
+# display_gamma = srgb
 # How the picture fits the window: keep (its shape, letterboxed), stretch
 # (fill the window) or integer (whole multiples of the GameCube's size), and
 # how it is scaled: bilinear (smooth), sharp (crisp pixels), nearest, fsr
@@ -164,9 +173,12 @@ frame_rate = 60
 # makes mouse look follow the system's pointer speed and acceleration (Windows
 # and X11). cstick_orbit = on makes the C-stick's up and down tilt the camera
 # as the mouse does; holding CAMERA_ZOOM (the right stick's press) then moves
-# it nearer or further, as on the GameCube.
+# it nearer or further, as on the GameCube. fludd_aim_invert_y flips the control
+# stick's up and down when aiming FLUDD in place (R all the way down, or L);
+# left out, it follows camera_invert_y.
 # camera_invert_x = off
 # camera_invert_y = off
+# fludd_aim_invert_y = off
 # free_camera = off
 # camera_speed = 100
 # mouse_camera = on

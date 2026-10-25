@@ -88,6 +88,18 @@ struct XMap {
     float a = 1, b = 0, clip = 1;
 };
 static XMap s_xmap;
+// GXPC_SetSplitView (split-screen co-op): while on, everything drawn lands in
+// a part of the frame, as if that part were the whole: viewports, scissors,
+// EFB copies and their clears, and peeks are moved and scaled into it, after
+// the widescreen mapping. x, y in widened-EFB pixels; sx, sy the part's share
+// of the frame's width and height.
+struct SplitView {
+    bool on = false;
+    float x = 0, y = 0, sx = 1, sy = 1;
+};
+static SplitView s_split;
+static float splitX(float x) { return s_split.on ? s_split.x + x * s_split.sx : x; }
+static float splitY(float y) { return s_split.on ? s_split.y + y * s_split.sy : y; }
 static bool s_stretch2D = false;  // GXPC_SetStretch2D: the game's faders
 static bool s_wide2D = false;     // GXPC_SetWide2D: 2D the game laid out past the 4:3 edges (the map)
 // SMS_WIDESCREEN_HUD=edges: while the game draws its gameplay HUD
@@ -549,6 +561,30 @@ static int s_encRows = 0;
 // no smaller than the viewport there is nothing to upscale, and both scale as
 // bilinear does.
 // SMS_ASPECT=stretch fills the window; integer keeps whole multiples of 640x528.
+//
+// Colour correction, as Dolphin's (Graphics > Enhancements > Color Correction),
+// is the last step of the pass that draws into the window, before the
+// brightness curve. SMS_COLOR_SPACE=ntsc-m, ntsc-j or pal takes the picture's
+// colours as the primaries of the TVs the game was made for (SMPTE 170M, the
+// same with Japan's 9300K+27MPCD white, EBU) and converts them to BT.709, the
+// sRGB display's: in linear light, decoded with the game's gamma. SMS_GAME_GAMMA
+// (2.2 to 2.8; 2.35 is an NTSC CRT's, PAL's nearer 2.8) is the CRT's gamma the
+// picture was made for: with it set, the linear light is encoded for today's
+// display, SMS_DISPLAY_GAMMA (srgb, the default, or 1.8 to 2.8), which darkens
+// the midtones as the CRT did; without it the picture is encoded back with the
+// gamma it was decoded with (2.35), so only its colours change. With HDR the
+// display is Direct3D's expansion, which decodes with 2.2, so 2.2 it is.
+// Both are off by default, and then the picture is drawn as before.
+#define SMS_COLOR_CORRECT_GLSL R"(
+uniform vec4 u_cc[4];  // rows 0-2: the matrix to BT.709; 3: x the game's gamma (0: off), y the display's (0: sRGB)
+vec3 colorCorrect(vec3 c) {
+  if (u_cc[3].x == 0.0) return c;
+  c = pow(clamp(c, 0.0, 1.0), vec3(u_cc[3].x));
+  c = clamp(vec3(dot(u_cc[0].xyz, c), dot(u_cc[1].xyz, c), dot(u_cc[2].xyz, c)), 0.0, 1.0);
+  if (u_cc[3].y > 0.0) return pow(c, vec3(1.0 / u_cc[3].y));
+  return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+}
+)"
 static const char* kPostVs = R"(#version 330 core
 uniform int u_flip;
 out vec2 v_uv;
@@ -593,6 +629,7 @@ uniform float u_sharpen; // 0..1
 uniform float u_gamma;   // 1: unchanged; above 1 brightens
 in vec2 v_uv;
 out vec4 o_color;
+)" SMS_COLOR_CORRECT_GLSL R"(
 vec3 areaSample(vec2 uv) {
   vec2 ratio = u_src / u_dst;  // texels per pixel
   if (ratio.x <= 1.0 && ratio.y <= 1.0) return texture(u_tex, uv).rgb;
@@ -630,6 +667,7 @@ void main() {
     vec3 wgt = -amp * mix(0.125, 0.2, u_sharpen);
     c = clamp((c + (n + s + w + e) * wgt) / (1.0 + 4.0 * wgt), 0.0, 1.0);
   }
+  c = colorCorrect(c);
   if (u_gamma != 1.0) c = pow(max(c, vec3(0.0)), vec3(1.0 / u_gamma));
   o_color = vec4(c, 1.0);
 }
@@ -747,6 +785,7 @@ uniform float u_con;
 uniform float u_gamma;  // 1: unchanged; above 1 brightens
 in vec2 v_uv;
 out vec4 o_color;
+)" SMS_COLOR_CORRECT_GLSL R"(
 vec3 tap(ivec2 p) { return texelFetch(u_tex, clamp(p, ivec2(0), ivec2(u_dst) - 1), 0).rgb; }
 void main() {
   ivec2 ip = ivec2(v_uv * u_dst);
@@ -760,7 +799,7 @@ void main() {
   vec3 hitMax = (1.0 - max(mx4, e)) / min(4.0 * min(mn4, e) - 4.0, vec3(-1e-5));
   vec3 lobes = max(-hitMin, hitMax);
   float lobe = max(-(0.25 - 1.0 / 16.0), min(max(lobes.r, max(lobes.g, lobes.b)), 0.0)) * u_con;
-  vec3 c = (lobe * (b + d + f + h) + e) / (4.0 * lobe + 1.0);
+  vec3 c = colorCorrect((lobe * (b + d + f + h) + e) / (4.0 * lobe + 1.0));
   if (u_gamma != 1.0) c = pow(max(c, vec3(0.0)), vec3(1.0 / u_gamma));
   o_color = vec4(clamp(c, 0.0, 1.0), 1.0);
 }
@@ -785,6 +824,7 @@ uniform vec4 u_sharp;      // sharp strength min, its scale, sharp limit min, it
 uniform float u_gamma;     // 1: unchanged; above 1 brightens
 in vec2 v_uv;
 out vec4 o_color;
+)" SMS_COLOR_CORRECT_GLSL R"(
 const float kDetectRatio = 2.0 * 1127.0 / 1024.0;
 const float kDetectThres = 64.0 / 1024.0;
 const float kMinContrastRatio = 2.0;
@@ -907,7 +947,7 @@ void main() {
   int phaseX = int(frac.x * 64.0), phaseY = int(frac.y * 64.0);
   float y = filterNormal(phaseX, phaseY) * (1.0 - w.x - w.y - w.z - w.w) + addDirFilters(frac.x, frac.y, phaseX, phaseY, w);
   vec3 c = texture(u_tex, (src + 0.5) / u_src).rgb;
-  c = clamp(c + (y - getY(c)), 0.0, 1.0);
+  c = colorCorrect(clamp(c + (y - getY(c)), 0.0, 1.0));
   if (u_gamma != 1.0) c = pow(c, vec3(1.0 / u_gamma));
   o_color = vec4(c, 1.0);
 }
@@ -916,13 +956,45 @@ void main() {
 static PostSettings s_post;
 static GLuint s_fxaaProg, s_scaleProg, s_postTex, s_postFbo;
 static GLint s_fxaaURcp, s_fxaaUFlip, s_scaleUSrc, s_scaleUDst, s_scaleUFilter, s_scaleUSharpen, s_scaleUGamma,
-    s_scaleUFlip;
+    s_scaleUFlip, s_scaleUCc;
 static int s_postW, s_postH;
 static GLuint s_easuProg, s_rcasProg, s_fsrTex, s_fsrFbo;
-static GLint s_easuUSrc, s_easuUFlip, s_rcasUDst, s_rcasUCon, s_rcasUGamma, s_rcasUFlip;
+static GLint s_easuUSrc, s_easuUFlip, s_rcasUDst, s_rcasUCon, s_rcasUGamma, s_rcasUFlip, s_rcasUCc;
 static int s_fsrW, s_fsrH;
 static GLuint s_nisProg, s_nisCoef;
-static GLint s_nisUSrc, s_nisUSharp, s_nisUGamma, s_nisUFlip;
+static GLint s_nisUSrc, s_nisUSharp, s_nisUGamma, s_nisUFlip, s_nisUCc;
+
+// The colour correction's uniform (u_cc) for the settings: the matrix from the
+// game's colour space to BT.709 in rows 0-2, then the gammas. The matrices take
+// linear RGB in each space's primaries to BT.709's, computed from their
+// chromaticities: SMPTE 170M (0.630, 0.340 / 0.310, 0.595 / 0.155, 0.070) and
+// EBU (0.640, 0.330 / 0.290, 0.600 / 0.150, 0.060), both with D65's white, so
+// white stays white; NTSC-J is SMPTE 170M's primaries with 9300K+27MPCD's white
+// (0.281, 0.311), not adapted to D65 (the bluer white is what the TVs showed),
+// scaled so that white's blue is 1, as it is the most of the three: white is
+// 0.598, 0.855, 1 (linear), not clipped into cyan.
+static void colorCorrectUniform(const PostSettings& p, float out[16]) {
+    static const float kMatrices[4][9] = {
+        {1, 0, 0, 0, 1, 0, 0, 0, 1},
+        {0.939542064f, 0.050181357f, 0.010276579f, 0.017772223f, 0.965792862f, 0.016434914f, -0.001621600f, -0.004369750f,
+         1.005991350f},
+        {0.544300424f, 0.043061576f, 0.010263277f, 0.010295897f, 0.828765217f, 0.016413641f, -0.000939434f, -0.003749765f,
+         1.004689199f},
+        {1.044043209f, -0.044043209f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.011793378f, 0.988206622f},
+    };
+    const int space = p.colorSpace >= 0 && p.colorSpace <= 3 ? p.colorSpace : 0;
+    for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 3; c++) out[r * 4 + c] = kMatrices[space][r * 3 + c];
+        out[r * 4 + 3] = 0.0f;
+    }
+    const bool on = space != 0 || p.gameGamma > 0.0f;
+    const float decode = p.gameGamma > 0.0f ? p.gameGamma : 2.35f;
+    // the game's gamma off: back as it was decoded; HDR: the 2.2 Direct3D decodes with
+    const float encode = p.gameGamma <= 0.0f ? decode : hdrActive() ? 2.2f : p.displayGamma;
+    out[12] = on ? decode : 0.0f;
+    out[13] = encode;
+    out[14] = out[15] = 0.0f;
+}
 
 // FSR 1's and NIS's programs, made when the scaler is first set to them (at start by
 // SMS_PRESENT_FILTER, or later from the settings menu), on the GL thread.
@@ -940,6 +1012,7 @@ static void postInitFsr() {
     s_rcasUCon = glGetUniformLocation(s_rcasProg, "u_con");
     s_rcasUGamma = glGetUniformLocation(s_rcasProg, "u_gamma");
     s_rcasUFlip = glGetUniformLocation(s_rcasProg, "u_flip");
+    s_rcasUCc = glGetUniformLocation(s_rcasProg, "u_cc");
 }
 
 static void postInitNis() {
@@ -952,6 +1025,7 @@ static void postInitNis() {
     s_nisUSharp = glGetUniformLocation(s_nisProg, "u_sharp");
     s_nisUGamma = glGetUniformLocation(s_nisProg, "u_gamma");
     s_nisUFlip = glGetUniformLocation(s_nisProg, "u_flip");
+    s_nisUCc = glGetUniformLocation(s_nisProg, "u_cc");
     // the filter banks as NVScaler reads them: per phase, 8 taps of the scaler then 8 of the USM
     float coef[64][16] = {};
     for (int p = 0; p < 64; p++)
@@ -986,6 +1060,16 @@ static void postInit() {
         if (v >= 0.3f && v <= 3.0f) s_post.gamma = v;
     }
     if (const char* e = getenv("SMS_ASPECT")) s_post.aspect = !strcmp(e, "stretch") ? 1 : !strcmp(e, "integer") ? 2 : 0;
+    if (const char* e = getenv("SMS_COLOR_SPACE"))
+        s_post.colorSpace = !strcmp(e, "ntsc-m") ? 1 : !strcmp(e, "ntsc-j") ? 2 : !strcmp(e, "pal") ? 3 : 0;
+    if (const char* e = getenv("SMS_GAME_GAMMA")) {
+        float v = float(atof(e));
+        if (v >= 2.2f && v <= 2.8f) s_post.gameGamma = v;
+    }
+    if (const char* e = getenv("SMS_DISPLAY_GAMMA")) {
+        float v = float(atof(e));
+        if (v >= 1.8f && v <= 2.8f) s_post.displayGamma = v;
+    }
     s_fxaaProg = compileProgram(kPostVs, kFxaaFs);
     glUseProgram(s_fxaaProg);
     glUniform1i(glGetUniformLocation(s_fxaaProg, "u_tex"), 0);
@@ -1000,12 +1084,21 @@ static void postInit() {
     s_scaleUSharpen = glGetUniformLocation(s_scaleProg, "u_sharpen");
     s_scaleUGamma = glGetUniformLocation(s_scaleProg, "u_gamma");
     s_scaleUFlip = glGetUniformLocation(s_scaleProg, "u_flip");
+    s_scaleUCc = glGetUniformLocation(s_scaleProg, "u_cc");
     if (s_post.filter == 3) postInitFsr();
     if (s_post.filter == 4) postInitNis();
     static const char* const kFilters[] = {"bilinear", "nearest", "sharp", "FSR 1", "NIS"};
     static const char* const kAspects[] = {"keep", "stretch", "integer"};
     logmsg("post-processing: FXAA %s, scaler %s, sharpen %d%%, brightness %.2f, aspect %s", s_post.fxaa ? "on" : "off",
            kFilters[s_post.filter], int(s_post.sharpen * 100.0f + 0.5f), double(s_post.gamma), kAspects[s_post.aspect]);
+    if (s_post.colorSpace || s_post.gameGamma > 0.0f) {
+        static const char* const kSpaces[] = {"off", "NTSC-M", "NTSC-J", "PAL"};
+        char display[16];
+        snprintf(display, sizeof display, "%.2f", double(s_post.displayGamma));
+        logmsg("colour correction: colour space %s, game gamma %.2f, display gamma %s", kSpaces[s_post.colorSpace],
+               double(s_post.gameGamma > 0.0f ? s_post.gameGamma : 2.35f),
+               s_post.gameGamma <= 0.0f ? "as the game's" : s_post.displayGamma > 0.0f ? display : "sRGB");
+    }
 }
 
 // Draws `tex` (w x h, row 0 at the top) into the viewport (ox, oy, vw, vh) of
@@ -1022,6 +1115,8 @@ static void postPresent(GLuint tex, int w, int h, int ox, int oy, int vw, int vh
     glBindSampler(0, 0);
     glActiveTexture(GL_TEXTURE0);
     glBindVertexArray(s_copyVao);
+    float cc[16];
+    colorCorrectUniform(s_post, cc);
     if (s_post.fxaa) {
         if (!s_postTex || s_postW != w || s_postH != h) {
             if (!s_postTex) glGenTextures(1, &s_postTex);
@@ -1062,6 +1157,7 @@ static void postPresent(GLuint tex, int w, int h, int ox, int oy, int vw, int vh
         const float sharp[4] = {strengthMin, strengthMax - strengthMin, limitMin, limitMax - limitMin};
         glUniform4fv(s_nisUSharp, 1, sharp);
         glUniform1f(s_nisUGamma, s_post.gamma);
+        glUniform4fv(s_nisUCc, 4, cc);
         glUniform1i(s_nisUFlip, 1);  // XFB row 0 is the top; the window's row 0 is its bottom
         glActiveTexture(GL_TEXTURE1);
         glBindSampler(1, 0);
@@ -1103,6 +1199,7 @@ static void postPresent(GLuint tex, int w, int h, int ox, int oy, int vw, int vh
         // Sharpening 0..100% is RCAS's 1 to 0 stops below its strongest
         glUniform1f(s_rcasUCon, exp2f(-(1.0f - s_post.sharpen)));
         glUniform1f(s_rcasUGamma, s_post.gamma);
+        glUniform4fv(s_rcasUCc, 4, cc);
         glUniform1i(s_rcasUFlip, 0);
         glBindTexture(GL_TEXTURE_2D, s_fsrTex);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -1117,6 +1214,7 @@ static void postPresent(GLuint tex, int w, int h, int ox, int oy, int vw, int vh
     glUniform1i(s_scaleUFilter, s_post.filter >= 3 ? 0 : s_post.filter);  // FSR or NIS not upscaling: bilinear
     glUniform1f(s_scaleUSharpen, s_post.sharpen);
     glUniform1f(s_scaleUGamma, s_post.gamma);
+    glUniform4fv(s_scaleUCc, 4, cc);
     glUniform1i(s_scaleUFlip, 1);  // XFB row 0 is the top; the window's row 0 is its bottom
     glBindTexture(GL_TEXTURE_2D, tex);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -1544,6 +1642,14 @@ static void applyGlState() {
             sw = r - l;
         }
     }
+    if (s_split.on) {  // into the split view's part of the frame
+        int l = int(floorf(splitX(float(left)))), r = int(ceilf(splitX(float(left + sw))));
+        int t = int(floorf(splitY(float(top)))), b = int(ceilf(splitY(float(top + sh))));
+        left = l;
+        sw = r - l;
+        top = t;
+        sh = b - t;
+    }
     GLint sc[4] = {scaled(left), scaled(top), scaled(left + sw) - scaled(left), scaled(top + sh) - scaled(top)};
     if (memcmp(sc, c.sc, sizeof sc) != 0) {
         memcpy(c.sc, sc, sizeof sc);
@@ -1783,6 +1889,12 @@ static void uploadUniforms(const ShaderProgram* sp, float texW[8], float texH[8]
     if (s_efbW != EFB_W) {  // the draw's widescreen mapping (centre and half-width, clip x scale)
         vp[4] = (vp[4] - 342.0f) * s_xmap.a + s_xmap.b + 342.0f;
         vp[0] *= s_xmap.a * s_xmap.clip;
+    }
+    if (s_split.on) {  // the split view's part of the frame
+        vp[4] = splitX(vp[4] - 342.0f) + 342.0f;
+        vp[0] *= s_split.sx;
+        vp[5] = splitY(vp[5] - 342.0f) + 342.0f;
+        vp[1] *= s_split.sy;
     }
     UNI(uViewport, vp, vp, glUniform4fv(sp->uViewport, 2, vp));
     float ch[16];
@@ -2175,7 +2287,9 @@ static XMap drawXMapExact() {
         m.a = s_stretch;
         float p00 = xff(XFR_PROJ), p11 = xff(XFR_PROJ + 2);
         float aspect = p00 != 0.0f ? fabsf(p11 / p00) : 0.0f;
-        if (aspect < kCamAspect * sqrtf(s_wide)) m.clip = 1.0f / s_stretch;  // not widened by the game
+        float wideAspect = kCamAspect * sqrtf(s_wide);
+        if (s_split.on) wideAspect *= s_split.sx / s_split.sy;  // a split view's camera is narrower or wider
+        if (aspect < wideAspect) m.clip = 1.0f / s_stretch;  // not widened by the game
         return m;
     }
     // 2D across the whole width: artwork (menus, the map, movies: colour
@@ -2762,6 +2876,17 @@ static void copyEfb(uint32_t ctrl) {
     float fx = float(x), fw = float(w);
     if (s_efbW != EFB_W && !stretched && !(x == 0 && w == s_efbW))
         fx = float(x - s_ox) + pixelAligned(float(s_ox));  // where the centred draws it copies landed
+    // a split view's copy takes its part of the frame (the texture keeps its size)
+    const int fullOw = x1 - x0, fullOh = scaled(y + h) - scaled(y);
+    float fy = float(y), fh = float(h);
+    if (s_split.on && !disp) {
+        fx = splitX(fx);
+        fw *= s_split.sx;
+        fy = splitY(fy);
+        fh *= s_split.sy;
+        x0 = int(floorf(fx * s_scale));
+        x1 = int(ceilf((fx + fw) * s_scale));
+    }
     if (stretched) {
         // A stretched piece's edges fall inside widened pixels, and its quad
         // covers the scaled columns up to them, so the copy and its clear take
@@ -2806,7 +2931,7 @@ static void copyEfb(uint32_t ctrl) {
         bool intensity = ((ctrl >> 15) & 3) == 3;
         bool zcopy = (g.bp[BP_PE_CONTROL] & 7) == 3;
         bool half = (ctrl >> 9) & 1;
-        int ow = x1 - x0, oh = scaled(y + h) - scaled(y);
+        int ow = fullOw, oh = fullOh;
         if (half) {
             ow /= 2;
             oh /= 2;
@@ -2833,7 +2958,7 @@ static void copyEfb(uint32_t ctrl) {
         uint32_t mode = fmt | (intensity ? 16u : 0u) | (zcopy ? 32u : 0u);
         efbCopyRegister(dest, tex, ow, oh, mode);
         // s_efbColor (s_efbDepth for depth copies), sampled below, holds the current EFB
-        efbReadFbo(x0, scaled(y), x1, scaled(y + h), zcopy ? GL_DEPTH_BUFFER_BIT : GL_COLOR_BUFFER_BIT);
+        efbReadFbo(x0, int(floorf(fy * s_scale)), x1, int(ceilf((fy + fh) * s_scale)), zcopy ? GL_DEPTH_BUFFER_BIT : GL_COLOR_BUFFER_BIT);
         glBindFramebuffer(GL_FRAMEBUFFER, s_tmpFbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
         glViewport(0, 0, ow, oh);
@@ -2842,11 +2967,11 @@ static void copyEfb(uint32_t ctrl) {
         glBindTexture(GL_TEXTURE_2D, s_efbDepth);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, s_efbColor);
-        float rect[4] = {fx / float(s_efbW), float(y) / EFB_H, fw / float(s_efbW), float(h) / EFB_H};
+        float rect[4] = {fx / float(s_efbW), fy / EFB_H, fw / float(s_efbW), fh / EFB_H};
         glUniform4fv(s_copyURect, 1, rect);
         // the copy's rectangle in EFB pixels (the scaled EFB is scaled(s_efbW) x scaled(EFB_H) of them)
         const float pxX = float(scaled(s_efbW)) / float(s_efbW), pxY = float(scaled(EFB_H)) / EFB_H;
-        const float left = fx * pxX, top = float(y) * pxY, across = fw * pxX, down = float(h) * pxY;
+        const float left = fx * pxX, top = fy * pxY, across = fw * pxX, down = fh * pxY;
         const float src[4] = {left, top, half ? 0.0f : across / float(ow), down / float(oh)};
         glUniform4fv(s_copyUSrc, 1, src);
         const CopyMap map{left - floorf(left), top - floorf(top), across / float(tw), down / float(th),
@@ -2859,7 +2984,10 @@ static void copyEfb(uint32_t ctrl) {
         s_stats.efbCopies++;
         writeBackCopy(dest, tex, ow, oh, tw, th, map, copyLayout(fmt, zcopy));
     }
-    if (clear) clearRect(x0, x1, y, h);
+    if (clear) {
+        if (s_split.on && !disp) clearRect(x0, x1, int(floorf(fy)), int(ceilf(fy + fh)) - int(floorf(fy)));
+        else clearRect(x0, x1, y, h);
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, s_efbFbo);
     if (clear) s_drawGen++;
     if (disp) {
@@ -3089,6 +3217,10 @@ static uint32_t peekRaw(int x, int y, bool depth) {
     // so clear colour and the far plane
     if (!s_ready) return depth ? 0xFFFFFF00u : 0;
     if (s_efbW != EFB_W && x >= 0) x = int((float(x) + 0.5f) * s_stretch);  // the game camera's coordinates: stretched
+    if (s_split.on && x >= 0 && y >= 0) {  // a split view's: in its part of the frame
+        x = int(splitX(float(x)));
+        y = int(splitY(float(y) + 0.5f));
+    }
     flushBatch();
     glcInvalidate();
     GxTimer tp(&s_peekSeconds);
@@ -3285,6 +3417,15 @@ void GXPC_HudPieceEnd(void) {
     GXPC_HudPaneEnd();
     if (!s_hudPieceInHud.back()) GXPC_SetHud(0);
     s_hudPieceInHud.pop_back();
+}
+
+void GXPC_SetSplitView(int on, float x, float y, float w, float h) {
+    flushBatch();
+    s_split.on = on != 0;
+    s_split.x = x * float(s_efbW);
+    s_split.y = y * 448.0f;  // the game's frame: the EFB's top 448 lines
+    s_split.sx = w > 0.0f ? w : 1.0f;
+    s_split.sy = h > 0.0f ? h : 1.0f;
 }
 
 void GXPC_SetStretch2D(int on) {

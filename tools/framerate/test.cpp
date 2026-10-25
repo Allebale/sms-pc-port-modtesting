@@ -6,6 +6,7 @@ int port_frame_rate = 60;
 int port_active_frame_rate = 30;
 int port_high_fps_active = 0;
 int port_vi_multiplier = 1;
+unsigned int port_select_frame = 0;
 
 int main()
 {
@@ -33,6 +34,19 @@ int main()
         assert(native_counts == 30);
         assert(fabsf(distance - 30) < 0.0001f);
         assert(fabsf(remaining - powf(0.95f, 30)) < 0.00001f);
+        // Integer steps per native frame add up to the same total each
+        // second, and a 30 fps frame's step is never split unevenly by more
+        // than one.
+        const int steps[] = {1, 2, 4, 6, 8, 16};
+        for (unsigned i = 0; i < sizeof steps / sizeof *steps; ++i) {
+            int total = 0;
+            for (unsigned frame = 0; frame < (unsigned)rates[r]; ++frame) {
+                int share = port_native_step_share(steps[i], frame);
+                assert(share >= steps[i] * 30 / rates[r] && share <= (steps[i] * 30 + rates[r] - 1) / rates[r]);
+                total += share;
+            }
+            assert(total == steps[i] * 30);
+        }
         // A custom animation covers the same distance in one second at
         // every display rate, including frozen and reversed playback.
         const float custom_rates[] = {0.6f, 1.0f, 2.0f, 0.0f, -0.6f};
@@ -50,8 +64,9 @@ int main()
         assert(port_frame_scale() == 1);
         assert(fabsf(port_native_animation_rate(0.6f) - 0.6f) < 0.0000001f);
         assert(port_native_frame_step(0));
+        assert(port_native_step_share(6, 1) == 6);
         assert(fabsf(port_frame_chase(0.05f) - 0.05f) < 0.0000001f);
         assert(retraces_per_second / (port_vi_retrace_multiplier() * 2) == 30);
     }
-    puts("PASS: 30/60/120 configuration, native timers, movement, effects, menu timing");
+    puts("PASS: 30/60/120 configuration, native timers, movement, effects, menu timing, select steps");
 }

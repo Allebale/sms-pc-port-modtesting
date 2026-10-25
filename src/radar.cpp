@@ -60,6 +60,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "port_framerate.h"
 #include "port_radar.h"
 #include "sms_modhook.h"
 
@@ -103,7 +104,7 @@ const int kZoomCount   = sizeof kZoomSteps / sizeof kZoomSteps[0];
 f32 sZoomBase = 2500.0f; // SMS_RADAR_ZOOM: world units from the centre to the map's edge at 100%
 f32 sZoom     = 2500.0f; // the same, at the zoom step chosen
 int sZoomStep;
-int sZoomShown; // frames left to show the zoom under the radar
+f32 sZoomShown; // 60 fps frames left to show the zoom under the radar
 f32 sRadius   = kRadius;
 
 // SMS_RADAR_PLACE (radar_place): how the radar and the life meter share the
@@ -121,7 +122,7 @@ const f32 kLifeX1 = 500.0f, kLifeY1 = 50.0f, kLifeX2 = 574.0f, kLifeY2 = 121.0f;
 const f32 kLifeRays    = 1.2f;  // its rays reach past its back: its round width, as a part of the back's
 const f32 kPlaceGap    = 6.0f;  // between the radar and the meter
 const f32 kBesideScale = 0.8f;  // the radar's size beside the meter
-const f32 kPlaceEase  = 0.25f; // the part of the way to its place it goes each frame
+const f32 kPlaceEase  = 0.25f; // the part of the way to its place it goes each 60 fps frame
 f32 sPlaceX, sPlaceY, sPlaceR; // where it is now: its centre and radius, 0 before it is placed
 
 // the full map: open, how far faded in, and the overview in GX textures
@@ -906,7 +907,10 @@ void RadarDraw(const JDrama::TRect& viewport, f32 lifeX1, f32 lifeY1, f32 lifeX2
 			SMSGetMSound()->startSoundSystemSE(sFullOpen ? MSD_SE_SY_WIPE_IN : MSD_SE_SY_WIPE_OUT, 0, nullptr, 0);
 		}
 	}
-	sFullAlpha = clamp01(sFullAlpha + (sFullOpen && play ? 0.15f : -0.15f));
+	// The radar is drawn once per displayed frame; its fades, ease and zoom
+	// label are given per 60 fps frame and scaled to the frame rate in force.
+	const f32 frames60 = 60.0f / port_active_frame_rate;
+	sFullAlpha = clamp01(sFullAlpha + (sFullOpen && play ? 0.15f : -0.15f) * frames60);
 
 	// D-pad up: the next zoom step, with the menus' cursor sound
 	if (have && !sFullOpen) {
@@ -921,7 +925,7 @@ void RadarDraw(const JDrama::TRect& viewport, f32 lifeX1, f32 lifeY1, f32 lifeX2
 	}
 
 	const bool show = play && !sFullOpen;
-	sAlpha += show ? 0.125f : -0.125f;
+	sAlpha += (show ? 0.125f : -0.125f) * frames60;
 	sAlpha = clamp01(sAlpha);
 	if (sFullAlpha > 0.0f && gpMarioPos && sMapState == 1 && sOverviewKey == sKey)
 		drawFullMap(viewport, gpMarioPos->x, gpMarioPos->z);
@@ -963,14 +967,15 @@ void RadarDraw(const JDrama::TRect& viewport, f32 lifeX1, f32 lifeY1, f32 lifeX2
 		cy = viewport.y2 - kMargin - 10.0f - R;
 		break;
 	}
-	if (sPlaceR <= 0.0f || sAlpha <= 0.125f) { // shown again: straight there
+	if (sPlaceR <= 0.0f || sAlpha <= 0.125f * frames60) { // shown again: straight there
 		sPlaceX = cx;
 		sPlaceY = cy;
 		sPlaceR = R;
 	} else {
-		sPlaceX += (cx - sPlaceX) * kPlaceEase;
-		sPlaceY += (cy - sPlaceY) * kPlaceEase;
-		sPlaceR += (R - sPlaceR) * kPlaceEase;
+		const f32 ease = 1.0f - powf(1.0f - kPlaceEase, frames60);
+		sPlaceX += (cx - sPlaceX) * ease;
+		sPlaceY += (cy - sPlaceY) * ease;
+		sPlaceR += (R - sPlaceR) * ease;
 	}
 	R  = sPlaceR;
 	cx = sPlaceX;
@@ -1041,8 +1046,8 @@ void RadarDraw(const JDrama::TRect& viewport, f32 lifeX1, f32 lifeY1, f32 lifeX2
 	arrow(cx, cy, sinf(angle), cosf(angle), R * kArrowLen, sAlpha);
 
 	// the zoom, for a moment after D-pad up
-	if (sZoomShown > 0) {
-		sZoomShown--;
+	if (sZoomShown > 0.0f) {
+		sZoomShown -= frames60;
 		// as the reach in metres (the system font has no %)
 		char label[24];
 		snprintf(label, sizeof label, "%d m", (int)(sZoom / 100.0f + 0.5f));

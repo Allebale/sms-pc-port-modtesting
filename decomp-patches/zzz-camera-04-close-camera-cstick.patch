@@ -1,9 +1,9 @@
 Reason: port: SMS_CLOSE_CAMERA_CSTICK (platform/pad) lets the C-stick turn the Y close-up camera, and so aim FLUDD in it, as it turns the normal camera (with Invert camera X / Y), alongside the control stick
 --- a/src/System/MarioGamePad.cpp
 +++ b/src/System/MarioGamePad.cpp
-@@ -6,6 +6,12 @@
- 
- JDrama::TFlagT<u16> TMarioGamePad::mResetFlag;
+@@ -33,6 +33,12 @@
+ }
+ #endif
  
 +#ifdef TARGET_PC
 +// SMS_CLOSE_CAMERA_CSTICK (platform/pad/pad.cpp): the C-stick turns the Y
@@ -14,8 +14,8 @@ Reason: port: SMS_CLOSE_CAMERA_CSTICK (platform/pad) lets the C-stick turn the Y
  // NOTE (linked from source, batch 279): the `.sdata2` pool order that used to
  // block the link is fixed -- see considerMarioStick below. What is still
  // dishonest here is the `u32 stackAlloc[83]` in updateMeaning: it is
-@@ -109,6 +115,13 @@
- 			updateMeaning(L, MEANING_0x2000, prevMeaning);
+@@ -141,6 +147,13 @@
+ #endif
  			mCompSPos[2 * 2]     = mMainStick.mPosX;
  			mCompSPos[2 * 2 + 1] = mMainStick.mPosY;
 +#ifdef TARGET_PC
