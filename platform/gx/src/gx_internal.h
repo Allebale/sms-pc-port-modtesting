@@ -97,9 +97,12 @@ struct State {
     // it off, so it lasts only for the camera it was set for.
     float userClip[4];
     bool userClipOn;
-    // Wet Mario (GXPC_SetWetness): how wet what is drawn now is, 0 (dry, as ever) to 1. The vertex
-    // lighting darkens it a little and adds a soft highlight from its lights and a sheen at its edges.
+    // Wet Mario (GXPC_SetWetness): how wet what is drawn now is, 0 (dry, as ever) to 1, and its
+    // waterline: a plane in view space, wet where dot(plane, (view position, 1)) < 0 (below it), its
+    // normal the world's up. The fragment shader darkens and deepens the colour there and adds a
+    // small, tight highlight, as a thin film of water on cloth and skin gives.
     float wet;
+    float wetLine[4];
 };
 
 extern State g;
@@ -347,7 +350,7 @@ struct UniformCache {
     float texscale[16], texsize[16], fog[4], fogcolor[4], indmtx[24], efb[2], proj[8], vp[8], ambmat[16];
     float linewidth[1];
     float uclip[4];
-    float wet[4];
+    float wet[8];
 };
 struct ShaderProgram {
     unsigned prog;

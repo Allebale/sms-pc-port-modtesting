@@ -110,12 +110,12 @@ int port_reflect_level(void);
 
 // Wet Footprints: 1 when Mario's steps out of a puddle leave damp prints that fade.
 int port_wet_footprints(void);
-// Wet Mario: 1 when swimming, or diving into a puddle, leaves Mario wet: darker and slightly shiny,
-// drying over about 45 seconds (ext/core/game/port_water_reflections.cpp).
+// Wet Mario: 1 when water leaves Mario wet: darker, his colours deeper, with a small highlight, up
+// to where the water reached (all of him after swimming), drying over about 45 seconds.
 int port_wet_mario(void);
 // Around Mario's own draw (TMario::perform, zzzzz-ext-25-wet-mario): his wetness for the renderer,
-// then dry again for what is drawn after.
-void port_wet_mario_draw(int begin);
+// begin 1 before (view: the camera's, world to view), 0 after.
+void port_wet_mario_draw(int begin, float (*view)[4]);
 
 // Water Reflections: 1 when the stage's own water and wet ground show the reflections puddles
 // do (ext/core/game/port_water_reflections.cpp); 0 as the game has it.

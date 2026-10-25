@@ -1018,12 +1018,15 @@ void drawFootprints(MtxPtr view)
 }
 
 // ------------------------------------------------------------------ Wet Mario
-// How wet Mario is, 0 (dry) to 1: soaked by swimming (in deep water), half by wading, and by
-// diving or sliding on his belly through a puddle or wet ground; drying evenly over kDryMs. His own
-// draw takes it to the renderer (port_wet_mario_draw), which darkens him a little and adds a soft
-// highlight and a sheen at his edges (platform/gx: u_wet), as wet cloth and skin catch the light.
-const s32 kDryMs = 45000;
+// How wet Mario is, 0 (dry) to 1, and how far up: in water he is soaked up to its surface (wading:
+// his legs; swimming, or deeper than his chest: all of him), drying evenly over kDryMs. His own draw
+// takes both to the renderer (port_wet_mario_draw), which makes him darker, his colours deeper,
+// with a small, tight highlight below that line (platform/gx: u_wet), as soaked cloth and skin.
+const s32 kDryMs     = 45000;
+const f32 kAllOfHim  = 10000.0f; // a wet height that is all of him
+const f32 kChest     = 110.0f;   // deeper than this: soaked all over
 f32 s_wetness;
+f32 s_wetHeight; // above his feet
 s32 s_wetLast;
 
 void updateWetness()
@@ -1033,58 +1036,34 @@ void updateWetness()
 	s_wetLast     = now;
 	TMario* m     = gpMarioOriginal;
 	if (!port_wet_mario() || !m) {
-		s_wetness = 0.0f;
+		s_wetness   = 0.0f;
+		s_wetHeight = 0.0f;
 		return;
 	}
 	if (dt > 0 && dt < 1000)
 		s_wetness -= (f32)dt / (f32)kDryMs;
-	f32 soak       = 0.0f;
+	f32 height = -1.0f;  // how far up the water wets him now (-1: not in water)
 	const char* why = "";
-	if ((m->mStatus & MARIO_STATUS_FLAG_SWIMMING) || m->checkFlag(MARIO_FLAG_IN_WATER)) {
-		soak = 1.0f;
-		why  = "swimming";
-	} else if (m->checkFlag(MARIO_FLAG_IN_SHALLOW_WATER)) {
-		soak = 0.5f;
-		why  = "wading";
-	}
-	// on his belly, or diving, through a puddle or wet ground (looked for here, each tick)
-	const u32 st = m->mStatus;
-	if (st == MARIO_STATUS_DIVE || st == MARIO_STATUS_SPEED_SLIDING || st == MARIO_STATUS_SLIP_FORE
-	    || st == MARIO_STATUS_SLIP_BACK) {
-		bool puddle = false;
-		const TBGCheckData* ground = m->mGroundPlane;
-		if (ground && ground->isLegal() && isWetGround(ground))
-			puddle = true;
-		TModelWaterManager* water = gpModelWaterManager;
-		const int count = water ? water->getParticleCount() : 0;
-		for (int i = 0; !puddle && i < count && i < 256; i++) {
-			if ((water->mParticleFlagSOA[i] & 0xf) != 2)  // landed: a puddle
-				continue;
-			const JGeometry::TVec3<f32>& p = water->mParticlePositionSOA[i];
-			const f32 dx = p.x - m->mPosition.x, dy = p.y - m->mPosition.y, dz = p.z - m->mPosition.z;
-			if (dx * dx + dz * dz < 150.0f * 150.0f && dy > -100.0f && dy < 100.0f)
-				puddle = true;
-		}
-		// each dive in the log, while Wet Mario is tried: whether a puddle was found under him
-		static u32 s_loggedStatus;
-		static bool s_loggedPuddle;
-		if (st != s_loggedStatus || (puddle && !s_loggedPuddle)) {
-			fprintf(stderr, "[puddles] Mario dives or slides (status 0x%X): %s\n", st,
-			        puddle ? "a puddle or wet ground under him" : "no puddle under him");
-			s_loggedStatus = st;
-			s_loggedPuddle = puddle;
-		}
-		if (puddle) {
-			soak = 1.0f;
-			why  = "diving into a puddle";
-		}
+	if (m->mStatus & MARIO_STATUS_FLAG_SWIMMING) {
+		height = kAllOfHim;
+		why    = "swimming";
+	} else if (m->checkFlag(MARIO_FLAG_IN_WATER) || m->checkFlag(MARIO_FLAG_IN_SHALLOW_WATER)) {
+		const f32 depth = m->mFloorPosition.z - m->mPosition.y;  // the water's surface over his feet
+		height = depth > kChest ? kAllOfHim : depth > 0.0f ? depth + 8.0f : 30.0f;  // + a splash
+		why    = height >= kAllOfHim ? "in deep water" : "wading";
 	}
 	static bool s_toldWet;
-	if (soak > 0.0f && s_wetness < soak) {
-		if (!s_toldWet)
-			fprintf(stderr, "[puddles] Mario is wet (%s)\n", why);
+	if (height > 0.0f) {
+		if (!s_toldWet || height > s_wetHeight + 20.0f) {
+			if (height >= kAllOfHim)
+				fprintf(stderr, "[puddles] Mario is wet all over (%s)\n", why);
+			else
+				fprintf(stderr, "[puddles] Mario is wet up to %.0f units (%s)\n", height, why);
+		}
 		s_toldWet = true;
-		s_wetness = soak;
+		s_wetness = 1.0f;
+		if (height > s_wetHeight)  // the highest the water has reached, until he is dry
+			s_wetHeight = height;
 	}
 	if (s_wetness < 0.5f)  // a soaking from here on is told again
 		s_toldWet = false;
@@ -1092,18 +1071,35 @@ void updateWetness()
 	if (s_wetness <= 0.0f) {
 		if (s_wasWet)
 			fprintf(stderr, "[puddles] Mario is dry again\n");
-		s_wetness = 0.0f;
+		s_wetness   = 0.0f;
+		s_wetHeight = 0.0f;
 	}
 	s_wasWet = s_wetness > 0.0f;
 }
 
 } // namespace
 
-extern "C" void GXPC_SetWetness(float wet);
+extern "C" void GXPC_SetWetness(float wet, const float* line);
 
-void port_wet_mario_draw(int begin)
+// The waterline, a plane at world height y (normal up), is taken into the camera's view (world to
+// view: v = A p + t, so the plane there is A n, d - A n . t, as port_mirror_clip does).
+void port_wet_mario_draw(int begin, float (*view)[4])
 {
-	GXPC_SetWetness(begin && port_wet_mario() ? s_wetness : 0.0f);
+	TMario* m = gpMarioOriginal;
+	if (!begin || !port_wet_mario() || s_wetness <= 0.0f || !m || !view) {
+		GXPC_SetWetness(0.0f, 0);
+		return;
+	}
+	if (s_wetHeight >= kAllOfHim) {
+		GXPC_SetWetness(s_wetness, 0);  // all of him
+		return;
+	}
+	const f32 y = m->mPosition.y + s_wetHeight;
+	f32 line[4];
+	for (int r = 0; r < 3; r++)
+		line[r] = view[r][1];
+	line[3] = -y - (line[0] * view[0][3] + line[1] * view[1][3] + line[2] * view[2][3]);
+	GXPC_SetWetness(s_wetness, line);
 }
 
 // From TMirrorModelManager::perform (zzzzz-ext-25-water-reflections), as each frame starts: the

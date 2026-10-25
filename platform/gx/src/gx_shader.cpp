@@ -110,14 +110,14 @@ uniform vec4 u_vp[2];
 uniform vec2 u_efb;
 uniform vec4 u_chan[4];
 uniform vec4 u_uclip;
-uniform vec4 u_wet;
+uniform vec4 u_wet[2];
 in vec3 a_pos; in vec3 a_nrm; in vec3 a_bin; in vec3 a_tan;
 in vec4 a_clr0; in vec4 a_clr1;
 in vec2 a_tex0; in vec2 a_tex1; in vec2 a_tex2; in vec2 a_tex3;
 in vec2 a_tex4; in vec2 a_tex5; in vec2 a_tex6; in vec2 a_tex7;
 in uvec3 a_mtx;
 out vec4 v_c0; out vec4 v_c1;
-out vec4 v_wet;
+out vec3 v_wn; out vec3 v_wp; out vec3 v_wl; out vec3 v_wlc;
 out vec3 v_tc0; out vec3 v_tc1; out vec3 v_tc2; out vec3 v_tc3;
 out vec3 v_tc4; out vec3 v_tc5; out vec3 v_tc6; out vec3 v_tc7;
 float X(int i) { return uintBitsToFloat(xf[i >> 2][i & 3]); }
@@ -176,9 +176,9 @@ static std::string genVS(const ShaderKey& k) {
          "  int nm = 256 + pm * 3;\n"
          "  vec3 N = vec3(dot(R3(nm), a_nrm), dot(R3(nm + 3), a_nrm), dot(R3(nm + 6), a_nrm));\n"
          "  N = dot(N, N) > 0.0 ? normalize(N) : vec3(0.0, 0.0, 1.0);\n"
-         // Wet Mario (u_wet.x, 0 dry): the view's direction and the lights' highlights on wet cloth
-         "  vec3 V = normalize(-vpos);\n"
-         "  vec3 wspec = vec3(0.0);\n"
+         // Wet Mario (u_wet[0].x, 0 dry): where its lights come from (by their brightness), and
+         // their colour, for the fragment shader's highlight
+         "  vec3 wdir = vec3(0.0), wcol = vec3(0.0);\n"
          "  vec4 clip;\n"
          "  if (u_proj[1].z == 0.0) {\n"
          "    clip = vec4(u_proj[0].x * vpos.x + u_proj[0].y * vpos.z, u_proj[0].z * vpos.y + u_proj[0].w * vpos.z,\n"
@@ -221,11 +221,11 @@ static std::string genVS(const ShaderKey& k) {
                 for (int l = 0; l < 8; l++)
                     if (mask & (1u << l)) {
                         emitLight(s, ctrl, comp, "lsum", l);
-                        if (c == 0 && part == 0) {  // a soft highlight where wet cloth catches the light
+                        if (c == 0 && part == 0) {  // Wet Mario: this light, for his highlight
                             snprintf(buf, sizeof buf,
-                                     "    if (u_wet.x > 0.0) { vec3 Ls = normalize(lightPos(%d) - vpos);\n"
-                                     "      vec3 H = Ls + V; H = dot(H, H) > 1e-8 ? normalize(H) : N;\n"
-                                     "      wspec += pow(max(dot(N, H), 0.0), 24.0) * lightColor(%d).rgb; }\n",
+                                     "    if (u_wet[0].x > 0.0) { vec3 lc = lightColor(%d).rgb;\n"
+                                     "      wdir += normalize(lightPos(%d) - vpos) * dot(lc, vec3(0.3333));\n"
+                                     "      wcol += lc; }\n",
                                      l, l);
                             s += buf;
                         }
@@ -237,19 +237,8 @@ static std::string genVS(const ShaderKey& k) {
             s += buf;
         }
     }
-    // Wet Mario, for the final colour (whatever the material makes of its channels): a little
-    // darker (v_wet.a), with a soft highlight from its lights and from above, as the sky gives one,
-    // and a faint sheen where the surface turns away from the view (a wet surface reflects more
-    // there) (v_wet.rgb). Dry: (0, 0, 0, 1), nothing changed.
-    s += "  v_wet = vec4(0.0, 0.0, 0.0, 1.0);\n"
-         "  if (u_wet.x > 0.0) {\n"
-         // glossy: a broad, bright highlight from its lights and from above; and the sky
-         // (pale blue) reflected where the surface turns away from the view, as wet cloth does
-         "    vec3 Hk = normalize(normalize(vec3(0.3, 0.8, 0.5)) + V);\n"
-         "    vec3 spec = min(wspec + vec3(pow(max(dot(N, Hk), 0.0), 12.0)), vec3(1.0));\n"
-         "    float rim = pow(1.0 - max(dot(N, V), 0.0), 2.0);\n"
-         "    v_wet = vec4(u_wet.x * (0.75 * spec + 0.35 * rim * vec3(0.75, 0.85, 1.0)), 1.0 - 0.3 * u_wet.x);\n"
-         "  }\n";
+    // Wet Mario: what the fragment shader needs (its normal and position in view space, its lights)
+    s += "  v_wn = N; v_wp = vpos; v_wl = wdir; v_wlc = min(wcol, vec3(1.0));\n";
     s += "  v_c0 = col0;\n  v_c1 = col1;\n";
 
     // texgen
@@ -312,7 +301,8 @@ static std::string genVS(const ShaderKey& k) {
 // ------------------------------------------------------------------ fragment shader
 static const char* kFsHeader = R"(#version 330 core
 in vec4 v_c0; in vec4 v_c1;
-in vec4 v_wet;
+in vec3 v_wn; in vec3 v_wp; in vec3 v_wl; in vec3 v_wlc;
+uniform vec4 u_wet[2];
 in vec3 v_tc0; in vec3 v_tc1; in vec3 v_tc2; in vec3 v_tc3;
 in vec3 v_tc4; in vec3 v_tc5; in vec3 v_tc6; in vec3 v_tc7;
 uniform sampler2D u_tex[8];
@@ -557,7 +547,25 @@ static std::string genFS(const ShaderKey& k) {
         if (!(c0 == 7 && c1 == 7 && op <= 1)) s += "  if (!(" + e + ")) discard;\n";
     }
     s += "  vec4 color = vec4(outc) / 255.0;\n"
-         "  color.rgb = clamp(color.rgb * v_wet.a + v_wet.rgb, 0.0, 1.0);\n";  // Wet Mario (VS: v_wet)
+         // Wet Mario (u_wet[0].x, 0 dry; below the waterline u_wet[1], softly over 12 units): soaked
+         // cloth and skin are darker and their colours deeper, as wet things are (less light is
+         // scattered back white), with a thin film of water on them: a small, tight highlight from
+         // its lights and from the sky above, and a little more at grazing angles (Fresnel)
+         "  if (u_wet[0].x > 0.0) {\n"
+         "    float w = u_wet[0].x * clamp(0.5 - (dot(u_wet[1].xyz, v_wp) + u_wet[1].w) / 12.0, 0.0, 1.0);\n"
+         "    if (w > 0.0) {\n"
+         "      vec3 N = normalize(v_wn), V = normalize(-v_wp);\n"
+         "      float lum = dot(color.rgb, vec3(0.299, 0.587, 0.114));\n"
+         "      vec3 c = max(mix(vec3(lum), color.rgb, 1.0 + 0.25 * w), vec3(0.0)) * (1.0 - 0.4 * w);\n"
+         "      vec3 up = dot(u_wet[1].xyz, u_wet[1].xyz) > 1e-8 ? normalize(u_wet[1].xyz) : vec3(0.0, 1.0, 0.0);\n"
+         "      vec3 L = dot(v_wl, v_wl) > 1e-8 ? normalize(v_wl) : up;\n"
+         "      float sl = pow(max(dot(N, normalize(L + V)), 0.0), 60.0);\n"
+         "      float ss = pow(max(dot(N, normalize(up + V)), 0.0), 40.0);\n"
+         "      float fr = pow(1.0 - max(dot(N, V), 0.0), 5.0);\n"
+         "      vec3 lc = dot(v_wlc, v_wlc) > 0.0 ? v_wlc : vec3(1.0);\n"
+         "      color.rgb = clamp(c + w * (0.3 * sl * lc + 0.08 * ss + 0.06 * fr), 0.0, 1.0);\n"
+         "    }\n"
+         "  }\n";
     if (k.fogType) {
         // u_fog: x = A, y = B, z = C, w = 1 for orthographic. The depth is the
         // pixel's own (zw / w, screen-linear, as GX's rasterizer gives fog): a
