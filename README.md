@@ -125,7 +125,7 @@ Options can be kept in [`settings.txt`](settings.txt) (`resolution = 2`, `textur
 | `SMS_PRESENT_FILTER=sharp` | scale the picture with crisp pixels (`nearest` for none at all; default `bilinear`, which averages when the internal resolution is above the window's; `fsr` upscales a lower internal resolution with AMD FSR 1, sharpened as much as `SMS_SHARPEN` asks; `nis` with NVIDIA Image Scaling, sharpened from NVIDIA's default up as `SMS_SHARPEN` asks) |
 | `SMS_FSR_MODE=quality` | with `fsr` or `nis`, render at a share of the picture's size on screen and upscale the rest: `native` (100%), `quality` (67%), `balanced` (59%), `performance` (50%) or `ultraperformance` (33%); it sets the internal resolution in place of `SMS_GX_SCALE` |
 | `SMS_WIDESCREEN=16:9` | widescreen (also `21:9`, `16:10`): a wider view, with the HUD and menus kept 4:3 in the middle; the map screen fills the whole width |
-| `SMS_FRAME_RATE=30`, `60`, or `120` | gameplay frame rate: 30 (GameCube native), 60 (port default), or 120 (optional); logos, menus and movies stay at 30 |
+| `SMS_FRAME_RATE=30`, `60`, or `120` | gameplay frame rate: 30 (GameCube native), 60 (port default), or 120 (optional) for the title, file select, episode select and stages; the boot logos and movies stay at 30 |
 | `SMS_WIDESCREEN_HUD=edges` | with widescreen, move the gameplay HUD's counters to the left edge and the water gauge to the right one, and the pause menu's Shine tracker, save state and settings hints and save state menu (and Eclipse's own HUD-side text) with them |
 
 Optional mods, such as HD texture packs, go in [`mods/`](mods/README.md); `python3 tools/mods/get.py textures` downloads and installs the UHD texture pack there.
@@ -138,7 +138,7 @@ Every other switch (debugging, tracing, graphics) is listed in [docs/DEVELOPMENT
 
 Gameplay defaults to 60 frames a second; choose 30 for the GameCube's native rate or 120 for smoother motion in `settings.txt` (`frame_rate = 120`) or with `SMS_FRAME_RATE=120 ./run.sh`.
 The launcher offers these three choices under Settings → Gameplay → Frame rate.
-Game speed stays the same, and logos, menus and movies stay at 30 fps.
+Game speed stays the same. The title, file select and episode select run at the chosen rate too; the boot logos and movies stay at 30 fps.
 120 fps is available on any display, but needs sufficient CPU/GPU performance; a display running at 120 Hz or faster shows its full benefit.
 With display vsync enabled (`vsync = on` / `SMS_VSYNC=1`), a slower refresh rate can limit presentation, so leave vsync off to avoid that limit.
 Like on the GameCube, missed retraces can reduce the achieved frame rate in steps.

@@ -86,14 +86,17 @@ int port_radar = 0;
 extern "C" float port_widescreen;
 float port_widescreen = 1.0f;
 extern "C" __attribute__((weak)) void GXPC_SetWidescreen(float widthOver43);
-// SMS_FRAME_RATE: 30 (the game's own), 60 (default), or 120, for gameplay (the Application
-// patch framerate-01 reads it; logos, menus and movies stay at 30).
+// SMS_FRAME_RATE: 30 (the game's own), 60 (default), or 120, for gameplay and the episode select
+// (patches framerate-01 and framerate-46 read it; the boot logos and movies stay at 30).
 extern "C" int port_frame_rate;
 int port_frame_rate = 60;
 extern "C" int port_active_frame_rate;
 int port_active_frame_rate = 30;
 extern "C" int port_high_fps_active;
 int port_high_fps_active = 0;
+// Frames the episode select has run (framerate-46), for its per-frame steps at 60 and 120.
+extern "C" unsigned int port_select_frame;
+unsigned int port_select_frame = 0;
 // The retrace clock's rate, latched from port_frame_rate in port_init (see port_framerate.h).
 extern "C" int port_vi_multiplier;
 int port_vi_multiplier = 1;
