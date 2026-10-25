@@ -1056,12 +1056,15 @@ void updateWetness()
 		s_toldWet = true;
 		s_wetness = soak;
 	}
-	if (s_wetness < 0.0f) {
-		if (s_toldWet)
-			fprintf(stderr, "[puddles] Mario is dry again\n");
+	if (s_wetness < 0.5f)  // a soaking from here on is told again
 		s_toldWet = false;
+	static bool s_wasWet;
+	if (s_wetness <= 0.0f) {
+		if (s_wasWet)
+			fprintf(stderr, "[puddles] Mario is dry again\n");
 		s_wetness = 0.0f;
 	}
+	s_wasWet = s_wetness > 0.0f;
 }
 
 } // namespace
@@ -1082,7 +1085,6 @@ const TBGCheckData* port_mirror_plane(const TBGCheckData* ground)
 	s_triCount = 0;
 	updateRings(ground);
 	updateFootprints(ground);
-	updateWetness();
 	const TBGCheckData* plane = choosePlane(ground);
 	// Water Depth: on the water while the reflection is on it, fading out on the last one after
 	s_depthWanted   = s_kind == KIND_WATER && port_water_depth();
@@ -1355,6 +1357,9 @@ struct RegisterDepth {
 		s_depthExtension.name       = "water depth";
 		s_depthExtension.stageSetup = resetDepth;
 		s_depthExtension.moveStage  = resetDepth;
+		// Wet Mario, each tick (the mirror's step, where the rest of this runs, is not run in
+		// every area or every frame)
+		s_depthExtension.afterMovement = updateWetness;
 		port_ext_register(&s_depthExtension);
 	}
 } s_registerDepth;
