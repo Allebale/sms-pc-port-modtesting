@@ -1062,8 +1062,17 @@ void updateWetness()
 				continue;
 			const JGeometry::TVec3<f32>& p = water->mParticlePositionSOA[i];
 			const f32 dx = p.x - m->mPosition.x, dy = p.y - m->mPosition.y, dz = p.z - m->mPosition.z;
-			if (dx * dx + dz * dz < 100.0f * 100.0f && dy > -60.0f && dy < 60.0f)
+			if (dx * dx + dz * dz < 150.0f * 150.0f && dy > -100.0f && dy < 100.0f)
 				puddle = true;
+		}
+		// each dive in the log, while Wet Mario is tried: whether a puddle was found under him
+		static u32 s_loggedStatus;
+		static bool s_loggedPuddle;
+		if (st != s_loggedStatus || (puddle && !s_loggedPuddle)) {
+			fprintf(stderr, "[puddles] Mario dives or slides (status 0x%X): %s\n", st,
+			        puddle ? "a puddle or wet ground under him" : "no puddle under him");
+			s_loggedStatus = st;
+			s_loggedPuddle = puddle;
 		}
 		if (puddle) {
 			soak = 1.0f;
@@ -1071,7 +1080,7 @@ void updateWetness()
 		}
 	}
 	static bool s_toldWet;
-	if (s_wetness < soak) {
+	if (soak > 0.0f && s_wetness < soak) {
 		if (!s_toldWet)
 			fprintf(stderr, "[puddles] Mario is wet (%s)\n", why);
 		s_toldWet = true;

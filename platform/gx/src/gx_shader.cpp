@@ -243,10 +243,12 @@ static std::string genVS(const ShaderKey& k) {
     // there) (v_wet.rgb). Dry: (0, 0, 0, 1), nothing changed.
     s += "  v_wet = vec4(0.0, 0.0, 0.0, 1.0);\n"
          "  if (u_wet.x > 0.0) {\n"
+         // glossy: a broad, bright highlight from its lights and from above; and the sky
+         // (pale blue) reflected where the surface turns away from the view, as wet cloth does
          "    vec3 Hk = normalize(normalize(vec3(0.3, 0.8, 0.5)) + V);\n"
-         "    vec3 spec = min(wspec + vec3(0.6 * pow(max(dot(N, Hk), 0.0), 20.0)), vec3(1.0));\n"
-         "    float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0);\n"
-         "    v_wet = vec4(u_wet.x * (0.35 * spec + vec3(0.10 * rim)), 1.0 - 0.25 * u_wet.x);\n"
+         "    vec3 spec = min(wspec + vec3(pow(max(dot(N, Hk), 0.0), 12.0)), vec3(1.0));\n"
+         "    float rim = pow(1.0 - max(dot(N, V), 0.0), 2.0);\n"
+         "    v_wet = vec4(u_wet.x * (0.75 * spec + 0.35 * rim * vec3(0.75, 0.85, 1.0)), 1.0 - 0.3 * u_wet.x);\n"
          "  }\n";
     s += "  v_c0 = col0;\n  v_c1 = col1;\n";
 
