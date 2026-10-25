@@ -19,7 +19,8 @@ extern "C" void port_log(const char* fmt, ...);
 
 namespace {
 
-const char* const kPageNames[PORT_SETTINGS_PAGE_COUNT] = {"Graphics", "Display", "Gameplay", "Controls", "HUD"};
+const char* const kPageNames[PORT_SETTINGS_PAGE_COUNT] = {"Graphics", "Display", "Gameplay", "Controls", "HUD",
+                                                            "Reflections", "First Person"};
 
 // ------------------------------------------------------------------ presets
 // The launcher's Low, Medium, High and Ultra (sms-launcher src/presets.js): the settings each
@@ -134,6 +135,10 @@ void build() {
     t = port_runtime_settings(&n);
     add(t, n);
     t = port_hud_settings(&n);
+    add(t, n);
+    t = port_puddle_settings(&n);
+    add(t, n);
+    t = port_first_person_settings(&n);
     add(t, n);
     t = mp_port_settings(&n);
     add(t, n);

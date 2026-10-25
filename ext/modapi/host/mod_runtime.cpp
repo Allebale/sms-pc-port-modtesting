@@ -1119,9 +1119,9 @@ const SmsNativeApi s_native = {sizeof(SmsNativeApi), apiNativeBuild, modg_native
 // The port's puddle and water effects (platform/misc/port_puddle_options.cpp), SMS_REFLECT_* being
 // its options in their order.
 
-static_assert(SMS_REFLECT_OPTION_COUNT == PORT_REFLECT_OPTIONS, "the SDK's reflection options are the port's");
-static_assert(SMS_REFLECT_SHOW_MARIO == PORT_OPT_SHOW && SMS_REFLECT_BY_SURFACE == PORT_OPT_BY_SURFACE &&
-                  SMS_REFLECT_STRENGTH_STONE == PORT_OPT_STRENGTH && SMS_REFLECT_FOOTPRINTS == PORT_OPT_FOOTPRINTS,
+static_assert((int)SMS_REFLECT_OPTION_COUNT == (int)PORT_REFLECT_OPTIONS, "the SDK's reflection options are the port's");
+static_assert((int)SMS_REFLECT_SHOW_MARIO == (int)PORT_OPT_SHOW && (int)SMS_REFLECT_BY_SURFACE == (int)PORT_OPT_BY_SURFACE &&
+                  (int)SMS_REFLECT_STRENGTH_STONE == (int)PORT_OPT_STRENGTH && (int)SMS_REFLECT_FOOTPRINTS == (int)PORT_OPT_FOOTPRINTS,
               "in the same order");
 
 int apiReflectSet(SmsMod* mod, int option, int value)

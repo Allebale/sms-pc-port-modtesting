@@ -8,6 +8,9 @@
 #include <stdio.h>
 
 extern "C" void port_log(const char* fmt, ...);
+// The settings menu's Reflections page, where it is built in (port_puddle_settings.cpp): its
+// values in place of the original game's, as the options start and when a mod lets go of them.
+extern "C" __attribute__((weak)) void port_puddle_settings_apply(void);
 
 namespace {
 
@@ -56,6 +59,7 @@ void ready() {
     if (s_ready) return;
     s_ready = true;
     for (int i = 0; i < PORT_REFLECT_OPTIONS; i++) s_value[i] = kOptions[i].original;
+    if (port_puddle_settings_apply) port_puddle_settings_apply();
 }
 
 int value(int option) {
@@ -94,7 +98,8 @@ int port_reflect_option_range(int option, int* min, int* max, int* original) {
 void port_reflect_option_reset(void) {
     s_ready = false;
     ready();
-    port_log("[puddles] every option as the original game has it\n");
+    port_log("[puddles] every option as %s\n",
+             port_puddle_settings_apply ? "the settings menu has it" : "the original game has it");
 }
 
 int port_puddle_life_scale(void) { return value(PORT_OPT_LIFETIME); }
