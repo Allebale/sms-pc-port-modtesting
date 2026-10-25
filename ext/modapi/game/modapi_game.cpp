@@ -323,13 +323,14 @@ const char* saveStatesOffReason() { return modh_save_state_reason(); }
 
 // player->set_aim (modg_player_set_aim): whether Mario's body is turned, and which way
 bool s_aimOn;
-s16 s_aim;
+s16 s_aim, s_aimTilt;
 
-int playerAim(void* m, short* angle)
+int playerAim(void* m, short* yaw, short* tilt)
 {
 	if (!s_aimOn || m != (void*)mario())
 		return 0;
-	*angle = s_aim;
+	*yaw  = s_aim;
+	*tilt = s_aimTilt;
 	return 1;
 }
 
@@ -1471,10 +1472,13 @@ extern "C" int modg_player_set_yaw(float degrees)
 
 // player->set_aim (API 1.5 beta 8): his body and FLUDD face this way after
 // each tick's control (playerAim), whichever way he moves.
-extern "C" int modg_player_set_aim(int on, float degrees)
+extern "C" int modg_player_set_aim(int on, float yaw, float pitch)
 {
 	s_aimOn = on != 0;
-	s_aim   = (s16)(int)(degrees * (65536.0f / 360.0f));
+	s_aim   = (s16)(int)(yaw * (65536.0f / 360.0f));
+	// FLUDD's gun angle: negative tilts it up; within straight up and down
+	pitch     = pitch > 89.0f ? 89.0f : pitch < -89.0f ? -89.0f : pitch;
+	s_aimTilt = (s16)(int)(-pitch * (65536.0f / 360.0f));
 	if (!s_aimOn) {
 		if (TMario* m = mario())
 			m->mModelFaceAngle = m->mFaceAngle.y; // facing the way he moves again

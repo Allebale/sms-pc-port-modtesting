@@ -754,7 +754,7 @@ void dropRegistrations(SmsMod* m)
 	}
 	if (m->aims) { // Mario's body faces the way he moves again
 		m->aims = false;
-		modg_player_set_aim(0, 0.0f);
+		modg_player_set_aim(0, 0.0f, 0.0f);
 	}
 	m->options.clear();
 	drawDropMod(m);
@@ -1012,11 +1012,11 @@ int apiPlayerGet(SmsPlayer* out)
 }
 
 // player->set_aim: the mod that aims, so its aim goes when it unloads
-int apiPlayerSetAim(int on, float degrees)
+int apiPlayerSetAim(int on, float yaw, float pitch)
 {
 	if (SmsMod* m = current())
 		m->aims = on != 0;
-	return modg_player_set_aim(on, degrees);
+	return modg_player_set_aim(on, yaw, pitch);
 }
 
 const SmsPlayerApi s_player = {

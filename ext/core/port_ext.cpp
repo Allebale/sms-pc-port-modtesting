@@ -123,9 +123,9 @@ extern "C" int port_ext_hide_player_model(void* mario)
 	return 0;
 }
 
-extern "C" int port_ext_player_aim(void* mario, short* angle)
+extern "C" int port_ext_player_aim(void* mario, short* yaw, short* tilt)
 {
-	EACH(playerAim) if (s_ext[i]->playerAim(mario, angle)) return 1;
+	EACH(playerAim) if (s_ext[i]->playerAim(mario, yaw, tilt)) return 1;
 	return 0;
 }
 
