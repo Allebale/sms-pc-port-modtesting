@@ -2,9 +2,9 @@ Reason: port: Aim with the C-stick (SMS_CLOSE_CAMERA_CSTICK, platform/pad) also 
 --- a/src/Player/WaterGun.cpp
 +++ b/src/Player/WaterGun.cpp
 @@ -281,6 +281,10 @@
- // turns the camera; aiming FLUDD in place (R held all the way down) reads the
- // control stick, so the setting flips that stick's up and down here too.
- extern "C" int port_camera_invert_y;
+ // which flips the C-stick) flips the control stick's up and down here, as
+ // aiming FLUDD in place (R held all the way down) reads it, not the C-stick.
+ extern "C" int port_fludd_aim_invert_y;
 +// SMS_CLOSE_CAMERA_CSTICK ("Aim with the C-stick", platform/pad): the C-stick
 +// tilts FLUDD in place too, the way it tilts the Y close-up camera (whose
 +// ctrlLButtonCamera_ takes the control stick's up as the C-stick's down).
@@ -14,7 +14,7 @@ Reason: port: Aim with the C-stick (SMS_CLOSE_CAMERA_CSTICK, platform/pad) also 
  void TNozzleBase::calcGunAngle(const TMarioControllerWork& work)
 @@ -299,6 +303,9 @@
  		f32 stickY = NozzleMario(this)->mGamePad->mCompSPos[0 * 2 + 1];
- 		if (port_camera_invert_y)
+ 		if (port_fludd_aim_invert_y)
  			stickY = -stickY;
 +		if (port_close_camera_cstick && NozzleMario(this) == gpMarioAddress)
 +			stickY = MsClamp(stickY - NozzleMario(this)->mGamePad->mCompSPos[3 * 2 + 1],

@@ -20,6 +20,11 @@ int s_sel   = 0;   // the selected row
 float s_scroll = 0;
 uint16_t s_prevButtons = 0;
 int s_stickDir = 0, s_stickHeld = 0; // the stick as a d-pad, with repeat
+// menuPad comes once per displayed frame (the pads are read once a frame), so
+// the repeat counts 30 fps frames scaled to the frame rate in force: the first
+// repeat after 0.7 s, then every 1/6 s, at 30, 60 and 120 alike.
+extern "C" int port_active_frame_rate;
+int stickFrames(int frames30) { return frames30 * (port_active_frame_rate > 30 ? port_active_frame_rate / 30 : 1); }
 
 // SDL scancodes (USB HID usages)
 enum { kRight = 79, kLeft = 80, kDown = 81, kUp = 82, kReturn = 40, kEscape = 41, kBackspace = 42, kSpace = 44,
@@ -207,10 +212,10 @@ void menuPad(const SmsPadStatus* raw)
 		else if (p.stick_x < -60) dir = 3;
 		else if (p.stick_x > 60) dir = 4;
 	}
-	if (dir && (dir != s_stickDir || ++s_stickHeld > 20)) {
+	if (dir && (dir != s_stickDir || ++s_stickHeld > stickFrames(20))) {
 		press(dir == 1 ? 0 : dir == 2 ? 1 : dir == 3 ? 2 : 3);
 		if (dir == s_stickDir)
-			s_stickHeld = 16;
+			s_stickHeld = stickFrames(16);
 		else
 			s_stickHeld = 0;
 	}

@@ -14,7 +14,6 @@
 #include "mp_puppet.hpp"
 #include "mp_pvp.hpp"
 #include "port_ext.h"
-#include "port_framerate.h"
 
 #include <Camera/Camera.hpp>
 #include <Enemy/Conductor.hpp>
@@ -238,9 +237,10 @@ void updateTimer(TMarDirector* dir)
 }
 
 // The game's "Ready... Go!" (its letters are in every stage's HUD, though
-// nothing in the game plays them): "Go!" comes kReadyFrames frames later.
-const int kReadyFrames = 60;
-int readyMs() { return kReadyFrames * 1000 / (port_active_frame_rate > 0 ? port_active_frame_rate : 30); }
+// nothing in the game plays them): "Go!" comes a second later at any frame
+// rate (TConsoleStr steps the letters half a step per 1/120 s movement tick
+// and shows "Go!" at step 60).
+int readyMs() { return 1000; }
 void readyGo(TMarDirector* dir)
 {
 	TGCConsole2* console = dir ? dir->getConsole() : nullptr;
@@ -883,8 +883,7 @@ void run(TMarDirector* dir, const MpgCmd& c)
 		s_timerAt   = clockMs();
 		break;
 	case MPG_CMD_READY_GO:
-		// "Go!" i[0] ms from now: "Ready..." started that long before at this
-		// game's frame rate (its letters move a frame at a time)
+		// "Go!" i[0] ms from now: "Ready..." starts readyMs() before it
 		s_readyAt = clockMs() + (c.i[0] > readyMs() ? (unsigned)(c.i[0] - readyMs()) : 0);
 		s_readyDue = true;
 		break;

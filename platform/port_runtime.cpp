@@ -86,14 +86,17 @@ int port_radar = 0;
 extern "C" float port_widescreen;
 float port_widescreen = 1.0f;
 extern "C" __attribute__((weak)) void GXPC_SetWidescreen(float widthOver43);
-// SMS_FRAME_RATE: 30 (the game's own), 60 (default), or 120, for gameplay (the Application
-// patch framerate-01 reads it; logos, menus and movies stay at 30).
+// SMS_FRAME_RATE: 30 (the game's own), 60 (default), or 120, for gameplay and the episode select
+// (patches framerate-01 and framerate-46 read it; the boot logos and movies stay at 30).
 extern "C" int port_frame_rate;
 int port_frame_rate = 60;
 extern "C" int port_active_frame_rate;
 int port_active_frame_rate = 30;
 extern "C" int port_high_fps_active;
 int port_high_fps_active = 0;
+// Frames the episode select has run (framerate-46), for its per-frame steps at 60 and 120.
+extern "C" unsigned int port_select_frame;
+unsigned int port_select_frame = 0;
 // The retrace clock's rate, latched from port_frame_rate in port_init (see port_framerate.h).
 extern "C" int port_vi_multiplier;
 int port_vi_multiplier = 1;
@@ -841,6 +844,9 @@ static const struct {
 	{ "fxaa", "SMS_FXAA" },
 	{ "sharpen", "SMS_SHARPEN" },               // 0..100
 	{ "brightness", "SMS_GAMMA" },              // 1.0 = unchanged
+	{ "color_space", "SMS_COLOR_SPACE" },       // off (default), ntsc-m, ntsc-j or pal: the TV colours the game was made for
+	{ "game_gamma", "SMS_GAME_GAMMA" },         // off (default), or the CRT's gamma, 2.2 to 2.8 (2.35 NTSC)
+	{ "display_gamma", "SMS_DISPLAY_GAMMA" },   // with game_gamma: srgb (default), or 1.8 to 2.8
 	{ "aspect", "SMS_ASPECT" },                 // keep, stretch or integer
 	{ "present_filter", "SMS_PRESENT_FILTER" }, // bilinear, sharp, nearest, fsr or nis
 	{ "fsr_mode", "SMS_FSR_MODE" }, // with fsr or nis: native, quality, balanced, performance or ultraperformance
@@ -874,6 +880,7 @@ static const struct {
 	{ "disc_image", "SMS_DISC_IMAGE" },
 	{ "camera_invert_x", "SMS_CAMERA_INVERT_X" },
 	{ "camera_invert_y", "SMS_CAMERA_INVERT_Y" },
+	{ "fludd_aim_invert_y", "SMS_FLUDD_AIM_INVERT_Y" }, // control stick up/down aiming FLUDD in place; unset follows camera_invert_y
 	{ "camera_speed", "SMS_CAMERA_SPEED" },           // percent, 100 = the game's own
 	{ "free_camera", "SMS_FREE_CAMERA" },             // no automatic swing back
 	{ "mouse_camera", "SMS_MOUSE_CAMERA" },           // mouse look

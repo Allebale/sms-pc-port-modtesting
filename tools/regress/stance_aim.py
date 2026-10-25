@@ -8,11 +8,20 @@
 # camera (also checked); with L (Left Shift) the control stick walks him
 # sideways while the C-stick turns him. With the setting off the C-stick turns
 # the camera and not Mario, as on the GameCube. No game code is skipped.
+# Invert FLUDD aim Y (SMS_FLUDD_AIM_INVERT_Y, decomp-patches/zzz-camera-03):
+# the control stick's up tilts FLUDD down in the stance (as on the GameCube),
+# up with it on, whatever Invert camera Y says, and the Y close-up camera's
+# control stick stays as it is. At the end, with the game stopped, it checks
+# what the environment set it to (unset: as Invert camera Y) and that the
+# settings menu's Invert Camera Y moves it only until its own switch is used.
+# STANCE_AIM_ENV_ONLY=1 checks only that, as soon as Mario can move.
+import os
 import gdb
 
 PAD = "'(anonymous namespace)::%s'"
 # SDL scancodes of the default bindings
 SPACE, LSHIFT, KEY_D, KEY_E = 44, 225, 7, 8          # R, L, STICK_RIGHT, Y
+KEY_W = 26                                           # STICK_UP
 KEY_I, KEY_K, KEY_L = 12, 14, 15                     # CSTICK_UP, _DOWN, _RIGHT
 ENTER = 20      # frames the stance (or close-up camera) gets before the C-stick
 HOLD = 30       # frames the C-stick is held
@@ -40,18 +49,40 @@ def s16(v):
     return v - 0x10000 if v >= 0x8000 else v
 
 
-# name, aim setting, Invert camera Y, keys held from the start, C-stick key,
+# name, aim setting, Invert camera Y, Invert FLUDD aim Y, keys held from the
+# start, the key held for the check (a C-stick's, or the control stick's up),
 # toggle the close-up camera with Y
 CHECKS = [
-    ('on, R, C right', 1, 0, [SPACE], KEY_L, False),
-    ('on, R, C up', 1, 0, [SPACE], KEY_I, False),
-    ('on, R, C up, Invert Y', 1, 1, [SPACE], KEY_I, False),
-    ('on, close-up camera, C up', 1, 0, [], KEY_I, True),
-    ('on, L + stick right, C right', 1, 0, [LSHIFT, KEY_D], KEY_L, False),
-    ('on, standing, C right', 1, 0, [], KEY_L, False),
-    ('off, R, C right', 0, 0, [SPACE], KEY_L, False),
-    ('off, R, C down', 0, 0, [SPACE], KEY_K, False),
+    ('on, R, C right', 1, 0, 0, [SPACE], KEY_L, False),
+    ('on, R, C up', 1, 0, 0, [SPACE], KEY_I, False),
+    ('on, R, C up, Invert Y', 1, 1, 1, [SPACE], KEY_I, False),
+    ('on, close-up camera, C up', 1, 0, 0, [], KEY_I, True),
+    ('on, L + stick right, C right', 1, 0, 0, [LSHIFT, KEY_D], KEY_L, False),
+    ('on, standing, C right', 1, 0, 0, [], KEY_L, False),
+    ('off, R, C right', 0, 0, 0, [SPACE], KEY_L, False),
+    ('off, R, C down', 0, 0, 0, [SPACE], KEY_K, False),
+    ('off, R, stick up', 0, 0, 0, [SPACE], KEY_W, False),
+    ('off, R, stick up, Invert FLUDD Y', 0, 0, 1, [SPACE], KEY_W, False),
+    ('off, R, stick up, Invert camera Y', 0, 1, 0, [SPACE], KEY_W, False),
+    ('on, R, stick up, Invert FLUDD Y', 1, 0, 1, [SPACE], KEY_W, False),
+    ('off, close-up camera, stick up', 0, 0, 0, [], KEY_W, True),
+    ('off, close-up camera, stick up, Invert FLUDD Y', 0, 0, 1, [], KEY_W, True),
 ]
+ENV_ONLY = os.environ.get('STANCE_AIM_ENV_ONLY') == '1'
+
+
+def water_vy():
+    # the mean upward share of the live water particles' speed: which way the
+    # spray goes, whatever the gun angle's sign means
+    w = ev('gpModelWaterManager')
+    n = int(w['mParticleCount'])
+    total = 0.0
+    for i in range(n):
+        v = w['mParticleVelocitySOA'][i]
+        x, y, z = float(v['x']), float(v['y']), float(v['z'])
+        length = (x * x + y * y + z * z) ** 0.5
+        total += y / length if length else 0.0
+    return total / n if n else 0.0
 
 
 def values():
@@ -91,6 +122,7 @@ class Frames(gdb.Breakpoint):
         self.waited = 0
         self.normal_hits = 0
         self.error = None
+        self.initial = None
 
     def keys(self, codes, down):
         for k in codes:
@@ -107,13 +139,18 @@ class Frames(gdb.Breakpoint):
             self.normal_hits = normal.hits
             self.settled = self.settled + 1 if playing else 0
             return False
-        if self.check == len(CHECKS):
+        if self.initial is None:
+            self.initial = {n: int(ev(PAD % n)) for n in ('g_invert_cy', 'g_invertFluddY',
+                                                         'g_fluddYFollowsCamera')}
+            self.initial['port_fludd_aim_invert_y'] = int(ev('port_fludd_aim_invert_y'))
+        if ENV_ONLY or self.check == len(CHECKS):
             return True
-        name, aim, invert, held, cstick, closeup = CHECKS[self.check]
+        name, aim, invert, fludd, held, cstick, closeup = CHECKS[self.check]
         f = self.frame
         if f == 0:
             setv('g_closeCameraCStick', aim)
             setv('g_invert_cy', invert)
+            setv('g_invertFluddY', fludd)
             # a full tank, so the stance holds while it sprays
             gdb.execute('set var ((TMario*)gpMarioAddress)->mWaterGun->mCurrentWater = '
                         '((TMario*)gpMarioAddress)->mWaterGun->mNozzleList[0]->mEmitParams.mAmountMax.value',
@@ -131,6 +168,7 @@ class Frames(gdb.Breakpoint):
             self.statuses.add(values()['status'])
         if f == ENTER + HOLD:
             end = values()
+            end['vy'] = water_vy()
             self.results.append((CHECKS[self.check], self.start, end, sorted(self.statuses)))
             self.keys(held + [cstick], False)
             if closeup:
@@ -150,13 +188,51 @@ frames = Frames()
 gdb.execute('run')
 if frames.error:
     fail(frames.error)
+if frames.initial is None:
+    fail('Mario never could move (settled %d frames)' % frames.settled)
+
+
+def env_on(name):
+    e = os.environ.get(name)
+    return 1 if e and e != '0' else 0
+
+
+def menu(fn, value):
+    gdb.execute("call (int)'(anonymous namespace)::%s'(%d)" % (fn, value), to_string=True)
+    return int(ev(PAD % 'g_invertFluddY'))
+
+
+# what the environment (also the game's) set it to, then the menu's switches
+fludd_env = os.environ.get('SMS_FLUDD_AIM_INVERT_Y')
+follows = 0 if fludd_env else 1
+want = env_on('SMS_CAMERA_INVERT_Y') if follows else env_on('SMS_FLUDD_AIM_INVERT_Y')
+init = frames.initial
+good = (init['g_fluddYFollowsCamera'] == follows and init['g_invertFluddY'] == want
+        and init['port_fludd_aim_invert_y'] == want
+        and init['g_invert_cy'] == env_on('SMS_CAMERA_INVERT_Y'))
+print('stance_aim: %-30s camera Y %d, FLUDD Y %d (in use %d), follows the camera %d  %s'
+      % ('environment', init['g_invert_cy'], init['g_invertFluddY'], init['port_fludd_aim_invert_y'],
+         init['g_fluddYFollowsCamera'], 'ok' if good else 'WRONG'), flush=True)
+ok = good
+setv('g_fluddYFollowsCamera', 1)
+setv('g_invertFluddY', 0)
+seen = [menu('invert_y_set', 1), menu('invert_y_set', 0), menu('invert_fludd_y_set', 1),
+        menu('invert_y_set', 0), menu('invert_fludd_y_set', 0), menu('invert_y_set', 1)]
+good = seen == [1, 0, 1, 1, 0, 0] and int(ev(PAD % 'g_fluddYFollowsCamera')) == 0
+print('stance_aim: %-30s FLUDD Y after camera on, off, FLUDD on, camera off, FLUDD off, camera on: %s  %s'
+      % ('menu', seen, 'ok' if good else 'WRONG'), flush=True)
+ok &= good
+if ENV_ONLY:
+    print('stance_aim: %s' % ('passed' if ok else 'FAILED'), flush=True)
+    gdb.execute('kill')
+    gdb.execute('quit %d' % (0 if ok else 1))
 if frames.check != len(CHECKS):
     fail('stopped after %d of %d checks (settled %d frames)' % (frames.check, len(CHECKS), frames.settled))
 
-ok = True
 gun = {}
+vy = {}
 for check, a, b, statuses in frames.results:
-    name, aim, invert, held, cstick, closeup = check
+    name, aim, invert, fludd, held, cstick, closeup = check
     d = {
         'yaw': s16(b['yaw'] - a['yaw']),
         'cam': s16(b['cam'] - a['cam']),
@@ -165,6 +241,7 @@ for check, a, b, statuses in frames.results:
         'move': ((b['x'] - a['x']) ** 2 + (b['z'] - a['z']) ** 2) ** 0.5,
     }
     gun[name] = d['gun']
+    vy[name] = b['vy']
     behind = s16(b['cam'] - (b['yaw'] - 0x8000))
     stance = statuses == [SQUAT]
     if name == 'on, R, C right':
@@ -181,15 +258,33 @@ for check, a, b, statuses in frames.results:
                 and d['gun'] < -100)
     elif name == 'on, L + stick right, C right':
         good = stance and d['yaw'] > 1000 and d['move'] > 20 and abs(behind) < d['yaw'] / 4
+    elif name in ('off, R, stick up', 'off, R, stick up, Invert camera Y'):
+        # as on the GameCube, the control stick's up tilts FLUDD down
+        # (a larger gun angle), Invert camera Y or not
+        good = stance and d['gun'] > 100 and d['yaw'] == 0
+    elif name in ('off, R, stick up, Invert FLUDD Y', 'on, R, stick up, Invert FLUDD Y'):
+        # and the water goes higher than with the stick's up as on the GameCube
+        good = stance and d['gun'] < -100 and d['yaw'] == 0
+        if name.startswith('off'):
+            good = good and b['vy'] > vy['off, R, stick up'] + 0.1
+    elif name.startswith('off, close-up camera, stick up'):
+        # the close-up camera's control stick is left alone
+        good = a['mode'] == b['mode'] == int(ev('(int)CAMERA_MODE_L_NORMAL'))
+        if name.endswith('Invert FLUDD Y'):
+            good = good and abs(d['gun'] - gun['off, close-up camera, stick up']) <= 64
+        else:
+            good = good and abs(d['gun']) > 100
     elif name == 'on, standing, C right':
         good = not stance and d['yaw'] == 0 and d['cam'] > 1000
     elif name == 'off, R, C right':
         good = stance and d['yaw'] == 0 and d['cam'] > 1000
     else:  # off, R, C down: the camera's distance moves, FLUDD stays put
         good = stance and abs(d['ratio']) > 0.01 and abs(d['gun']) < 50
-    print('stance_aim: %-30s yaw %+6d camera %+6d (behind %+6d) ratio %+.3f FLUDD %+5d moved %6.1f '
-          'stance %s  %s' % (name, d['yaw'], d['cam'], behind, d['ratio'], d['gun'], d['move'],
-                             stance, 'ok' if good else 'WRONG'), flush=True)
+    print('stance_aim: %-30s yaw %+6d camera %+6d (behind %+6d) ratio %+.3f FLUDD %+5d (water up %+.2f) '
+          'moved %6.1f stance %s  %s' % (name, d['yaw'], d['cam'], behind, d['ratio'], d['gun'], b['vy'],
+                                         d['move'], stance, 'ok' if good else 'WRONG'), flush=True)
+    if not good:
+        print('stance_aim:   statuses %s' % ', '.join('0x%X' % v for v in statuses), flush=True)
     ok &= good
 print('stance_aim: %s' % ('passed' if ok else 'FAILED'), flush=True)
 gdb.execute('kill')

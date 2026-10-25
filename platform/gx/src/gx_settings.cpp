@@ -34,6 +34,9 @@ enum Id {
     MONITOR,
     ASPECT,
     BRIGHTNESS,
+    COLOR_SPACE,
+    GAME_GAMMA,
+    DISPLAY_GAMMA,
     VSYNC,
     OVERLAY,
     MOUSE_LOOK,
@@ -196,6 +199,17 @@ void build() {
     static const float kGamma[] = {0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 1.5f, 1.6f, 1.7f, 1.8f, 1.9f, 2.0f};
     list(BRIGHTNESS, kGamma, post.gamma, 0.0f,
          [](float v, char* out, size_t n) { snprintf(out, n, "%d", int(v * 100.0f + 0.5f)); });
+    listNames(COLOR_SPACE, {"Off", "NTSC-M", "NTSC-J", "PAL"});
+    static const float kGameGamma[] = {0, 2.2f, 2.35f, 2.5f, 2.8f};
+    list(GAME_GAMMA, kGameGamma, post.gameGamma, 0.0f, [](float v, char* out, size_t n) {
+        if (v <= 0.0f) snprintf(out, n, "Off");
+        else snprintf(out, n, "%.3g", double(v));
+    });
+    static const float kDisplayGamma[] = {0, 2.2f, 2.4f};
+    list(DISPLAY_GAMMA, kDisplayGamma, post.displayGamma, 0.0f, [](float v, char* out, size_t n) {
+        if (v <= 0.0f) snprintf(out, n, "sRGB");
+        else snprintf(out, n, "%.3g", double(v));
+    });
     listNames(VSYNC, {"Off", "On", "Adaptive"});
     listNames(OVERLAY, {"Off", "On"});
     listNames(MOUSE_LOOK, {"Off", "On"});
@@ -235,6 +249,8 @@ int available(int id) {
     }
     case FULLSCREEN_SIZE: return platformHasWindow() && platformExclusive();
     case MONITOR: return platformDisplayCount() >= 2;
+    // the display's gamma encodes what the game's gamma decoded; HDR decodes the picture itself
+    case DISPLAY_GAMMA: return postSettings().gameGamma > 0.0f && !hdrActive();
     case FULLSCREEN:
     case FULLSCREEN_TYPE:
     case VSYNC:
@@ -272,6 +288,9 @@ int get(int id) {
     case MONITOR: return std::min(platformDisplay(), int(c.size()) - 1);
     case ASPECT: return nearest(c, float(post.aspect));
     case BRIGHTNESS: return nearest(c, post.gamma);
+    case COLOR_SPACE: return nearest(c, float(post.colorSpace));
+    case GAME_GAMMA: return nearest(c, post.gameGamma);
+    case DISPLAY_GAMMA: return nearest(c, post.displayGamma);
     case VSYNC: return platformVsync() < 0 ? 2 : std::min(platformVsync(), 1);
     case OVERLAY: return GXPC_OverlayVisible() ? 1 : 0;
     case MOUSE_LOOK: return platformMouseLook() ? 1 : 0;
@@ -338,6 +357,9 @@ int set(int id, int value) {
         }
         case SHARPEN: post.sharpen = v; break;
         case BRIGHTNESS: post.gamma = v; break;
+        case COLOR_SPACE: post.colorSpace = int(v + 0.5f); break;
+        case GAME_GAMMA: post.gameGamma = v; break;
+        case DISPLAY_GAMMA: post.displayGamma = v; break;
         case ASPECT: post.aspect = int(v + 0.5f); break;
         case VSYNC: ok = platformSetVsync(v >= 1.5f ? -1 : int(v + 0.5f)); return;
         case OVERLAY:
@@ -401,6 +423,12 @@ const PortSetting* gx_port_settings(int* count) {
                     "Keep the picture's shape, fill the window, or scale in whole multiples."),
         row<BRIGHTNESS>("brightness", PORT_SETTINGS_PAGE_DISPLAY, 70, "Brightness",
                         "The brightness curve. 100 leaves the picture as the game draws it."),
+        row<COLOR_SPACE>("colorSpace", PORT_SETTINGS_PAGE_DISPLAY, 72, "Colour Correction",
+                         "The colours of the TVs the game was made for. NTSC-J has Japan's bluer white."),
+        row<GAME_GAMMA>("gameGamma", PORT_SETTINGS_PAGE_DISPLAY, 74, "TV Gamma",
+                        "The darker midtones of the old TVs. 2.35 is NTSC's, 2.8 is PAL's."),
+        row<DISPLAY_GAMMA>("displayGamma", PORT_SETTINGS_PAGE_DISPLAY, 76, "Display Gamma",
+                           "Your display's gamma, for TV Gamma. sRGB suits most PC monitors."),
         row<VSYNC>("vsync", PORT_SETTINGS_PAGE_DISPLAY, 90, "V-Sync",
                    "Waits for the display. No tearing, but it can hold the frame rate down."),
         row<OVERLAY>("overlay", PORT_SETTINGS_PAGE_DISPLAY, 100, "Performance Overlay",
