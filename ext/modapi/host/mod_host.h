@@ -43,6 +43,8 @@ struct SmsMod {
 	std::vector<ModOption> options;
 	uint32_t hudHidden = 0; // game->set_hud_hidden: the HUD's parts this mod hides (SMS_HUD_*)
 	bool reflects = false;  // reflections->set: it set the port's puddle and water effects
+	bool aims = false;      // player->set_aim: it turns Mario's body
+	uint32_t hiddenParts = 0; // player->set_hidden_parts: the parts of Mario it hides (SMS_PLAYER_PART_*)
 };
 
 namespace modhost {

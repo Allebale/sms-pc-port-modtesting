@@ -321,6 +321,23 @@ int allowSaveStates()
 
 const char* saveStatesOffReason() { return modh_save_state_reason(); }
 
+// player->set_aim (modg_player_set_aim): whether Mario's body is turned, and which way
+bool s_aimOn;
+s16 s_aim, s_aimTilt;
+uint32_t s_hiddenParts; // player->set_hidden_parts: every mod's, ORed (SMS_PLAYER_PART_*)
+
+// SMS_PLAYER_PART_* are PORT_PLAYER_PART_*
+unsigned hiddenPlayerParts(void* m) { return m == (void*)mario() ? s_hiddenParts : 0; }
+
+int playerAim(void* m, short* yaw, short* tilt)
+{
+	if (!s_aimOn || m != (void*)mario())
+		return 0;
+	*yaw  = s_aim;
+	*tilt = s_aimTilt;
+	return 1;
+}
+
 int hidePlayerModel(void* m)
 {
 	if (!modh_wants(SMS_EV_HIDE_PLAYER_MODEL))
@@ -1143,6 +1160,8 @@ struct Register {
 		e.yoshiEgg            = yoshiEgg;
 		e.episodeShine        = episodeShine;
 		e.fileStarting        = fileStarting;
+		e.playerAim           = playerAim;
+		e.hiddenPlayerParts   = hiddenPlayerParts;
 		port_ext_register(&s_extension);
 	}
 } s_register;
@@ -1441,6 +1460,42 @@ extern "C" int modg_player_set_fludd(int has)
 	else
 		m->offFlag(MARIO_FLAG_HAS_FLUDD);
 	return 1;
+}
+
+// player->set_yaw (API 1.5 beta 8): his facing and his model's, at once, so
+// FLUDD sprays that way (a first-person camera's aim).
+extern "C" int modg_player_set_yaw(float degrees)
+{
+	TMario* m = mario();
+	if (!m)
+		return 0;
+	const s16 a       = (s16)(int)(degrees * (65536.0f / 360.0f));
+	m->mFaceAngle.y   = a;
+	m->mModelFaceAngle = a;
+	return 1;
+}
+
+// player->set_aim (API 1.5 beta 8): his body and FLUDD face this way after
+// each tick's control (playerAim), whichever way he moves.
+extern "C" int modg_player_set_aim(int on, float yaw, float pitch)
+{
+	s_aimOn = on != 0;
+	s_aim   = (s16)(int)(yaw * (65536.0f / 360.0f));
+	// FLUDD's gun angle: negative tilts it up; within straight up and down
+	pitch     = pitch > 89.0f ? 89.0f : pitch < -89.0f ? -89.0f : pitch;
+	s_aimTilt = (s16)(int)(-pitch * (65536.0f / 360.0f));
+	if (!s_aimOn) {
+		if (TMario* m = mario())
+			m->mModelFaceAngle = m->mFaceAngle.y; // facing the way he moves again
+	}
+	return mario() ? 1 : 0;
+}
+
+// player->set_hidden_parts (API 1.5 beta 8): parts of him left out, the rest drawn
+extern "C" int modg_player_set_hidden_parts(uint32_t parts)
+{
+	s_hiddenParts = parts;
+	return mario() ? 1 : 0;
 }
 
 extern "C" int modg_player_set_outfit(int shirt, int sunglasses, int helmet)

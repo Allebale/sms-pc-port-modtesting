@@ -64,6 +64,9 @@ int modg_player_set_status(uint32_t status, uint32_t arg);
 int modg_player_set_nozzle(int nozzle, int animate);
 int modg_player_set_fludd(int has);
 int modg_player_set_outfit(int shirt, int sunglasses, int helmet);
+int modg_player_set_yaw(float degrees); // API 1.5 beta 8
+int modg_player_set_aim(int on, float yaw, float pitch); // API 1.5 beta 8
+int modg_player_set_hidden_parts(uint32_t parts);        // API 1.5 beta 8
 
 int modg_camera_get(SmsCamera* out);
 
