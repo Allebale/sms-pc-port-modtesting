@@ -117,6 +117,7 @@ in vec2 a_tex0; in vec2 a_tex1; in vec2 a_tex2; in vec2 a_tex3;
 in vec2 a_tex4; in vec2 a_tex5; in vec2 a_tex6; in vec2 a_tex7;
 in uvec3 a_mtx;
 out vec4 v_c0; out vec4 v_c1;
+out vec4 v_wet;
 out vec3 v_tc0; out vec3 v_tc1; out vec3 v_tc2; out vec3 v_tc3;
 out vec3 v_tc4; out vec3 v_tc5; out vec3 v_tc6; out vec3 v_tc7;
 float X(int i) { return uintBitsToFloat(xf[i >> 2][i & 3]); }
@@ -236,13 +237,17 @@ static std::string genVS(const ShaderKey& k) {
             s += buf;
         }
     }
-    // Wet Mario: a little darker, its lights' highlights, and a faint sheen where the surface turns
-    // away from the view (as a wet surface reflects more there)
-    if (k.numChans > 0)
-        s += "  if (u_wet.x > 0.0) {\n"
-             "    float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0);\n"
-             "    col0.rgb = col0.rgb * (1.0 - 0.22 * u_wet.x) + u_wet.x * (0.28 * min(wspec, vec3(1.0)) + vec3(0.07 * rim));\n"
-             "  }\n";
+    // Wet Mario, for the final colour (whatever the material makes of its channels): a little
+    // darker (v_wet.a), with a soft highlight from its lights and from above, as the sky gives one,
+    // and a faint sheen where the surface turns away from the view (a wet surface reflects more
+    // there) (v_wet.rgb). Dry: (0, 0, 0, 1), nothing changed.
+    s += "  v_wet = vec4(0.0, 0.0, 0.0, 1.0);\n"
+         "  if (u_wet.x > 0.0) {\n"
+         "    vec3 Hk = normalize(normalize(vec3(0.3, 0.8, 0.5)) + V);\n"
+         "    vec3 spec = min(wspec + vec3(0.6 * pow(max(dot(N, Hk), 0.0), 20.0)), vec3(1.0));\n"
+         "    float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0);\n"
+         "    v_wet = vec4(u_wet.x * (0.30 * spec + vec3(0.08 * rim)), 1.0 - 0.25 * u_wet.x);\n"
+         "  }\n";
     s += "  v_c0 = col0;\n  v_c1 = col1;\n";
 
     // texgen
@@ -305,6 +310,7 @@ static std::string genVS(const ShaderKey& k) {
 // ------------------------------------------------------------------ fragment shader
 static const char* kFsHeader = R"(#version 330 core
 in vec4 v_c0; in vec4 v_c1;
+in vec4 v_wet;
 in vec3 v_tc0; in vec3 v_tc1; in vec3 v_tc2; in vec3 v_tc3;
 in vec3 v_tc4; in vec3 v_tc5; in vec3 v_tc6; in vec3 v_tc7;
 uniform sampler2D u_tex[8];
@@ -548,7 +554,8 @@ static std::string genFS(const ShaderKey& k) {
         }
         if (!(c0 == 7 && c1 == 7 && op <= 1)) s += "  if (!(" + e + ")) discard;\n";
     }
-    s += "  vec4 color = vec4(outc) / 255.0;\n";
+    s += "  vec4 color = vec4(outc) / 255.0;\n"
+         "  color.rgb = clamp(color.rgb * v_wet.a + v_wet.rgb, 0.0, 1.0);\n";  // Wet Mario (VS: v_wet)
     if (k.fogType) {
         // u_fog: x = A, y = B, z = C, w = 1 for orthographic. The depth is the
         // pixel's own (zw / w, screen-linear, as GX's rasterizer gives fog): a
