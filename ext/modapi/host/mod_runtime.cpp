@@ -752,6 +752,10 @@ void dropRegistrations(SmsMod* m)
 		m->hudHidden = 0; // what it hid is shown again (unless another mod hides it)
 		applyHudHidden();
 	}
+	if (m->aims) { // Mario's body faces the way he moves again
+		m->aims = false;
+		modg_player_set_aim(0, 0.0f);
+	}
 	m->options.clear();
 	drawDropMod(m);
 }
@@ -1007,10 +1011,19 @@ int apiPlayerGet(SmsPlayer* out)
 	return modg_player_get(out);
 }
 
+// player->set_aim: the mod that aims, so its aim goes when it unloads
+int apiPlayerSetAim(int on, float degrees)
+{
+	if (SmsMod* m = current())
+		m->aims = on != 0;
+	return modg_player_set_aim(on, degrees);
+}
+
 const SmsPlayerApi s_player = {
 	sizeof(SmsPlayerApi),          apiPlayerGet,          modg_player_set_position, modg_player_set_velocity,
 	modg_player_set_forward_speed, modg_player_set_health, modg_player_set_water,   modg_player_set_status,
 	modg_player_set_nozzle,        modg_player_set_fludd,  modg_player_set_outfit,   modg_player_set_yaw,
+	apiPlayerSetAim,
 };
 
 // This frame's camera, read once a frame for the projections.

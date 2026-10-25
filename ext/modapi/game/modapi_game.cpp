@@ -321,6 +321,18 @@ int allowSaveStates()
 
 const char* saveStatesOffReason() { return modh_save_state_reason(); }
 
+// player->set_aim (modg_player_set_aim): whether Mario's body is turned, and which way
+bool s_aimOn;
+s16 s_aim;
+
+int playerAim(void* m, short* angle)
+{
+	if (!s_aimOn || m != (void*)mario())
+		return 0;
+	*angle = s_aim;
+	return 1;
+}
+
 int hidePlayerModel(void* m)
 {
 	if (!modh_wants(SMS_EV_HIDE_PLAYER_MODEL))
@@ -1143,6 +1155,7 @@ struct Register {
 		e.yoshiEgg            = yoshiEgg;
 		e.episodeShine        = episodeShine;
 		e.fileStarting        = fileStarting;
+		e.playerAim           = playerAim;
 		port_ext_register(&s_extension);
 	}
 } s_register;
@@ -1454,6 +1467,19 @@ extern "C" int modg_player_set_yaw(float degrees)
 	m->mFaceAngle.y   = a;
 	m->mModelFaceAngle = a;
 	return 1;
+}
+
+// player->set_aim (API 1.5 beta 8): his body and FLUDD face this way after
+// each tick's control (playerAim), whichever way he moves.
+extern "C" int modg_player_set_aim(int on, float degrees)
+{
+	s_aimOn = on != 0;
+	s_aim   = (s16)(int)(degrees * (65536.0f / 360.0f));
+	if (!s_aimOn) {
+		if (TMario* m = mario())
+			m->mModelFaceAngle = m->mFaceAngle.y; // facing the way he moves again
+	}
+	return mario() ? 1 : 0;
 }
 
 extern "C" int modg_player_set_outfit(int shirt, int sunglasses, int helmet)

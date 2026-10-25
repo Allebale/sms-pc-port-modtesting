@@ -257,6 +257,11 @@ typedef struct PortExtension {
 	// `from` the item or barrel, null for the water around): return 1 to stop
 	// it (the tank stays as it is).
 	int (*fluddRefill)(void* mario, int source, void* from);
+	// After a TMario's control this tick, before his pose is made: return 1
+	// and set `*angle` to turn his body and FLUDD that way (mModelFaceAngle),
+	// whichever way he moves (a first-person camera's aim, so he can spray
+	// ahead while walking sideways).
+	int (*playerAim)(void* mario, short* angle);
 } PortExtension;
 
 // fluddRefill's `source`
@@ -336,6 +341,7 @@ void port_ext_item_taken(void* item, void* taker);
 // 1 when save states may be used; otherwise 0 and *reason says why.
 int port_ext_allow_save_states(const char** reason);
 int port_ext_hide_player_model(void* mario);
+int port_ext_player_aim(void* mario, short* angle);
 void port_ext_pad_read(void* status);
 int port_ext_demo_camera(const char* name, const float* pos, int frames, float angle, int option, int hasCallback,
                          void* actor, unsigned flags);

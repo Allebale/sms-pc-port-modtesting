@@ -123,6 +123,12 @@ extern "C" int port_ext_hide_player_model(void* mario)
 	return 0;
 }
 
+extern "C" int port_ext_player_aim(void* mario, short* angle)
+{
+	EACH(playerAim) if (s_ext[i]->playerAim(mario, angle)) return 1;
+	return 0;
+}
+
 extern "C" void port_ext_pad_read(void* status)
 {
 	EACH(padRead) s_ext[i]->padRead(status);
