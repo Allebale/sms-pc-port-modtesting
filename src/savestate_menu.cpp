@@ -34,7 +34,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "port_framerate.h"
 #include "port_savestate.h"
 #include "port_menu_draw.h"
 #include "port_savestate_menu.h"
@@ -73,7 +72,7 @@ f32 sShown;      // the picture stack's position, chasing sSelected
 f32 sListFirst;  // the list's first row shown, chasing its target
 bool sDeleteArmed;
 u8 sAlpha;       // the pause menu's fade
-u32 sTicks;      // frames open, for the selected row's bounce
+u32 sTicks;      // movement ticks open (120 a second), for the selected row's bounce
 char sNote[96];
 
 using namespace PortMenu;
@@ -164,7 +163,7 @@ void drawRow(int index, f32 y, u8 alpha)
 		return;
 	const bool selected = index == sSelected;
 	// the selected row breathes as the pause menu's options do
-	const f32 pulse = selected ? 1.0f + 0.025f * sinf(sTicks * port_frame_scale() * 0.2f) : 1.0f;
+	const f32 pulse = selected ? 1.0f + 0.025f * sinf(sTicks * 0.1f) : 1.0f;
 	art(sArt.brush, kListX + kRowW / 2, y + 23.0f, kRowW * pulse, 58.0f * pulse, 0.0f,
 	    selected ? kSelectedRow : kOtherRow, (u8)(alpha * (selected ? 0.95f : 0.72f)));
 	// the world's name in the file select's lettering, else in the font
@@ -255,7 +254,9 @@ void SaveStateMenuMove(TMarioGamePad* pad)
 		}
 	}
 	// the pictures and the list follow the selection
-	const f32 chase = port_frame_chase(0.3f);
+	// Move steps on every 1/120 s movement tick (TPauseMenu2::move) at any
+	// frame rate, so the chase is per tick: 0.3 a 60 fps frame.
+	const f32 chase = 1.0f - sqrtf(0.7f);
 	sShown += (sSelected - sShown) * chase;
 	sListFirst += (listTarget() - sListFirst) * chase;
 }

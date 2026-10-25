@@ -13,6 +13,8 @@ extern int port_high_fps_active;
 // (platform/port_runtime.cpp): the clock cannot be re-timed while the game runs, so the settings
 // menu may change port_frame_rate for the next area without moving it.
 extern int port_vi_multiplier;
+// Frames the episode select has run (TSelectDir::direct, framerate-46).
+extern unsigned int port_select_frame;
 }
 
 // Configuration is independent of GPU performance and monitor refresh rate.
@@ -51,6 +53,17 @@ static inline float port_native_animation_rate(float rate)
 static inline bool port_native_frame_step(unsigned int ticks)
 {
     return !port_high_fps_active || (ticks & 3) == (unsigned int)(120 / port_active_frame_rate);
+}
+
+// The share of a step the game takes once per native 30 Hz frame that falls on
+// this displayed frame, for integer counters: the step is spread over the
+// frames of each native frame so that they add up to it exactly (a step of 6
+// is 3, 3 at 60 fps and 1, 2, 1, 2 at 120). frame counts displayed frames.
+static inline int port_native_step_share(int step, unsigned int frame)
+{
+    int divisor = port_native_frame_divisor();
+    int phase   = (int)(frame % (unsigned int)divisor);
+    return step * (phase + 1) / divisor - step * phase / divisor;
 }
 
 static inline float port_frame_chase(float rate)

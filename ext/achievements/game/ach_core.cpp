@@ -24,7 +24,7 @@ int sms_ach_store_has(int id);
 int sms_ach_store_add(int id);
 // platform/misc/port_cheats.cpp
 extern int port_cheat_god_mode, port_cheat_movement_speed, port_cheat_jump_height, port_cheat_infinite_lives,
-	port_cheat_infinite_fludd, port_cheat_coin_multiplier;
+	port_cheat_infinite_fludd, port_cheat_coin_multiplier, port_cheat_infinite_air, port_cheat_low_gravity;
 // Counts warps (the warp menu) and save state loads (platform/misc/port_cheats.cpp).
 extern int port_play_unchecked;
 }
@@ -190,7 +190,8 @@ void tourTick()
 bool cheating()
 {
 	return port_cheat_god_mode || port_cheat_movement_speed != 1 || port_cheat_jump_height != 1
-	    || port_cheat_infinite_lives || port_cheat_infinite_fludd || port_cheat_coin_multiplier != 1;
+	    || port_cheat_infinite_lives || port_cheat_infinite_fludd || port_cheat_coin_multiplier != 1
+	    || port_cheat_infinite_air || port_cheat_low_gravity != 1;
 }
 
 void frame()

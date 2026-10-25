@@ -141,6 +141,28 @@ typedef char count_of_2_is_not_true_256_is_false[
 		unsigned int sms_mod_w_;                                                                   \
 		sms_mod_word((addr), &sms_mod_w_) ? sms_mod_w_ : (unsigned int)(original);                 \
 	})
+// The mask of a bit test retail compiles as `rlwinm. rA, rS, 0, MB, ME`, where
+// a mod rewrote that instruction at addr with another mask, else `original`
+// (retail's mask): BetterSunshineMoveset's Long Jump/Crouch Button setting
+// moves the button and meaning bits TMarioGamePad::updateMeaning and TMario
+// test.
+static inline unsigned int sms_mod_rlwinm_mask_(unsigned int addr, unsigned int original)
+{
+	unsigned int w;
+	if (!sms_mod_word(addr, &w) || (w >> 26) != 21 || ((w >> 11) & 31) != 0)
+		return original;
+	unsigned int mb = (w >> 6) & 31, me = (w >> 1) & 31;
+	unsigned int bits = (0xFFFFFFFFu >> mb) ^ (me == 31 ? 0u : 0xFFFFFFFFu >> (me + 1));
+	return mb <= me ? bits : ~bits;
+}
+#define SMS_MOD_MASK(addr, original) sms_mod_rlwinm_mask_((addr), (original))
+// The immediate of an `ori rA, rS, imm` a mod wrote at addr, else `original`.
+#define SMS_MOD_ORI(addr, original)                                                                \
+	({                                                                                             \
+		unsigned int sms_mod_w_;                                                                   \
+		(sms_mod_word((addr), &sms_mod_w_) && (sms_mod_w_ >> 26) == 24) ? (sms_mod_w_ & 0xFFFFu)  \
+		                                                                 : (unsigned int)(original); \
+	})
 // A table a mod moved by rewriting the lis/addi pair that loads its address:
 // the halves it wrote at hiAddr and loAddr (the instructions' immediates),
 // else the original table.
