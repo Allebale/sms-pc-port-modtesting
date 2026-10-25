@@ -128,6 +128,9 @@ Once the Tramplin' Stu moves it emits 50 water particles with a NaN speed above 
 The F9 menu's Low Gravity and Infinite Air (`decomp-patches/port-12-cheat-infinite-air.patch`, `port-13-cheat-low-gravity.patch`) have `tools/regress/cheats.py`, run under gdb on regular Sunshine with the same environment as the nozzle check but `SMS_WARP=3,7,1` (Ricco Harbor).
 Once Mario can move it jumps from standing with A (the left click) held until he lands, at each Low Gravity setting, and the rise must go with 1 / gravity; then it drops Mario into the nearest deep sea and holds him 300 units under its surface for ten seconds, with Infinite Air off and on: the air meter must go down without it and stay full with it.
 
+The moveset's Long Jump/Crouch Button setting ([ECLIPSE.md](ECLIPSE.md)) has `tools/regress/crouch_button.py`, run under gdb on an Eclipse build with the Eclipse disc, a copy of the `ecl-firstboot` card and, as `SMS_AUTOPRESS`, the A presses of `regress.py`'s `ECL_TUTORIAL_AP` up to field 2380 (the title, file select and the Tutorial's dialogue).
+Once Mario stands still it holds L, then Z, through the pad layer's key state, in a jump and standing, with the setting at Z, at L (through the setting's own `valueChanged`) and back at Z: at Z, L ground pounds and Z crouches; at L, L crouches and ground pounds and Z centres the camera.
+
 ## Platform layer
 
 
