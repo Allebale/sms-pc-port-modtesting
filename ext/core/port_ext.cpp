@@ -123,10 +123,11 @@ extern "C" int port_ext_hide_player_model(void* mario)
 	return 0;
 }
 
-extern "C" int port_ext_hide_player_head(void* mario)
+extern "C" unsigned port_ext_hidden_player_parts(void* mario)
 {
-	EACH(hidePlayerHead) if (s_ext[i]->hidePlayerHead(mario)) return 1;
-	return 0;
+	unsigned parts = 0;
+	EACH(hiddenPlayerParts) parts |= s_ext[i]->hiddenPlayerParts(mario);
+	return parts;
 }
 
 extern "C" int port_ext_player_aim(void* mario, short* yaw, short* tilt)
