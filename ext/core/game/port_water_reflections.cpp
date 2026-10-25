@@ -26,6 +26,8 @@
 #include <Camera/SunMgr.hpp>
 #include <Camera/SunModel.hpp>
 #include <JSystem/JMath.hpp>
+#include <M3DUtil/M3UModelMario.hpp>
+#include <JSystem/J3D/J3DGraphAnimator/J3DModel.hpp>
 #include <Player/Mario.hpp>
 #include <Player/MarioAccess.hpp>
 #include <Player/MarioFlags.hpp>
@@ -1029,6 +1031,180 @@ f32 s_wetness;
 f32 s_wetHeight; // above his feet
 s32 s_wetLast;
 
+// Drips: while he is wet (not in deep water), drops of water fall from the wet part of him (from his
+// joints below the waterline, a little out from his middle, and above the water he stands in), more
+// the wetter he is, and fall as drops do, leaving a small damp spot where they land on the ground.
+const int kMostDrips   = 160;
+const f32 kDripsPerSec = 26.0f;  // soaked; fewer as he dries (by wetness squared)
+const f32 kGravity     = 980.0f; // units per second squared (Mario: about 160 units tall)
+const f32 kSpotMs      = 900.0f; // a damp spot's fading
+struct Drip {
+	f32 x, y, z, vx, vy, vz, floor;
+	f32 spot;  // 0: falling; else ms since it landed
+	bool live, onGround;
+};
+Drip s_drips[kMostDrips];
+f32 s_dripDue;
+u32 s_dripRand = 12345u;
+
+f32 rand01()
+{
+	s_dripRand = s_dripRand * 1664525u + 1013904223u;
+	return (f32)(s_dripRand >> 8) * (1.0f / 16777216.0f);
+}
+
+void spawnDrip(TMario* m, f32 waterY)
+{
+	M3UModelMario* mm = m->getM3UModel();
+	J3DModel* model   = mm ? mm->getModel() : 0;
+	const int joints  = model && model->getModelData() ? model->getModelData()->getJointNum() : 0;
+	if (joints <= 1)
+		return;
+	const f32 top = m->mPosition.y + s_wetHeight;
+	for (int tries = 0; tries < 4; tries++) {
+		MtxPtr j = model->getAnmMtx(1 + (int)(rand01() * (joints - 1)) % (joints - 1));
+		f32 x = j[0][3], y = j[1][3], z = j[2][3];
+		if (y > top || y < waterY + 2.0f || y < m->mPosition.y + 3.0f)
+			continue;
+		// out from his middle, to his surface
+		f32 ox = x - m->mPosition.x, oz = z - m->mPosition.z;
+		const f32 d = sqrtf(ox * ox + oz * oz);
+		if (d > 0.5f)
+			ox /= d, oz /= d;
+		else
+			ox = rand01() - 0.5f, oz = rand01() - 0.5f;
+		x += ox * (5.0f + 4.0f * rand01()) + (rand01() - 0.5f) * 6.0f;
+		z += oz * (5.0f + 4.0f * rand01()) + (rand01() - 0.5f) * 6.0f;
+		y -= 2.0f * rand01();
+		int slot = -1;
+		for (int i = 0; i < kMostDrips && slot < 0; i++)
+			if (!s_drips[i].live)
+				slot = i;
+		if (slot < 0)
+			return;
+		Drip& dr = s_drips[slot];
+		const JGeometry::TVec3<f32>& v = m->getVel();  // units a frame (30 a second)
+		dr.x = x, dr.y = y, dr.z = z;
+		dr.vx = v.x * 15.0f + (rand01() - 0.5f) * 20.0f;
+		dr.vz = v.z * 15.0f + (rand01() - 0.5f) * 20.0f;
+		dr.vy = (v.y > 0.0f ? v.y * 15.0f : 0.0f) - 20.0f * rand01();
+		const TBGCheckData* floor = 0;
+		const f32 g   = gpMap->checkGroundIgnoreWaterSurface(x, y, z, &floor);
+		dr.onGround   = waterY < g;  // lands on the ground (not into water he stands in)
+		dr.floor      = dr.onGround ? g : waterY;
+		dr.spot       = 0.0f;
+		dr.live       = true;
+		return;
+	}
+}
+
+void updateDrips(TMario* m, f32 dtMs, bool dripping, f32 waterY)
+{
+	const f32 dt = dtMs * 0.001f;
+	for (int i = 0; i < kMostDrips; i++) {
+		Drip& d = s_drips[i];
+		if (!d.live)
+			continue;
+		if (d.spot > 0.0f) {
+			d.spot += dtMs;
+			if (d.spot >= kSpotMs)
+				d.live = false;
+			continue;
+		}
+		d.vy -= kGravity * dt;
+		d.x += d.vx * dt, d.y += d.vy * dt, d.z += d.vz * dt;
+		if (d.y <= d.floor) {
+			d.y = d.floor;
+			if (d.onGround)
+				d.spot = 1.0f;  // a damp spot
+			else
+				d.live = false;
+		}
+		if (d.y < d.floor - 2000.0f)
+			d.live = false;
+	}
+	if (!dripping || !m) {
+		s_dripDue = 0.0f;
+		return;
+	}
+	s_dripDue += kDripsPerSec * s_wetness * s_wetness * dt;
+	for (; s_dripDue >= 1.0f; s_dripDue -= 1.0f)
+		spawnDrip(m, waterY);
+}
+
+void drawDrips(MtxPtr view)
+{
+	bool any = false;
+	for (int i = 0; i < kMostDrips && !any; i++)
+		any = s_drips[i].live;
+	if (!any || !port_wet_mario())
+		return;
+	GXClearVtxDesc();
+	GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+	GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+	GXSetCurrentMtx(GX_PNMTX0);
+	GXLoadPosMtxImm(view, GX_PNMTX0);
+	GXSetCullMode(GX_CULL_NONE);
+	GXSetNumChans(1);
+	GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX, 0, GX_DF_NONE, GX_AF_NONE);
+	GXSetNumTexGens(0);
+	GXSetNumTevStages(1);
+	GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+	GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+	GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_NOOP);
+	GXSetZCompLoc(GX_TRUE);
+	GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+	GXSetAlphaCompare(GX_ALWAYS, 0, GX_AOP_OR, GX_ALWAYS, 0);
+	GXSetColorUpdate(GX_TRUE);
+	GXSetAlphaUpdate(GX_FALSE);
+	GXSetDstAlpha(GX_FALSE, 0);
+	// the camera's right, in the world (the view's first row): drops face it
+	f32 rx = view[0][0], ry = view[0][1], rz = view[0][2];
+	for (int i = 0; i < kMostDrips; i++) {
+		const Drip& d = s_drips[i];
+		if (!d.live)
+			continue;
+		if (d.spot > 0.0f) {  // a damp spot on the ground, spreading a little as it fades
+			const f32 left = 1.0f - d.spot / kSpotMs;
+			const f32 r    = 3.0f + 2.0f * (1.0f - left);
+			const u8 a     = (u8)(70.0f * left);
+			GXBegin(GX_TRIANGLEFAN, GX_VTXFMT0, 10);
+			GXPosition3f32(d.x, d.y + 1.0f, d.z);
+			GXColor4u8(0, 0, 0, a);
+			for (int k = 0; k <= 8; k++) {
+				const f32 u = k * (6.2831853f / 8);
+				GXPosition3f32(d.x + sinf(u) * r, d.y + 1.0f, d.z + cosf(u) * r);
+				GXColor4u8(0, 0, 0, (u8)(a / 3));
+			}
+			GXEnd();
+			continue;
+		}
+		// a drop: round below, pointed above, stretched as it falls faster
+		const f32 speed = sqrtf(d.vx * d.vx + d.vy * d.vy + d.vz * d.vz);
+		const f32 len   = 3.0f + speed * 0.012f;
+		const f32 w     = 1.6f;
+		const f32 x = d.x, y = d.y, z = d.z;
+		GXBegin(GX_TRIANGLEFAN, GX_VTXFMT0, 7);
+		GXPosition3f32(x, y + w * 0.6f, z);  // its middle, brightest
+		GXColor4u8(235, 245, 255, 200);
+		GXPosition3f32(x, y + len, z);
+		GXColor4u8(200, 220, 240, 40);
+		GXPosition3f32(x + rx * w, y + w * 0.7f + ry * w, z + rz * w);
+		GXColor4u8(170, 195, 225, 120);
+		GXPosition3f32(x + rx * w * 0.7f, y - w * 0.4f, z + rz * w * 0.7f);
+		GXColor4u8(170, 195, 225, 150);
+		GXPosition3f32(x - rx * w * 0.7f, y - w * 0.4f, z - rz * w * 0.7f);
+		GXColor4u8(170, 195, 225, 150);
+		GXPosition3f32(x - rx * w, y + w * 0.7f - ry * w, z - rz * w);
+		GXColor4u8(170, 195, 225, 120);
+		GXPosition3f32(x, y + len, z);
+		GXColor4u8(200, 220, 240, 40);
+		GXEnd();
+	}
+}
+
 void updateWetness()
 {
 	const s32 now = nowMs();
@@ -1038,6 +1214,8 @@ void updateWetness()
 	if (!port_wet_mario() || !m) {
 		s_wetness   = 0.0f;
 		s_wetHeight = 0.0f;
+		for (int i = 0; i < kMostDrips; i++)
+			s_drips[i].live = false;
 		return;
 	}
 	if (dt > 0 && dt < 1000)
@@ -1075,6 +1253,11 @@ void updateWetness()
 		s_wetHeight = 0.0f;
 	}
 	s_wasWet = s_wetness > 0.0f;
+	// drips while wet, not while under the water; above the water he stands in
+	const bool inWater = m->checkFlag(MARIO_FLAG_IN_WATER) || m->checkFlag(MARIO_FLAG_IN_SHALLOW_WATER);
+	const bool under   = (m->mStatus & MARIO_STATUS_FLAG_SWIMMING) || height >= kAllOfHim;
+	const f32 waterY   = inWater ? m->mFloorPosition.z : -1e9f;
+	updateDrips(m, dt > 0 && dt < 1000 ? (f32)dt : 0.0f, s_wetness > 0.0f && !under, waterY);
 }
 
 } // namespace
@@ -1393,4 +1576,8 @@ struct RegisterDepth {
 
 // From TModelWaterManager::perform (zzzzz-ext-25-water-reflections), before the puddles are drawn:
 // the wet footprints, so that the puddles lie over them.
-void port_draw_footprints(MtxPtr view) { drawFootprints(view); }
+void port_draw_footprints(MtxPtr view)
+{
+	drawFootprints(view);
+	drawDrips(view);  // Wet Mario's
+}

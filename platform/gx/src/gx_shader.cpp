@@ -548,7 +548,7 @@ static std::string genFS(const ShaderKey& k) {
     }
     s += "  vec4 color = vec4(outc) / 255.0;\n"
          // Wet Mario (u_wet[0].x, 0 dry; below the waterline u_wet[1], softly over 12 units): soaked
-         // cloth and skin are darker and their colours deeper, as wet things are (less light is
+         // cloth and skin are darker (55%) and their colours deeper, as wet things are (less light is
          // scattered back white), with a thin film of water on them: a small, tight highlight from
          // its lights and from the sky above, and a little more at grazing angles (Fresnel)
          "  if (u_wet[0].x > 0.0) {\n"
@@ -556,7 +556,7 @@ static std::string genFS(const ShaderKey& k) {
          "    if (w > 0.0) {\n"
          "      vec3 N = normalize(v_wn), V = normalize(-v_wp);\n"
          "      float lum = dot(color.rgb, vec3(0.299, 0.587, 0.114));\n"
-         "      vec3 c = max(mix(vec3(lum), color.rgb, 1.0 + 0.25 * w), vec3(0.0)) * (1.0 - 0.4 * w);\n"
+         "      vec3 c = max(mix(vec3(lum), color.rgb, 1.0 + 0.3 * w), vec3(0.0)) * (1.0 - 0.55 * w);\n"
          "      vec3 up = dot(u_wet[1].xyz, u_wet[1].xyz) > 1e-8 ? normalize(u_wet[1].xyz) : vec3(0.0, 1.0, 0.0);\n"
          "      vec3 L = dot(v_wl, v_wl) > 1e-8 ? normalize(v_wl) : up;\n"
          "      float sl = pow(max(dot(N, normalize(L + V)), 0.0), 60.0);\n"
