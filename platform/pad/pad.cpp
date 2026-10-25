@@ -87,8 +87,12 @@ __attribute__((weak)) int GXPC_RequestQuit(void);
 }
 
 // PC camera options, read by the camera code (decomp-patches/zzz-pc-camera.patch):
-//   SMS_CAMERA_INVERT_X / _Y   flip the C-stick (and mouse) on that axis; _Y
-//                              also flips FLUDD's aim while spraying in place
+//   SMS_CAMERA_INVERT_X / _Y   flip the C-stick (and mouse) on that axis
+//   SMS_FLUDD_AIM_INVERT_Y     flips the control stick's up and down while Mario
+//                              aims FLUDD spraying in place (R all the way down,
+//                              or L held to walk sideways); unset, it follows
+//                              SMS_CAMERA_INVERT_Y (and the menu's Invert Camera Y
+//                              until the menu's own switch is changed)
 //                              (decomp-patches/zzz-camera-03-fludd-aim-invert-y.patch)
 //   SMS_CAMERA_SPEED=percent   scales manual camera rotation (100 = retail)
 //   SMS_FREE_CAMERA=1          the camera stays where it is put (no auto swing-back)
@@ -112,7 +116,7 @@ __attribute__((weak)) int GXPC_RequestQuit(void);
 // and the mouse wheel zooms the camera in and out (decomp-patches/zzz-camera-02).
 extern "C" {
 int port_free_camera      = 0;
-int port_camera_invert_y  = 0;
+int port_fludd_aim_invert_y = 0;
 int port_close_camera_cstick = 0;
 int port_close_camera_mouse  = 1;
 // Presses of MAP so far; the radar (src/radar.cpp) opens or closes its full
@@ -283,6 +287,9 @@ bool g_inited;
 // SMS_CAMERA_INVERT_X / SMS_CAMERA_INVERT_Y=1 flip the C-stick, which only
 // turns the camera.
 bool g_invert_cx, g_invert_cy;
+// SMS_FLUDD_AIM_INVERT_Y=1 (port_fludd_aim_invert_y): the control stick's up and
+// down when aiming FLUDD in place. Unset, it follows Invert camera Y.
+bool g_invertFluddY, g_fluddYFollowsCamera = true;
 // SMS_CLOSE_CAMERA_CSTICK=1 (port_close_camera_cstick), SMS_CLOSE_CAMERA_MOUSE=0
 // (port_close_camera_mouse)
 bool g_closeCameraCStick, g_closeCameraMouse = true;
@@ -661,6 +668,9 @@ void init()
 	parse_bindings(kDefaultBindings, "defaults");
 	g_invert_cx = env_on("SMS_CAMERA_INVERT_X");
 	g_invert_cy = env_on("SMS_CAMERA_INVERT_Y");
+	if (const char* e = getenv("SMS_FLUDD_AIM_INVERT_Y"))
+		g_fluddYFollowsCamera = !*e;
+	g_invertFluddY = g_fluddYFollowsCamera ? g_invert_cy : env_on("SMS_FLUDD_AIM_INVERT_Y");
 	g_closeCameraCStick = env_on("SMS_CLOSE_CAMERA_CSTICK");
 	if (g_closeCameraCStick)
 		port_log("[pad] the C-stick turns the close-up camera, and aims FLUDD in place\n");
@@ -673,6 +683,8 @@ void init()
 		port_log("[pad] the C-stick's up and down tilts the camera (CAMERA_ZOOM held: nearer or further)\n");
 	if (g_invert_cx || g_invert_cy)
 		port_log("[pad] camera inverted:%s%s\n", g_invert_cx ? " X" : "", g_invert_cy ? " Y" : "");
+	if (g_invertFluddY)
+		port_log("[pad] FLUDD's aim in place inverted: Y\n");
 	const char* path = getenv("SMS_BINDINGS");
 	if (!path)
 		path = "bindings.txt";
@@ -923,14 +935,14 @@ extern "C" u32 PADRead(PADStatus* status)
 	// A .dtm movie (platform/trace, SMS_MOVIE) replaces live input, and is
 	// played as recorded: the game code's own inversion is off too.
 	if (port_trace_pad_read && port_trace_pad_read(status)) {
-		port_camera_invert_y     = 0;
+		port_fludd_aim_invert_y  = 0;
 		port_close_camera_cstick = 0;
 		port_close_camera_mouse  = 0;
 		port_cstick_orbit        = 0;
 		return PAD_CHAN0_BIT;
 	}
 	init();
-	port_camera_invert_y     = g_invert_cy;
+	port_fludd_aim_invert_y  = g_invertFluddY;
 	port_close_camera_cstick = g_closeCameraCStick;
 	port_close_camera_mouse  = g_closeCameraMouse;
 	static bool autoInited;
@@ -1163,7 +1175,20 @@ const PortValueList& rumble_list()
 int invert_x_get() { return g_invert_cx; }
 int invert_x_set(int v) { g_invert_cx = v != 0; return 1; }
 int invert_y_get() { return g_invert_cy; }
-int invert_y_set(int v) { g_invert_cy = v != 0; return 1; }
+int invert_y_set(int v)
+{
+	g_invert_cy = v != 0;
+	if (g_fluddYFollowsCamera)
+		g_invertFluddY = g_invert_cy;
+	return 1;
+}
+int invert_fludd_y_get() { return g_invertFluddY; }
+int invert_fludd_y_set(int v)
+{
+	g_invertFluddY        = v != 0;
+	g_fluddYFollowsCamera = false;
+	return 1;
+}
 int close_mouse_get() { return g_closeCameraMouse; }
 int close_mouse_set(int v) { g_closeCameraMouse = v != 0; return 1; }
 int free_camera_get() { return port_free_camera != 0; }
@@ -1242,6 +1267,9 @@ const PortSetting kPadSettings[] = {
 	{ "invertCameraY", PORT_SETTINGS_PAGE_GAMEPLAY, 55, "Invert Camera Y",
 	  "Flips the C-stick and mouse look up and down.", 0, NULL, off_on_count, off_on_name, invert_y_get,
 	  invert_y_set },
+	{ "invertFluddAimY", PORT_SETTINGS_PAGE_GAMEPLAY, 57, "Invert FLUDD Aim Y",
+	  "On, up on the control stick aims FLUDD higher when you spray in place.", 0, NULL, off_on_count,
+	  off_on_name, invert_fludd_y_get, invert_fludd_y_set },
 	{ "freeCamera", PORT_SETTINGS_PAGE_GAMEPLAY, 60, "Free Camera",
 	  "The camera stays where you put it instead of swinging back behind Mario.", 0, NULL, off_on_count,
 	  off_on_name, free_camera_get, free_camera_set },

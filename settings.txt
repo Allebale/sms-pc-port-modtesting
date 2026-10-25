@@ -173,9 +173,12 @@ frame_rate = 60
 # makes mouse look follow the system's pointer speed and acceleration (Windows
 # and X11). cstick_orbit = on makes the C-stick's up and down tilt the camera
 # as the mouse does; holding CAMERA_ZOOM (the right stick's press) then moves
-# it nearer or further, as on the GameCube.
+# it nearer or further, as on the GameCube. fludd_aim_invert_y flips the control
+# stick's up and down when aiming FLUDD in place (R all the way down, or L);
+# left out, it follows camera_invert_y.
 # camera_invert_x = off
 # camera_invert_y = off
+# fludd_aim_invert_y = off
 # free_camera = off
 # camera_speed = 100
 # mouse_camera = on
