@@ -110,6 +110,7 @@ uniform vec4 u_vp[2];
 uniform vec2 u_efb;
 uniform vec4 u_chan[4];
 uniform vec4 u_uclip;
+uniform vec4 u_wet;
 in vec3 a_pos; in vec3 a_nrm; in vec3 a_bin; in vec3 a_tan;
 in vec4 a_clr0; in vec4 a_clr1;
 in vec2 a_tex0; in vec2 a_tex1; in vec2 a_tex2; in vec2 a_tex3;
@@ -174,6 +175,9 @@ static std::string genVS(const ShaderKey& k) {
          "  int nm = 256 + pm * 3;\n"
          "  vec3 N = vec3(dot(R3(nm), a_nrm), dot(R3(nm + 3), a_nrm), dot(R3(nm + 6), a_nrm));\n"
          "  N = dot(N, N) > 0.0 ? normalize(N) : vec3(0.0, 0.0, 1.0);\n"
+         // Wet Mario (u_wet.x, 0 dry): the view's direction and the lights' highlights on wet cloth
+         "  vec3 V = normalize(-vpos);\n"
+         "  vec3 wspec = vec3(0.0);\n"
          "  vec4 clip;\n"
          "  if (u_proj[1].z == 0.0) {\n"
          "    clip = vec4(u_proj[0].x * vpos.x + u_proj[0].y * vpos.z, u_proj[0].z * vpos.y + u_proj[0].w * vpos.z,\n"
@@ -214,7 +218,17 @@ static std::string genVS(const ShaderKey& k) {
                 s += buf;
                 uint32_t mask = ((ctrl >> 2) & 15) | ((ctrl >> 11) & 15) << 4;
                 for (int l = 0; l < 8; l++)
-                    if (mask & (1u << l)) emitLight(s, ctrl, comp, "lsum", l);
+                    if (mask & (1u << l)) {
+                        emitLight(s, ctrl, comp, "lsum", l);
+                        if (c == 0 && part == 0) {  // a soft highlight where wet cloth catches the light
+                            snprintf(buf, sizeof buf,
+                                     "    if (u_wet.x > 0.0) { vec3 Ls = normalize(lightPos(%d) - vpos);\n"
+                                     "      vec3 H = Ls + V; H = dot(H, H) > 1e-8 ? normalize(H) : N;\n"
+                                     "      wspec += pow(max(dot(N, H), 0.0), 24.0) * lightColor(%d).rgb; }\n",
+                                     l, l);
+                            s += buf;
+                        }
+                    }
                 snprintf(buf, sizeof buf, "    col%d%s = (mat * clamp(lsum, 0.0, 1.0))%s; }\n", c, comp, comp);
             } else {
                 snprintf(buf, sizeof buf, "col%d%s = mat%s; }\n", c, comp, comp);
@@ -222,6 +236,13 @@ static std::string genVS(const ShaderKey& k) {
             s += buf;
         }
     }
+    // Wet Mario: a little darker, its lights' highlights, and a faint sheen where the surface turns
+    // away from the view (as a wet surface reflects more there)
+    if (k.numChans > 0)
+        s += "  if (u_wet.x > 0.0) {\n"
+             "    float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0);\n"
+             "    col0.rgb = col0.rgb * (1.0 - 0.22 * u_wet.x) + u_wet.x * (0.28 * min(wspec, vec3(1.0)) + vec3(0.07 * rim));\n"
+             "  }\n";
     s += "  v_c0 = col0;\n  v_c1 = col1;\n";
 
     // texgen
@@ -615,6 +636,7 @@ static void setupProgram(GLuint p, ShaderProgram& sp, bool aside = false) {
     sp.uAmbMat = glGetUniformLocation(p, "u_chan");
     sp.uLineWidth = glGetUniformLocation(p, "u_linewidth");
     sp.uUserClip = glGetUniformLocation(p, "u_uclip");
+    sp.uWet = glGetUniformLocation(p, "u_wet");
     sp.uDstAlpha = -1;
     if (aside) glUseProgram(GLuint(bound));
 }

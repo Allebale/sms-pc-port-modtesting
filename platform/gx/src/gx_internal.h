@@ -97,6 +97,9 @@ struct State {
     // it off, so it lasts only for the camera it was set for.
     float userClip[4];
     bool userClipOn;
+    // Wet Mario (GXPC_SetWetness): how wet what is drawn now is, 0 (dry, as ever) to 1. The vertex
+    // lighting darkens it a little and adds a soft highlight from its lights and a sheen at its edges.
+    float wet;
 };
 
 extern State g;
@@ -339,12 +342,13 @@ struct UniformCache {
     float texscale[16], texsize[16], fog[4], fogcolor[4], indmtx[24], efb[2], proj[8], vp[8], ambmat[16];
     float linewidth[1];
     float uclip[4];
+    float wet[4];
 };
 struct ShaderProgram {
     unsigned prog;
     int id;  // creation order; SMS_GX_DUMP_SHADERS=dir writes dir/prog<id>.vs/.fs
     int uTevReg, uKonst, uTexScale, uAlphaRef, uFog, uFogColor, uIndMtx, uTexSize, uEfb,
-        uProj, uViewport, uAmbMat, uDstAlpha, uLineWidth, uUserClip;
+        uProj, uViewport, uAmbMat, uDstAlpha, uLineWidth, uUserClip, uWet;
     mutable UniformCache uc;
 };
 bool shaderHasEarlyFragmentTests();

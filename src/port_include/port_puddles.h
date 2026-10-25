@@ -28,7 +28,8 @@ enum {
 	PORT_OPT_SHOW,                   // PORT_REFLECT_KINDS of them
 	PORT_OPT_BY_SURFACE = PORT_OPT_SHOW + 5,
 	PORT_OPT_STRENGTH,               // PORT_PUDDLE_SURFACES of them
-	PORT_REFLECT_OPTIONS = PORT_OPT_STRENGTH + 10
+	PORT_OPT_WET_MARIO = PORT_OPT_STRENGTH + 10,
+	PORT_REFLECT_OPTIONS
 };
 // Set (clamped to its range; 0 for no such option), get (-1 for none), its range.
 int port_reflect_option_set(int option, int value);
@@ -109,6 +110,12 @@ int port_reflect_level(void);
 
 // Wet Footprints: 1 when Mario's steps out of a puddle leave damp prints that fade.
 int port_wet_footprints(void);
+// Wet Mario: 1 when swimming, or diving into a puddle, leaves Mario wet: darker and slightly shiny,
+// drying over about 45 seconds (ext/core/game/port_water_reflections.cpp).
+int port_wet_mario(void);
+// Around Mario's own draw (TMario::perform, zzzzz-ext-25-wet-mario): his wetness for the renderer,
+// then dry again for what is drawn after.
+void port_wet_mario_draw(int begin);
 
 // Water Reflections: 1 when the stage's own water and wet ground show the reflections puddles
 // do (ext/core/game/port_water_reflections.cpp); 0 as the game has it.

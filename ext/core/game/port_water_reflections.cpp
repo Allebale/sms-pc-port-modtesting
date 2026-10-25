@@ -26,7 +26,10 @@
 #include <Camera/SunMgr.hpp>
 #include <Camera/SunModel.hpp>
 #include <JSystem/JMath.hpp>
+#include <Player/Mario.hpp>
 #include <Player/MarioAccess.hpp>
+#include <Player/MarioFlags.hpp>
+#include <Player/MarioStatus.hpp>
 #include <Player/ModelWaterManager.hpp>
 #include <dolphin/gx.h>
 #include <dolphin/mtx.h>
@@ -1014,7 +1017,52 @@ void drawFootprints(MtxPtr view)
 	}
 }
 
+// ------------------------------------------------------------------ Wet Mario
+// How wet Mario is, 0 (dry) to 1: soaked by swimming (in deep water), half by wading, and by
+// diving or sliding on his belly through a puddle or wet ground; drying evenly over kDryMs. His own
+// draw takes it to the renderer (port_wet_mario_draw), which darkens him a little and adds a soft
+// highlight and a sheen at his edges (platform/gx: u_wet), as wet cloth and skin catch the light.
+const s32 kDryMs = 45000;
+f32 s_wetness;
+s32 s_wetLast;
+
+void updateWetness()
+{
+	const s32 now = nowMs();
+	const s32 dt  = s_wetLast ? now - s_wetLast : 0;
+	s_wetLast     = now;
+	TMario* m     = gpMarioOriginal;
+	if (!port_wet_mario() || !m) {
+		s_wetness = 0.0f;
+		return;
+	}
+	if (dt > 0 && dt < 1000)
+		s_wetness -= (f32)dt / (f32)kDryMs;
+	f32 soak = 0.0f;
+	if ((m->mStatus & MARIO_STATUS_FLAG_SWIMMING) || m->checkFlag(MARIO_FLAG_IN_WATER))
+		soak = 1.0f;
+	else if (m->checkFlag(MARIO_FLAG_IN_SHALLOW_WATER))
+		soak = 0.5f;
+	// on his belly, or diving, through a puddle or wet ground
+	const u32 st = m->mStatus;
+	if (s_puddleAtFeet
+	    && (st == MARIO_STATUS_DIVE || st == MARIO_STATUS_SPEED_SLIDING || st == MARIO_STATUS_SLIP_FORE
+	        || st == MARIO_STATUS_SLIP_BACK))
+		soak = 1.0f;
+	if (s_wetness < soak)
+		s_wetness = soak;
+	if (s_wetness < 0.0f)
+		s_wetness = 0.0f;
+}
+
 } // namespace
+
+extern "C" void GXPC_SetWetness(float wet);
+
+void port_wet_mario_draw(int begin)
+{
+	GXPC_SetWetness(begin && port_wet_mario() ? s_wetness : 0.0f);
+}
 
 // From TMirrorModelManager::perform (zzzzz-ext-25-water-reflections), as each frame starts: the
 // plane the mirror scene is mirrored about this frame. ground: the floor under Mario, the game's.
@@ -1025,6 +1073,7 @@ const TBGCheckData* port_mirror_plane(const TBGCheckData* ground)
 	s_triCount = 0;
 	updateRings(ground);
 	updateFootprints(ground);
+	updateWetness();
 	const TBGCheckData* plane = choosePlane(ground);
 	// Water Depth: on the water while the reflection is on it, fading out on the last one after
 	s_depthWanted   = s_kind == KIND_WATER && port_water_depth();
