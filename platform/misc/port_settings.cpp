@@ -177,6 +177,9 @@ const Words kWords[] = {
     {"fullscreenMode", {{"Borderless", "\"desktop\""}, {"Exclusive", "\"exclusive\""}}},
     {"widescreen", {{"Original (4 by 3)", "\"off\""}, {"16 by 10", "\"16:10\""}, {"16 by 9", "\"16:9\""}, {"21 by 9", "\"21:9\""}}},
     {"aspect", {{"Keep", "\"keep\""}, {"Stretch", "\"stretch\""}, {"Whole Multiples", "\"integer\""}}},
+    {"colorSpace", {{"Off", "\"off\""}, {"NTSC-M", "\"ntsc-m\""}, {"NTSC-J", "\"ntsc-j\""}, {"PAL", "\"pal\""}}},
+    {"gameGamma", {{"Off", "\"off\""}, {"2.2", "\"2.2\""}, {"2.35", "\"2.35\""}, {"2.5", "\"2.5\""}, {"2.8", "\"2.8\""}}},
+    {"displayGamma", {{"sRGB", "\"srgb\""}, {"2.2", "\"2.2\""}, {"2.4", "\"2.4\""}}},
     {"vsync", {{"Off", "\"off\""}, {"On", "\"on\""}, {"Adaptive", "\"adaptive\""}}},
     {"buttonPrompts", {{"GameCube", "\"gamecube\""}, {"Auto", "\"auto\""}, {"Xbox", "\"xbox\""}, {"PlayStation", "\"playstation\""},
                        {"Steam Deck", "\"steamdeck\""}, {"Keyboard", "\"keyboard\""}}},
@@ -186,7 +189,7 @@ const Words kWords[] = {
 // Off and On, as false and true.
 const char* const kSwitches[] = {"mpCollision", "fxaa", "heatHaze", "textures", "shaderWarmup", "fullscreen", "hudEdges", "overlay", "hdr",
                                  "hdrCalibration", "skipMovies", "invertCameraX", "invertCameraY", "freeCamera", "mouseCamera",
-                                 "closeCameraMouse", "cstickOrbit", "rawMouse"};
+                                 "closeCameraMouse", "cstickOrbit", "rawMouse", "invertFluddAimY"};
 // Whole numbers, as shown; Off is 0.
 const char* const kNumbers[] = {"sharpen", "brightness", "frameRate", "hdrPaperWhite", "hdrPeak", "hdrContrast", "hdrSaturation",
                                 "hdrHighlights", "volume", "musicVolume", "sfxVolume", "cameraSpeed", "mouseSensitivity",
