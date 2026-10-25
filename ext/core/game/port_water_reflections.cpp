@@ -1038,21 +1038,42 @@ void updateWetness()
 	}
 	if (dt > 0 && dt < 1000)
 		s_wetness -= (f32)dt / (f32)kDryMs;
-	f32 soak = 0.0f;
-	if ((m->mStatus & MARIO_STATUS_FLAG_SWIMMING) || m->checkFlag(MARIO_FLAG_IN_WATER))
+	f32 soak       = 0.0f;
+	const char* why = "";
+	if ((m->mStatus & MARIO_STATUS_FLAG_SWIMMING) || m->checkFlag(MARIO_FLAG_IN_WATER)) {
 		soak = 1.0f;
-	else if (m->checkFlag(MARIO_FLAG_IN_SHALLOW_WATER))
+		why  = "swimming";
+	} else if (m->checkFlag(MARIO_FLAG_IN_SHALLOW_WATER)) {
 		soak = 0.5f;
-	// on his belly, or diving, through a puddle or wet ground
+		why  = "wading";
+	}
+	// on his belly, or diving, through a puddle or wet ground (looked for here, each tick)
 	const u32 st = m->mStatus;
-	if (s_puddleAtFeet
-	    && (st == MARIO_STATUS_DIVE || st == MARIO_STATUS_SPEED_SLIDING || st == MARIO_STATUS_SLIP_FORE
-	        || st == MARIO_STATUS_SLIP_BACK))
-		soak = 1.0f;
+	if (st == MARIO_STATUS_DIVE || st == MARIO_STATUS_SPEED_SLIDING || st == MARIO_STATUS_SLIP_FORE
+	    || st == MARIO_STATUS_SLIP_BACK) {
+		bool puddle = false;
+		const TBGCheckData* ground = m->mGroundPlane;
+		if (ground && ground->isLegal() && isWetGround(ground))
+			puddle = true;
+		TModelWaterManager* water = gpModelWaterManager;
+		const int count = water ? water->getParticleCount() : 0;
+		for (int i = 0; !puddle && i < count && i < 256; i++) {
+			if ((water->mParticleFlagSOA[i] & 0xf) != 2)  // landed: a puddle
+				continue;
+			const JGeometry::TVec3<f32>& p = water->mParticlePositionSOA[i];
+			const f32 dx = p.x - m->mPosition.x, dy = p.y - m->mPosition.y, dz = p.z - m->mPosition.z;
+			if (dx * dx + dz * dz < 100.0f * 100.0f && dy > -60.0f && dy < 60.0f)
+				puddle = true;
+		}
+		if (puddle) {
+			soak = 1.0f;
+			why  = "diving into a puddle";
+		}
+	}
 	static bool s_toldWet;
 	if (s_wetness < soak) {
 		if (!s_toldWet)
-			fprintf(stderr, "[puddles] Mario is wet (%s)\n", soak < 1.0f ? "wading" : "swimming, or diving into a puddle");
+			fprintf(stderr, "[puddles] Mario is wet (%s)\n", why);
 		s_toldWet = true;
 		s_wetness = soak;
 	}

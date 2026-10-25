@@ -246,8 +246,7 @@ static std::string genVS(const ShaderKey& k) {
          "    vec3 Hk = normalize(normalize(vec3(0.3, 0.8, 0.5)) + V);\n"
          "    vec3 spec = min(wspec + vec3(0.6 * pow(max(dot(N, Hk), 0.0), 20.0)), vec3(1.0));\n"
          "    float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0);\n"
-         // TEST BUILD: exaggerated, so it cannot be missed (blue, much darker)
-         "    v_wet = vec4(u_wet.x * (0.30 * spec + vec3(0.08 * rim) + vec3(0.0, 0.0, 0.6)), 1.0 - 0.7 * u_wet.x);\n"
+         "    v_wet = vec4(u_wet.x * (0.35 * spec + vec3(0.10 * rim)), 1.0 - 0.25 * u_wet.x);\n"
          "  }\n";
     s += "  v_c0 = col0;\n  v_c1 = col1;\n";
 

@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
 #include <string.h>
 #include <atomic>
 #include <unordered_map>
@@ -2337,18 +2336,6 @@ void flushBatch() {
     if ((!s_bidx.size && !s_barenaIdx) || !s_ready) {
         resetBatch();
         return;
-    }
-    // Wet Mario, while it is being tried: how many batches were drawn wet, every few seconds
-    if (g.wet > 0.0f) {
-        static int s_wetBatches;
-        static double s_wetSince;
-        s_wetBatches++;
-        const double now = (double)clock() / CLOCKS_PER_SEC;
-        if (now - s_wetSince > 5.0) {
-            fprintf(stderr, "[gx] Wet Mario: %d draw batches drawn wet (wetness %.2f)\n", s_wetBatches, g.wet);
-            s_wetBatches = 0;
-            s_wetSince   = now;
-        }
     }
     GxTimer timer;
     GxTimer tf(&g_flushSeconds);
