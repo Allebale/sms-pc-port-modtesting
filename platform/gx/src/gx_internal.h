@@ -159,6 +159,11 @@ struct PostSettings {
     float sharpen = 0.0f;  // 0..1
     float gamma = 1.0f;
     int aspect = 0;        // 0 keep, 1 stretch, 2 integer
+    // Colour correction, as Dolphin's: the TV colours the game was made for (SMS_COLOR_SPACE)
+    // and its gamma (SMS_GAME_GAMMA) shown on today's display (SMS_DISPLAY_GAMMA).
+    int colorSpace = 0;       // 0 off, 1 NTSC-M, 2 NTSC-J, 3 PAL
+    float gameGamma = 0.0f;   // 0: off, else 2.2 to 2.8
+    float displayGamma = 0.0f;  // 0: the sRGB curve, else 1.8 to 2.8
 };
 PostSettings postSettings();
 void postApply(const PostSettings& settings);

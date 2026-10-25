@@ -841,6 +841,9 @@ static const struct {
 	{ "fxaa", "SMS_FXAA" },
 	{ "sharpen", "SMS_SHARPEN" },               // 0..100
 	{ "brightness", "SMS_GAMMA" },              // 1.0 = unchanged
+	{ "color_space", "SMS_COLOR_SPACE" },       // off (default), ntsc-m, ntsc-j or pal: the TV colours the game was made for
+	{ "game_gamma", "SMS_GAME_GAMMA" },         // off (default), or the CRT's gamma, 2.2 to 2.8 (2.35 NTSC)
+	{ "display_gamma", "SMS_DISPLAY_GAMMA" },   // with game_gamma: srgb (default), or 1.8 to 2.8
 	{ "aspect", "SMS_ASPECT" },                 // keep, stretch or integer
 	{ "present_filter", "SMS_PRESENT_FILTER" }, // bilinear, sharp, nearest, fsr or nis
 	{ "fsr_mode", "SMS_FSR_MODE" }, // with fsr or nis: native, quality, balanced, performance or ultraperformance

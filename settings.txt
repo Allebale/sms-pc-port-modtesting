@@ -73,6 +73,15 @@ frame_rate = 60
 # above 1 brighter).
 # sharpen = 0
 # brightness = 1.0
+# Colour correction, as Dolphin's: color_space shows the colours of the TVs
+# the game was made for (ntsc-m: America's, ntsc-j: Japan's, bluer white; pal:
+# Europe's) as today's displays show them; game_gamma is those TVs' gamma
+# (2.35 for NTSC, nearer 2.8 for PAL; 2.2 to 2.8), which gives the picture the
+# darker midtones it had on them, encoded for display_gamma (srgb, or 1.8 to
+# 2.8). Off by default.
+# color_space = off
+# game_gamma = off
+# display_gamma = srgb
 # How the picture fits the window: keep (its shape, letterboxed), stretch
 # (fill the window) or integer (whole multiples of the GameCube's size), and
 # how it is scaled: bilinear (smooth), sharp (crisp pixels), nearest, fsr
