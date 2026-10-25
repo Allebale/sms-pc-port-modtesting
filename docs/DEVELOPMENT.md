@@ -124,6 +124,9 @@ Once Mario can move it gives him the Rocket, then the Hover, and holds R (Space)
 Water with a NaN speed in an Eclipse stage ([ECLIPSE.md](ECLIPSE.md), the Tramplin' Stu crash) has `tools/regress/eclipse_nan_water.py`, run under gdb on an Eclipse build with the Eclipse disc, a copy of the card `regress.py`'s `ecl-firstboot` run saves, `SMS_WARP=66,1` (Hotel Lacrima's basement) and `regress.py`'s `ECL_WARP_AP` as `SMS_AUTOPRESS`.
 Once the Tramplin' Stu moves it emits 50 water particles with a NaN speed above Mario (the water manager drops particles far from him) and checks that the game runs `NAN_SECONDS` (default 20) more; without the fix the 64-bit build faults in BetterSunshineEngine's `checkWallsExotic_` within a frame.
 
+The F9 menu's Low Gravity and Infinite Air (`decomp-patches/port-12-cheat-infinite-air.patch`, `port-13-cheat-low-gravity.patch`) have `tools/regress/cheats.py`, run under gdb on regular Sunshine with the same environment as the nozzle check but `SMS_WARP=3,7,1` (Ricco Harbor).
+Once Mario can move it jumps from standing with A (the left click) held until he lands, at each Low Gravity setting, and the rise must go with 1 / gravity; then it drops Mario into the nearest deep sea and holds him 300 units under its surface for ten seconds, with Infinite Air off and on: the air meter must go down without it and stay full with it.
+
 ## Platform layer
 
 
