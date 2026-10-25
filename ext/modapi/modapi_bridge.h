@@ -66,6 +66,7 @@ int modg_player_set_fludd(int has);
 int modg_player_set_outfit(int shirt, int sunglasses, int helmet);
 int modg_player_set_yaw(float degrees); // API 1.5 beta 8
 int modg_player_set_aim(int on, float yaw, float pitch); // API 1.5 beta 8
+int modg_player_set_head_hidden(int hidden);             // API 1.5 beta 8
 
 int modg_camera_get(SmsCamera* out);
 

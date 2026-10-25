@@ -1,0 +1,43 @@
+Reason: player->set_head_hidden for mods (port_ext_hide_player_head): an extension may leave Mario's head out while the rest of him is drawn. His head joint (MarioHeadCtrl) is shrunk to a point, and with it the face, hair and whatever hangs from it, and his cap is not drawn: a first-person camera sits where his head is, and the player sees his body and FLUDD looking down. Without such an extension, nothing changes.
+
+--- a/src/Player/MarioDraw.cpp
++++ b/src/Player/MarioDraw.cpp
+@@ -1,4 +1,7 @@
+ #include <Player/Mario.hpp>
++#ifdef TARGET_PC
++#include "port_ext.h"
++#endif
+ #include <Player/MarioCap.hpp>
+ #include <Player/WaterGun.hpp>
+ 
+@@ -455,6 +458,16 @@
+ {
+ 	// volatile u32 padding[34];
+ 	Mtx transform;
++#ifdef TARGET_PC
++	// an extension may leave his head out (port_ext.h): the head joint, and
++	// the face, hair and cap hung from it, shrunk to a point (not to nothing,
++	// which the normals' matrices could not invert)
++	if (param_2 == 0 && port_ext_hide_player_head(gpMarioForCallBack)) {
++		MTXScale(transform, 0.001f, 0.001f, 0.001f);
++		MTXConcat(J3DSys::mCurrentMtx, transform, J3DSys::mCurrentMtx);
++		return 1;
++	}
++#endif
+ 	if (param_2 == 0) {
+ 		if (gpMarioForCallBack->getStatus() == MARIO_STATUS_READ_BILLBOARD) {
+ 			TBaseNPC* npc = gpMarDirector->getTalkingNPC();
+@@ -2388,7 +2401,12 @@
+ 		mRHand4ndModel->entry();
+ 	}
+ 
+-	if (mCap != nullptr) {
++	if (mCap != nullptr
++#ifdef TARGET_PC
++	    // the cap goes with his head
++	    && !port_ext_hide_player_head(this)
++#endif
++	) {
+ 		mCap->perform(CUE_ENTRY, graphics);
+ 	}
+ 

@@ -263,6 +263,10 @@ typedef struct PortExtension {
 	// gun angle: negative up), whatever his stance. A first-person camera's
 	// aim, so he can spray where it looks while walking sideways.
 	int (*playerAim)(void* mario, short* yaw, short* tilt);
+	// Return 1 to leave out a TMario's head (his head joint, and the face,
+	// hair and cap hung from it) while the rest of him is drawn: a
+	// first-person camera, where the player sees his body looking down.
+	int (*hidePlayerHead)(void* mario);
 } PortExtension;
 
 // fluddRefill's `source`
@@ -343,6 +347,7 @@ void port_ext_item_taken(void* item, void* taker);
 int port_ext_allow_save_states(const char** reason);
 int port_ext_hide_player_model(void* mario);
 int port_ext_player_aim(void* mario, short* yaw, short* tilt);
+int port_ext_hide_player_head(void* mario);
 void port_ext_pad_read(void* status);
 int port_ext_demo_camera(const char* name, const float* pos, int frames, float angle, int option, int hasCallback,
                          void* actor, unsigned flags);

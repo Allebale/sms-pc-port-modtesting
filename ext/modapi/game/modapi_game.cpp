@@ -324,6 +324,9 @@ const char* saveStatesOffReason() { return modh_save_state_reason(); }
 // player->set_aim (modg_player_set_aim): whether Mario's body is turned, and which way
 bool s_aimOn;
 s16 s_aim, s_aimTilt;
+bool s_headHidden; // player->set_head_hidden
+
+int hidePlayerHead(void* m) { return s_headHidden && m == (void*)mario() ? 1 : 0; }
 
 int playerAim(void* m, short* yaw, short* tilt)
 {
@@ -1157,6 +1160,7 @@ struct Register {
 		e.episodeShine        = episodeShine;
 		e.fileStarting        = fileStarting;
 		e.playerAim           = playerAim;
+		e.hidePlayerHead      = hidePlayerHead;
 		port_ext_register(&s_extension);
 	}
 } s_register;
@@ -1483,6 +1487,13 @@ extern "C" int modg_player_set_aim(int on, float yaw, float pitch)
 		if (TMario* m = mario())
 			m->mModelFaceAngle = m->mFaceAngle.y; // facing the way he moves again
 	}
+	return mario() ? 1 : 0;
+}
+
+// player->set_head_hidden (API 1.5 beta 8): his head left out, the rest drawn
+extern "C" int modg_player_set_head_hidden(int hidden)
+{
+	s_headHidden = hidden != 0;
 	return mario() ? 1 : 0;
 }
 
