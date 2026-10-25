@@ -1,4 +1,4 @@
-Reason: Puddle Lifetime (port_puddles.h, the settings menu's Graphics page): FLUDD's puddles dry 2, 4 or 8 times slower; what a puddle does to the game while it lasts (goop cleaned under it, the object under it sprayed) is done on every scale-th tick only, so each does as much of it as in the original game; when the water's slots are full, new water takes the driest puddle's. they are always darkened the full way, as their wider spread would otherwise draw them fainter. With Reflections by Surface, each puddle is masked as strongly as its floor reflects. Reflection Distance narrows or widens the disc around Mario the reflection is drawn over. Original and Off are the game as it was
+Reason: Puddle Lifetime (port_puddles.h, set by a mod through api->reflections): FLUDD's puddles dry 2, 4 or 8 times slower; what a puddle does to the game while it lasts (goop cleaned under it, the object under it sprayed) is done on every scale-th tick only, so each does as much of it as in the original game; when the water's slots are full, new water takes the driest puddle's. they are always darkened the full way, as their wider spread would otherwise draw them fainter. With Reflections by Surface, each puddle is masked as strongly as its floor reflects. Reflection Distance narrows or widens the disc around Mario the reflection is drawn over. Original and Off are the game as it was
 
 --- a/src/Player/ModelWaterManager.cpp
 +++ b/src/Player/ModelWaterManager.cpp
@@ -15,7 +15,7 @@ Reason: Puddle Lifetime (port_puddles.h, the settings menu's Graphics page): FLU
  }
  
 +#ifdef TARGET_PC
-+// port: puddles that last longer (the settings menu's Puddle Lifetime,
++// port: puddles that last longer (Puddle Lifetime, set by a mod,
 +// port_puddles.h). A landed drop (a puddle, on a floor or a wall) dries
 +// port_puddle_life_scale() times slower, so it lasts as many times longer.
 +// What a puddle does to the game while it lasts (it cleans the goop under it,

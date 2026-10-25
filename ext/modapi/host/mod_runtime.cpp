@@ -8,6 +8,7 @@
 #include "mod_host.h"
 #include "../../multiplayer/mp_game_api.h"
 
+#include "port_puddles.h"
 #include "port_warp.h"
 #include "sms_gx/gx_pc.h"
 #ifdef SMS_HAVE_GAME_BUILD_H
@@ -752,6 +753,10 @@ void dropRegistrations(SmsMod* m)
 		m->hudHidden = 0; // what it hid is shown again (unless another mod hides it)
 		applyHudHidden();
 	}
+	if (m->reflects) { // the puddle and water effects as the original game has them again
+		m->reflects = false;
+		port_reflect_option_reset();
+	}
 	m->options.clear();
 	drawDropMod(m);
 }
@@ -1072,6 +1077,27 @@ const char* apiNativeBuild(void)
 }
 
 const SmsNativeApi s_native = {sizeof(SmsNativeApi), apiNativeBuild, modg_native};
+
+// ------------------------------------------------------------------ reflections (API 1.5 beta 8)
+// The port's puddle and water effects (platform/misc/port_puddle_options.cpp), SMS_REFLECT_* being
+// its options in their order.
+
+static_assert(SMS_REFLECT_OPTION_COUNT == PORT_REFLECT_OPTIONS, "the SDK's reflection options are the port's");
+static_assert(SMS_REFLECT_SHOW_MARIO == PORT_OPT_SHOW && SMS_REFLECT_BY_SURFACE == PORT_OPT_BY_SURFACE &&
+                  SMS_REFLECT_STRENGTH_STONE == PORT_OPT_STRENGTH && SMS_REFLECT_FOOTPRINTS == PORT_OPT_FOOTPRINTS,
+              "in the same order");
+
+int apiReflectSet(SmsMod* mod, int option, int value)
+{
+	if (!port_reflect_option_set(option, value))
+		return 0;
+	if (mod)
+		mod->reflects = true;
+	return 1;
+}
+
+const SmsReflectionsApi s_reflections = {sizeof(SmsReflectionsApi), apiReflectSet, port_reflect_option_get,
+                                         port_reflect_option_range};
 
 // ------------------------------------------------------------------ the API: multiplayer
 
@@ -1614,7 +1640,7 @@ namespace modhost {
 const SmsApi g_api = {
 	sizeof(SmsApi), SMS_MOD_API_MAJOR, SMS_MOD_API_MINOR, &s_core,   &s_game,  &s_player,
 	&s_camera,      &g_drawApi,        &s_input,          &s_config, &s_audio, &s_native,
-	&s_netTable,    &s_world,          SMS_MOD_API_PRERELEASE, &g_files,
+	&s_netTable,    &s_world,          SMS_MOD_API_PRERELEASE, &g_files, &s_reflections,
 };
 
 void log(SmsMod* mod, int level, const char* fmt, ...)

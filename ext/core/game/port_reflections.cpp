@@ -1,4 +1,4 @@
-// Puddle Reflections (port_puddles.h, the settings menu's Graphics page): characters and objects
+// Puddle Reflections (port_puddles.h, set by a mod, api->reflections): characters and objects
 // reflected in FLUDD's puddles, not only Mario. Game code, with the game's flags and headers.
 //
 // The game reflects in puddles what has a TMirrorActor that may be "in the mirror" with no mirror
@@ -142,7 +142,7 @@ private:
 		return mSeen;
 	}
 
-	// Which of the settings menu's Reflect switches the actor answers to.
+	// Which of the Reflect switches the actor answers to.
 	static int kindOf(TLiveActor* actor)
 	{
 		if (dynamic_cast<TBaseNPC*>(actor))  // before enemies: an NPC is a TSpineEnemy too
@@ -334,7 +334,7 @@ void stageSetup()
 // like). What each material number means is in the game's sound data, not its code: these were
 // told apart by walking Delfino Plaza with the log below. A floor not listed counts as smooth
 // stone (0x00: the plaza's tiles, and its carpets, which are pictures on the same floor). How
-// strongly each reflects is set on the settings menu's Reflections page (port_puddles.h).
+// strongly each reflects is set by a mod (api->reflections) (port_puddles.h).
 int surfaceOf(unsigned type, unsigned material)
 {
 	switch (type & 0x3FFF) {

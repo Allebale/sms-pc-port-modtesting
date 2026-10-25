@@ -1,4 +1,4 @@
-// Water Reflections and Water Ripples (port_puddles.h, the settings menu's Graphics page): the reflections FLUDD's
+// Water Reflections and Water Ripples (port_puddles.h, set by a mod, api->reflections): the reflections FLUDD's
 // puddles show (Mario, and with Puddle Reflections on, characters and objects) in the stage's own
 // water too: the sea, lakes, pools, fountains and streams, and wet ground. Game code, with the
 // game's flags and headers.
@@ -13,7 +13,7 @@
 // than any puddle or wet ground; else the floor under him, as in the game. After drawMirror
 // (port_draw_water_mirror, from TModelWaterManager::perform) the same is done for the water or wet
 // ground on that plane: its triangles, from the stage's collision, are marked as strongly as the
-// Reflections page says, the disc fades them out, and the texture is laid over them. Off, nothing of it
+// options say (port_puddles.h), the disc fades them out, and the texture is laid over them. Off, nothing of it
 // runs and the game is as it was.
 #include "port_ext.h"
 #include "port_puddles.h"
@@ -593,7 +593,7 @@ void buildWeb(const Ripple& r, u8 centre)
 	const JGeometry::TVec3<f32>& cam = gpCamera->mPosition;
 	const JGeometry::TVec3<f32>& n0  = r.plane->getNormal();
 
-	const f32 b = (f32)port_reflection_blur() * 0.75f;  // quarters: 3 units a whole step
+	const f32 b = (f32)port_reflection_blur() * 0.03f;  // hundredths: 3 units a whole step
 	s_taps      = b > 0.0f ? kMostTaps : 1;
 
 	for (int ring = 0; ring <= kRings; ring++) {

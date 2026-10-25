@@ -1,14 +1,41 @@
 #ifndef PORT_PUDDLES_H
 #define PORT_PUDDLES_H
 
-// FLUDD's puddles, from the settings menu's Graphics page (platform/misc/port_puddle_settings.cpp):
-// Puddle Lifetime, how many times longer they last, and Puddle Reflections.
-// The game's water (TModelWaterManager, zzzzz-ext-24-puddle-lifetime) asks it every
-// tick. Plain C, for the game and the settings menu alike.
+// The port's puddle and water effects. A mod sets them through the mod API's api->reflections
+// (SMS_REFLECT_* in the SDK's sms_mod.h); platform/misc/port_puddle_options.cpp keeps them, each
+// as the original game has it until a mod sets it. The game's water (TModelWaterManager,
+// zzzzz-ext-24-puddle-lifetime), its mirror and the port's reflection code read them. Plain C.
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// The options, in SMS_REFLECT_*'s order and units.
+enum {
+	PORT_OPT_LIFETIME,
+	PORT_OPT_PUDDLES,
+	PORT_OPT_DISTANCE,
+	PORT_OPT_WATER,
+	PORT_OPT_BEAT_MIRRORS,
+	PORT_OPT_LEVEL,
+	PORT_OPT_VIEW_ANGLE,
+	PORT_OPT_PUDDLE_RIPPLES,
+	PORT_OPT_WATER_RIPPLES,
+	PORT_OPT_SUN_GLINTS,
+	PORT_OPT_WATER_DEPTH,
+	PORT_OPT_BLUR,
+	PORT_OPT_FOOTPRINTS,
+	PORT_OPT_SHOW,                   // PORT_REFLECT_KINDS of them
+	PORT_OPT_BY_SURFACE = PORT_OPT_SHOW + 5,
+	PORT_OPT_STRENGTH,               // PORT_PUDDLE_SURFACES of them
+	PORT_REFLECT_OPTIONS = PORT_OPT_STRENGTH + 10
+};
+// Set (clamped to its range; 0 for no such option), get (-1 for none), its range.
+int port_reflect_option_set(int option, int value);
+int port_reflect_option_get(int option);
+int port_reflect_option_range(int option, int* min, int* max, int* original);
+// Every option back as the original game has it (the mod that set them unloaded).
+void port_reflect_option_reset(void);
 
 // 1 (Original) to 8.
 int port_puddle_life_scale(void);
@@ -47,8 +74,8 @@ int port_puddle_surface_kind(unsigned type, unsigned material);
 // Viewing Angle: 0 off (every angle alike, as the game has it), 1 subtle, 2 realistic: reflections
 // stronger looking across puddles and water, weaker looking down into them.
 int port_reflection_view_angle(void);
-// Reflection Blur: how blurred reflections in puddles and water are, in quarters: 0 sharp to 40
-// (10, in steps of 0.25).
+// Reflection Blur: how blurred reflections in puddles and water are, in hundredths: 0 sharp to
+// 1000 (10).
 int port_reflection_blur(void);
 // Sun Glints: 0 off, 1 subtle, 2 bright: the sun's light bouncing off puddles and water.
 int port_sun_glints(void);
@@ -56,11 +83,11 @@ int port_sun_glints(void);
 int port_water_depth(void);
 
 // Reflection Distance: the radius, in the game's units, of the disc around Mario that puddle
-// reflections are drawn over, fading out to its edge: 500 to 5000 in steps of 250 (1000 Original).
+// reflections are drawn over, fading out to its edge: 500 to 5000 (1000, the game's).
 float port_puddle_reflection_distance(void);
 
-// The settings menu's Reflect switches (its Reflections page): what is reflected, in puddles and water
-// alike. Each 1 (on) unless switched off.
+// The Reflect switches: what is reflected, in puddles and water alike. Mario and Yoshi on, the rest
+// off, until a mod sets them.
 enum {
 	PORT_REFLECT_MARIO,      // Mario and Yoshi: the game's own copies
 	PORT_REFLECT_CHARACTERS, // the people (NPCs)
