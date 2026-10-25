@@ -1443,6 +1443,19 @@ extern "C" int modg_player_set_fludd(int has)
 	return 1;
 }
 
+// player->set_yaw (API 1.5 beta 8): his facing and his model's, at once, so
+// FLUDD sprays that way (a first-person camera's aim).
+extern "C" int modg_player_set_yaw(float degrees)
+{
+	TMario* m = mario();
+	if (!m)
+		return 0;
+	const s16 a       = (s16)(int)(degrees * (65536.0f / 360.0f));
+	m->mFaceAngle.y   = a;
+	m->mModelFaceAngle = a;
+	return 1;
+}
+
 extern "C" int modg_player_set_outfit(int shirt, int sunglasses, int helmet)
 {
 	TMario* m = mario();
