@@ -632,9 +632,11 @@ static std::string genFS(const ShaderKey& k) {
          "      vec4 lp = u_plight[i * 2], lc = u_plight[i * 2 + 1];\n"
          "      vec3 L = lp.xyz - v_wp;\n"
          "      float d = length(L);\n"
-         "      float a = clamp(1.0 - d / lp.w, 0.0, 1.0);\n"
+         "      float a = lp.w > 1.0 ? clamp(1.0 - d / lp.w, 0.0, 1.0) : 0.0;\n"
+         "      if (!(a > 0.0)) continue;\n"
          "      lsum += lc.rgb * (lc.a * a * a * (max(dot(pn, L / max(d, 1.0)), 0.0) * 0.7 + 0.3));\n"
          "    }\n"
+         "    if (!(lsum.r + lsum.g + lsum.b >= 0.0) || lsum.r + lsum.g + lsum.b > 30.0) lsum = vec3(0.0);\n"
          "    color.rgb = clamp(color.rgb + color.rgb * lsum * 1.5 + lsum * 0.05, 0.0, 1.0);\n"
          "  }\n";
     if (k.fogType) {

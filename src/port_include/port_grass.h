@@ -16,7 +16,7 @@ int port_grass(void);
 float port_grass_distance(void);
 // Thinned Far Away: 1 fewer (wider) blades far from Mario, cheaper; 0 every blade all the way.
 int port_grass_thin(void);
-// Grass Reflection Distance: how far the blades go in reflections, in units (-1: as Grass Distance).
+// Grass Reflection Distance: how far the blades go in reflections, in units (0: none).
 float port_grass_reflect_distance(void);
 // Cut Grass Height and Wild Grass Height: times the kind's own (wild: 1; cut and tended: 0).
 float port_grass_height(int wild);

@@ -1918,10 +1918,16 @@ static void uploadUniforms(const ShaderProgram* sp, float texW[8], float texH[8]
     UNI(uShadow, shadow, shadow, glUniform4fv(sp->uShadow, 12, shadow));
     float plight[68];
     memcpy(plight, g.plight, sizeof plight);
-    // not on glows (the fire itself, added onto what is behind it: it is the light)
+    // Only on what stands in the world: drawn depth tested, solid or see-through (source alpha
+    // over what is behind). Not on glows (the fire itself: it is the light), nor on what darkens
+    // or tints what is behind it (a stage's night shade, drawn over it multiplied: lit, it would
+    // darken everything), nor on logic ops.
     const uint32_t pcm = g.bp[BP_CMODE0];
-    const bool glow = (pcm & 1) && (((pcm >> 11) & 1) || ((pcm >> 5) & 7) == 1);
-    plight[64] = g.plightActive && !glow ? float(g.plightCount) : 0.0f;
+    const bool blend = pcm & 1, logic = (pcm >> 1) & 1, sub = (pcm >> 11) & 1;
+    const uint32_t srcf = (pcm >> 8) & 7, dstf = (pcm >> 5) & 7;
+    const bool plain = !logic && !sub && (!blend || (srcf == 4 && dstf == 5));
+    const bool tested = g.bp[BP_ZMODE] & 1;
+    plight[64] = g.plightActive && plain && tested ? float(g.plightCount) : 0.0f;
     UNI(uPlight, plight, plight, glUniform4fv(sp->uPlight, 17, plight));
 #undef UNI
     uc.init = true;

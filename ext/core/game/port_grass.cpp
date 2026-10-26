@@ -520,7 +520,9 @@ void drawGrass(float (*view)[4], bool mirror)
 	if (!s_style || !gpMarioPos || !view || !s_bladeTotal || s_reach <= 0.0f)
 		return;
 	const f32 most  = port_grass_reflect_distance();
-	const f32 reach = mirror && most >= 0.0f && s_reach > most ? most : s_reach;
+	if (mirror && most <= 0.0f)
+		return;  // none in reflections
+	const f32 reach = mirror && s_reach > most ? most : s_reach;
 	const Style& st = *s_style;
 	const f32 mx = gpMarioPos->x, my = gpMarioPos->y, mz = gpMarioPos->z;
 	gatherPress(mx, my, mz);

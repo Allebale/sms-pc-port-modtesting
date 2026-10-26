@@ -75,6 +75,8 @@ bool isFire(const JPABaseEmitter* e)
 	return false;
 }
 
+int s_told = -1;  // how many lights the log was last told of
+
 struct Light {
 	f32 x, y, z, flames;
 };
@@ -89,6 +91,7 @@ void afterMovement()
 	TMarioParticleManager* particles = gpMarioParticleManager;
 	JPAEmitterManager* manager       = particles ? particles->unk3B8 : 0;
 	if (!on || !manager || !gpMarioPos) {
+		s_told = -1;
 		GXPC_SetLights(0, 0);
 		return;
 	}
@@ -108,6 +111,8 @@ void afterMovement()
 			if (!flames)
 				continue;
 			const JGeometry::TVec3<f32>& p = e->getGlobalTranslation();
+			if (!(fabsf(p.x) < 1e6f && fabsf(p.y) < 1e6f && fabsf(p.z) < 1e6f))
+				continue;  // nowhere (not placed yet)
 			const f32 dx = p.x - mx, dy = p.y - my, dz = p.z - mz;
 			if (dx * dx + dy * dy + dz * dz > kSeen * kSeen)
 				continue;
@@ -154,9 +159,12 @@ void afterMovement()
 		found[best] = found[--count];
 	}
 	GXPC_SetLights(lights, n);
-	static int s_told = -1;
-	if ((n > 0) != (s_told > 0)) {
-		fprintf(stderr, n ? "[lights] %d fire lights near Mario\n" : "[lights] no fires near Mario\n", n);
+	if (n != s_told) {
+		if (n)
+			fprintf(stderr, "[lights] %d fire lights near Mario (%.0f %.0f %.0f); the nearest at %.0f %.0f %.0f, reaching %.0f, strength %.2f\n",
+			        n, mx, my, mz, lights[0], lights[1], lights[2], lights[3], lights[7]);
+		else
+			fprintf(stderr, "[lights] no fires near Mario\n");
 		s_told = n;
 	}
 }
@@ -164,6 +172,7 @@ void afterMovement()
 void stageSetup()
 {
 	s_manager = 0;  // the particles' resources are the new stage's
+	s_told    = -1;
 	GXPC_SetLights(0, 0);
 }
 
