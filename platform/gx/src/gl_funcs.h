@@ -17,6 +17,8 @@
     X(PFNGLCOLORMASKPROC, glColorMask) X(PFNGLCULLFACEPROC, glCullFace)             \
     X(PFNGLFRONTFACEPROC, glFrontFace) X(PFNGLCLEARCOLORPROC, glClearColor)         \
     X(PFNGLCLEARDEPTHPROC, glClearDepth) X(PFNGLCLEARPROC, glClear)                 \
+    X(PFNGLPOLYGONOFFSETPROC, glPolygonOffset) X(PFNGLDRAWBUFFERPROC, glDrawBuffer) \
+    X(PFNGLREADBUFFERPROC, glReadBuffer)                                            \
     X(PFNGLDEPTHRANGEPROC, glDepthRange) X(PFNGLLINEWIDTHPROC, glLineWidth)         \
     X(PFNGLPOINTSIZEPROC, glPointSize) X(PFNGLFINISHPROC, glFinish)                 \
     X(PFNGLGENBUFFERSPROC, glGenBuffers) X(PFNGLBINDBUFFERPROC, glBindBuffer)       \
@@ -126,6 +128,9 @@ SMS_GX_GL_OPTIONAL_FUNCS(SMS_GX_ALIAS)
 #define glClearColor gx_glClearColor
 #define glClearDepth gx_glClearDepth
 #define glClear gx_glClear
+#define glPolygonOffset gx_glPolygonOffset
+#define glDrawBuffer gx_glDrawBuffer
+#define glReadBuffer gx_glReadBuffer
 #define glDepthRange gx_glDepthRange
 #define glLineWidth gx_glLineWidth
 #define glPointSize gx_glPointSize

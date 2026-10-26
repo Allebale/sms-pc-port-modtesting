@@ -608,7 +608,22 @@ void GXSetProjectionv(f32* ptr) {
     uint32_t w[7];
     for (int i = 0; i < 6; i++) w[i] = fbits(ptr[1 + i]);
     w[6] = ptr[0] != 0.0f ? 1 : 0;
+    // Shadows: the main camera's view again (its projection, as GXPC_ShadowFrame saw it set), or
+    // another's (an orthographic 2D one, a mirror's, a menu's), which neither casts nor receives
+    const bool main = g.shadowArmed && memcmp(ptr, g.shadowProj, sizeof g.shadowProj) == 0;
+    if (main != g.shadowMain) {
+        flushBatch();
+        g.shadowMain = main;
+    }
     apiXF(XF_REG_BASE + XFR_PROJ, 7, w);
+}
+
+// Shadows: what is drawn from now until the next projection is not the main camera's view, though
+// its projection is the same (a mirror's: TMirrorCamera::perform, port_mirror_clip).
+extern "C" void GXPC_ShadowNotMain(void) {
+    if (!g.shadowMain) return;
+    flushBatch();
+    g.shadowMain = false;
 }
 void GXGetProjectionv(f32* ptr) { memcpy(ptr, g.projection, sizeof(g.projection)); }
 

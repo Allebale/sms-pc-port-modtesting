@@ -103,6 +103,14 @@ struct State {
     // small, tight highlight, as a thin film of water on cloth and skin gives.
     float wet;
     float wetLine[4];
+    // Shadows (GXPC_ShadowFrame, gx_render.cpp): the sun's shadow map. u_shadow: rows 0-3, view
+    // space to the shadow map read this frame (last frame's); rows 4-7, view space to the one drawn
+    // this frame; row 8, (strength, 0, normal bias, a texel); row 9, (the sun's direction in view
+    // space, 0). shadowMain: what is drawn now is the main camera's view (its projection, as
+    // GXPC_ShadowFrame saw it set): it casts into the map and receives the shadows.
+    float shadow[40];
+    float shadowProj[7];
+    bool shadowArmed, shadowMain;
 };
 
 extern State g;
@@ -351,19 +359,23 @@ struct UniformCache {
     float linewidth[1];
     float uclip[4];
     float wet[8];
+    float shadow[40];
 };
 struct ShaderProgram {
     unsigned prog;
     int id;  // creation order; SMS_GX_DUMP_SHADERS=dir writes dir/prog<id>.vs/.fs
     int uTevReg, uKonst, uTexScale, uAlphaRef, uFog, uFogColor, uIndMtx, uTexSize, uEfb,
-        uProj, uViewport, uAmbMat, uDstAlpha, uLineWidth, uUserClip, uWet;
+        uProj, uViewport, uAmbMat, uDstAlpha, uLineWidth, uUserClip, uWet, uShadow;
     mutable UniformCache uc;
 };
 bool shaderHasEarlyFragmentTests();
 bool earlyZWritesRejected();
 // `lines`: the program for a line batch, which draws each line as a quad
 // GXSetLineWidth wide (a geometry shader)
-const ShaderProgram* shaderForCurrentState(bool depthOnly = false, bool lines = false);
+// depthOnly: 0 the draw, 1 its depth only (the ordered depth pass), 2 into the sun's shadow map
+const ShaderProgram* shaderForCurrentState(int depthOnly = 0, bool lines = false);
+// The texture unit the sun's shadow map is bound on (gx_render.cpp), past the game's eight.
+const int kShadowUnit = 10;
 void shaderPrepareStage(int stage);  // while a stage loads: its programs (the warm-up)
 
 // ---------------------------------------------------------------- overlay panels

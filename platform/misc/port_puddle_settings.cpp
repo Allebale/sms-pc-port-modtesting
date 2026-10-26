@@ -70,6 +70,7 @@ int s_puddleRipples = 0; // Puddle Ripples: 0 off, 1 gentle, 2 strong
 int s_beatMirrors = 0;    // Puddles Beat Mirrors
 int s_footprints = 0;     // Wet Footprints
 int s_wetMario = 0;       // Wet Mario
+int s_shadows = 0;        // Real Shadows: 0 off (the game's own), 1 soft, 2 strong
 int s_level = 0;          // Reflect the Level: 0 off (as the game has it), 1 the stage itself too
 int s_water;       // Water Reflections: 0 none (as the game has it), 1 in the stage's water and wet ground
 // 0.5x to 5x the game's 1000 units, in steps of 0.25x (250 units)
@@ -236,6 +237,8 @@ void load() {
             // done by isKind
         } else if (sscanf(line, " footprints = %d", &value) == 1) {
             s_footprints = value != 0;
+        } else if (sscanf(line, " shadows = %d", &value) == 1) {
+            s_shadows = value < 0 ? 0 : value > 2 ? 2 : value;
         } else if (sscanf(line, " wetmario = %d", &value) == 1) {
             s_wetMario  = value != 0;
             sawWetMario = true;
@@ -303,6 +306,8 @@ void save() {
     fprintf(f, "footprints = %d\n", s_footprints);
     fprintf(f, "# wetmario: 1 water leaves Mario wet up to where it reached, dripping, drying over 45 seconds, 0 not.\n");
     fprintf(f, "wetmario = %d\n", s_wetMario);
+    fprintf(f, "# shadows: the sun's shadows of everything: 0 off (the game's own), 1 soft, 2 strong.\n");
+    fprintf(f, "shadows = %d\n", s_shadows);
     fprintf(f, "# level: 1 the stage itself (ground, buildings, sky) in puddles and water too, 0 not.\n");
     fprintf(f, "level = %d\n", s_level);
     fprintf(f, "# beatmirrors: 1 puddles near Mario take the reflection from a real mirror's area, 0 not.\n");
@@ -323,6 +328,22 @@ void save() {
     for (int i = 0; i < PORT_PUDDLE_SURFACES; i++)
         fprintf(f, "%s = %d.%d\n", kSurfaces[i].key, s_strength[i] / 10, s_strength[i] % 10);
     fclose(f);
+}
+
+const char* const kShadowNames[] = {"Off", "Soft", "Strong"};
+int shadowsCount() { return 3; }
+const char* shadowsName(int i) { return kShadowNames[i < 0 || i > 2 ? 0 : i]; }
+int shadowsGet() {
+    load();
+    return s_shadows;
+}
+int shadowsSet(int i) {
+    if (i < 0 || i > 2) return 0;
+    load();
+    s_shadows = i;
+    save();
+    port_log("[shadows] Real Shadows changed: %s\n", kShadowNames[i]);
+    return 1;
 }
 
 int count() { return kCount; }
@@ -655,6 +676,9 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 95, "Puddle Lifetime",
      "How long FLUDD's puddles last. Goop and objects react as in the original game.", 0, nullptr, count,
      name, get, set},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 96, "Real Shadows",
+     "The sun's shadows of everything, the level and characters too. Off is the original.", 0,
+     nullptr, shadowsCount, shadowsName, shadowsGet, shadowsSet},
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 0, "Preset",
      "The original game, or the recommended look. Some apply from the next area.", 1, nullptr, presetCount,
      presetName, presetGet, presetSet},
@@ -747,6 +771,12 @@ extern "C" {
 const PortSetting* port_puddle_settings(int* n) {
     *n = int(sizeof kPuddleSettings / sizeof kPuddleSettings[0]);
     return kPuddleSettings;
+}
+
+// Real Shadows: 0 off, 1 soft, 2 strong (ext/core/game/port_shadows.cpp, each frame).
+int port_shadows(void) {
+    load();
+    return s_shadows;
 }
 
 // The options as the settings have them (port_puddle_options.cpp asks as it starts, and again
