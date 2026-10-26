@@ -50,6 +50,7 @@ const Option kOptions[PORT_REFLECT_OPTIONS] = {
     {"Wet Floors", 0, 1000, 550},
     {"Water", 0, 1000, 500},
     {"Wet Ground", 0, 1000, 450},
+    {"Wet Mario", 0, 1, 0},
 };
 
 int s_value[PORT_REFLECT_OPTIONS];
@@ -115,6 +116,7 @@ int port_sun_glints(void) { return value(PORT_OPT_SUN_GLINTS); }
 int port_water_depth(void) { return value(PORT_OPT_WATER_DEPTH); }
 int port_reflection_blur(void) { return value(PORT_OPT_BLUR); }
 int port_wet_footprints(void) { return value(PORT_OPT_FOOTPRINTS); }
+int port_wet_mario(void) { return value(PORT_OPT_WET_MARIO); }
 int port_reflect_kind(int kind) {
     return kind >= 0 && kind < PORT_REFLECT_KINDS ? value(PORT_OPT_SHOW + kind) : 1;
 }

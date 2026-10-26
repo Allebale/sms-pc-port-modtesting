@@ -110,12 +110,14 @@ uniform vec4 u_vp[2];
 uniform vec2 u_efb;
 uniform vec4 u_chan[4];
 uniform vec4 u_uclip;
+uniform vec4 u_wet[2];
 in vec3 a_pos; in vec3 a_nrm; in vec3 a_bin; in vec3 a_tan;
 in vec4 a_clr0; in vec4 a_clr1;
 in vec2 a_tex0; in vec2 a_tex1; in vec2 a_tex2; in vec2 a_tex3;
 in vec2 a_tex4; in vec2 a_tex5; in vec2 a_tex6; in vec2 a_tex7;
 in uvec3 a_mtx;
 out vec4 v_c0; out vec4 v_c1;
+out vec3 v_wn; out vec3 v_wp; out vec3 v_wl; out vec3 v_wlc;
 out vec3 v_tc0; out vec3 v_tc1; out vec3 v_tc2; out vec3 v_tc3;
 out vec3 v_tc4; out vec3 v_tc5; out vec3 v_tc6; out vec3 v_tc7;
 float X(int i) { return uintBitsToFloat(xf[i >> 2][i & 3]); }
@@ -174,6 +176,9 @@ static std::string genVS(const ShaderKey& k) {
          "  int nm = 256 + pm * 3;\n"
          "  vec3 N = vec3(dot(R3(nm), a_nrm), dot(R3(nm + 3), a_nrm), dot(R3(nm + 6), a_nrm));\n"
          "  N = dot(N, N) > 0.0 ? normalize(N) : vec3(0.0, 0.0, 1.0);\n"
+         // Wet Mario (u_wet[0].x, 0 dry): where its lights come from (by their brightness), and
+         // their colour, for the fragment shader's highlight
+         "  vec3 wdir = vec3(0.0), wcol = vec3(0.0);\n"
          "  vec4 clip;\n"
          "  if (u_proj[1].z == 0.0) {\n"
          "    clip = vec4(u_proj[0].x * vpos.x + u_proj[0].y * vpos.z, u_proj[0].z * vpos.y + u_proj[0].w * vpos.z,\n"
@@ -214,7 +219,17 @@ static std::string genVS(const ShaderKey& k) {
                 s += buf;
                 uint32_t mask = ((ctrl >> 2) & 15) | ((ctrl >> 11) & 15) << 4;
                 for (int l = 0; l < 8; l++)
-                    if (mask & (1u << l)) emitLight(s, ctrl, comp, "lsum", l);
+                    if (mask & (1u << l)) {
+                        emitLight(s, ctrl, comp, "lsum", l);
+                        if (c == 0 && part == 0) {  // Wet Mario: this light, for his highlight
+                            snprintf(buf, sizeof buf,
+                                     "    if (u_wet[0].x > 0.0) { vec3 lc = lightColor(%d).rgb;\n"
+                                     "      wdir += normalize(lightPos(%d) - vpos) * dot(lc, vec3(0.3333));\n"
+                                     "      wcol += lc; }\n",
+                                     l, l);
+                            s += buf;
+                        }
+                    }
                 snprintf(buf, sizeof buf, "    col%d%s = (mat * clamp(lsum, 0.0, 1.0))%s; }\n", c, comp, comp);
             } else {
                 snprintf(buf, sizeof buf, "col%d%s = mat%s; }\n", c, comp, comp);
@@ -222,6 +237,8 @@ static std::string genVS(const ShaderKey& k) {
             s += buf;
         }
     }
+    // Wet Mario: what the fragment shader needs (its normal and position in view space, its lights)
+    s += "  v_wn = N; v_wp = vpos; v_wl = wdir; v_wlc = min(wcol, vec3(1.0));\n";
     s += "  v_c0 = col0;\n  v_c1 = col1;\n";
 
     // texgen
@@ -284,6 +301,8 @@ static std::string genVS(const ShaderKey& k) {
 // ------------------------------------------------------------------ fragment shader
 static const char* kFsHeader = R"(#version 330 core
 in vec4 v_c0; in vec4 v_c1;
+in vec3 v_wn; in vec3 v_wp; in vec3 v_wl; in vec3 v_wlc;
+uniform vec4 u_wet[2];
 in vec3 v_tc0; in vec3 v_tc1; in vec3 v_tc2; in vec3 v_tc3;
 in vec3 v_tc4; in vec3 v_tc5; in vec3 v_tc6; in vec3 v_tc7;
 uniform sampler2D u_tex[8];
@@ -527,7 +546,26 @@ static std::string genFS(const ShaderKey& k) {
         }
         if (!(c0 == 7 && c1 == 7 && op <= 1)) s += "  if (!(" + e + ")) discard;\n";
     }
-    s += "  vec4 color = vec4(outc) / 255.0;\n";
+    s += "  vec4 color = vec4(outc) / 255.0;\n"
+         // Wet Mario (u_wet[0].x, 0 dry; below the waterline u_wet[1], softly over 12 units): soaked
+         // cloth and skin are darker (55%) and their colours deeper, as wet things are (less light is
+         // scattered back white), with a thin film of water on them: a small, tight highlight from
+         // its lights and from the sky above, and a little more at grazing angles (Fresnel)
+         "  if (u_wet[0].x > 0.0) {\n"
+         "    float w = u_wet[0].x * clamp(0.5 - (dot(u_wet[1].xyz, v_wp) + u_wet[1].w) / 12.0, 0.0, 1.0);\n"
+         "    if (w > 0.0) {\n"
+         "      vec3 N = normalize(v_wn), V = normalize(-v_wp);\n"
+         "      float lum = dot(color.rgb, vec3(0.299, 0.587, 0.114));\n"
+         "      vec3 c = max(mix(vec3(lum), color.rgb, 1.0 + 0.3 * w), vec3(0.0)) * (1.0 - 0.55 * w);\n"
+         "      vec3 up = dot(u_wet[1].xyz, u_wet[1].xyz) > 1e-8 ? normalize(u_wet[1].xyz) : vec3(0.0, 1.0, 0.0);\n"
+         "      vec3 L = dot(v_wl, v_wl) > 1e-8 ? normalize(v_wl) : up;\n"
+         "      float sl = pow(max(dot(N, normalize(L + V)), 0.0), 60.0);\n"
+         "      float ss = pow(max(dot(N, normalize(up + V)), 0.0), 40.0);\n"
+         "      float fr = pow(1.0 - max(dot(N, V), 0.0), 5.0);\n"
+         "      vec3 lc = dot(v_wlc, v_wlc) > 0.0 ? v_wlc : vec3(1.0);\n"
+         "      color.rgb = clamp(c + w * (0.3 * sl * lc + 0.08 * ss + 0.06 * fr), 0.0, 1.0);\n"
+         "    }\n"
+         "  }\n";
     if (k.fogType) {
         // u_fog: x = A, y = B, z = C, w = 1 for orthographic. The depth is the
         // pixel's own (zw / w, screen-linear, as GX's rasterizer gives fog): a
@@ -615,6 +653,7 @@ static void setupProgram(GLuint p, ShaderProgram& sp, bool aside = false) {
     sp.uAmbMat = glGetUniformLocation(p, "u_chan");
     sp.uLineWidth = glGetUniformLocation(p, "u_linewidth");
     sp.uUserClip = glGetUniformLocation(p, "u_uclip");
+    sp.uWet = glGetUniformLocation(p, "u_wet");
     sp.uDstAlpha = -1;
     if (aside) glUseProgram(GLuint(bound));
 }

@@ -69,6 +69,7 @@ int s_ripples = 0; // Water Ripples: 0 off, 1 gentle, 2 strong
 int s_puddleRipples = 0; // Puddle Ripples: 0 off, 1 gentle, 2 strong
 int s_beatMirrors = 0;    // Puddles Beat Mirrors
 int s_footprints = 0;     // Wet Footprints
+int s_wetMario = 0;       // Wet Mario
 int s_level = 0;          // Reflect the Level: 0 off (as the game has it), 1 the stage itself too
 int s_water;       // Water Reflections: 0 none (as the game has it), 1 in the stage's water and wet ground
 // 0.5x to 5x the game's 1000 units, in steps of 0.25x (250 units)
@@ -200,6 +201,7 @@ void logSettings(const char* why) {
 }
 
 void apply();
+bool recommendedNow();
 
 void load() {
     if (s_loaded) return;
@@ -212,6 +214,7 @@ void load() {
     }
     char line[128];
     int value;
+    bool sawWetMario = false;
     while (fgets(line, sizeof line, f)) {
         if (line[0] == '#') continue;
         if (sscanf(line, " lifetime = %d", &value) == 1) {
@@ -233,6 +236,9 @@ void load() {
             // done by isKind
         } else if (sscanf(line, " footprints = %d", &value) == 1) {
             s_footprints = value != 0;
+        } else if (sscanf(line, " wetmario = %d", &value) == 1) {
+            s_wetMario  = value != 0;
+            sawWetMario = true;
         } else if (sscanf(line, " level = %d", &value) == 1) {
             s_level = value != 0;
         } else if (sscanf(line, " beatmirrors = %d", &value) == 1) {
@@ -262,6 +268,11 @@ void load() {
         }
     }
     fclose(f);
+    // a file from before Wet Mario: on if the rest is Recommended (it stays Recommended), else off
+    if (!sawWetMario) {
+        s_wetMario = 1;
+        if (!recommendedNow()) s_wetMario = 0;
+    }
     logSettings("settings read");
     apply();
 }
@@ -290,6 +301,8 @@ void save() {
     fprintf(f, "puddleripples = %d\n", s_puddleRipples);
     fprintf(f, "# footprints: 1 Mario leaves damp prints after a puddle, 0 not.\n");
     fprintf(f, "footprints = %d\n", s_footprints);
+    fprintf(f, "# wetmario: 1 water leaves Mario wet up to where it reached, dripping, drying over 45 seconds, 0 not.\n");
+    fprintf(f, "wetmario = %d\n", s_wetMario);
     fprintf(f, "# level: 1 the stage itself (ground, buildings, sky) in puddles and water too, 0 not.\n");
     fprintf(f, "level = %d\n", s_level);
     fprintf(f, "# beatmirrors: 1 puddles near Mario take the reflection from a real mirror's area, 0 not.\n");
@@ -410,6 +423,18 @@ int footprintsSet(int i) {
     port_log("[puddles] Wet Footprints changed: %s\n", i ? "on" : "off");
     return 1;
 }
+int wetMarioGet() {
+    load();
+    return s_wetMario;
+}
+int wetMarioSet(int i) {
+    if (i < 0 || i > 1) return 0;
+    load();
+    s_wetMario = i;
+    save();
+    port_log("[puddles] Wet Mario changed: %s\n", i ? "on" : "off");
+    return 1;
+}
 int levelGet() {
     load();
     return s_level;
@@ -488,16 +513,16 @@ int blurSet(int i) {
 // Puddle Lifetime, on the Graphics page, is not part of it.
 struct Preset {
     int reflections, water, distanceTimes4, beatMirrors, level;
-    int viewAngle, puddleRipples, ripples, glints, depth, blurQuarters, footprints;
+    int viewAngle, puddleRipples, ripples, glints, depth, blurQuarters, footprints, wetMario;
     int show[PORT_REFLECT_KINDS];
     int surface;
     int strength[PORT_PUDDLE_SURFACES];  // tenths of a percent
 };
 const Preset kPresets[2] = {
     // Original
-    {0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, {1, 0, 0, 0, 0}, 0, {300, 500, 400, 330, 50, 60, 100, 550, 500, 450}},
+    {0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, {1, 0, 0, 0, 0}, 0, {300, 500, 400, 330, 50, 60, 100, 550, 500, 450}},
     // Recommended
-    {1, 1, 20, 1, 1, 2, 2, 2, 1, 1, 5, 1, {1, 1, 1, 1, 1}, 1, {300, 500, 400, 330, 50, 60, 100, 550, 500, 450}},
+    {1, 1, 20, 1, 1, 2, 2, 2, 1, 1, 5, 1, 1, {1, 1, 1, 1, 1}, 1, {300, 500, 400, 330, 50, 60, 100, 550, 500, 450}},
 };
 const char* const kPresetNames[] = {"Original", "Recommended", "Custom"};
 
@@ -510,7 +535,8 @@ bool presetIs(const Preset& p) {
     if (s_reflections != p.reflections || s_water != p.water || s_distance != distanceIndexOf(p.distanceTimes4)
         || s_beatMirrors != p.beatMirrors || s_level != p.level || s_viewAngle != p.viewAngle
         || s_puddleRipples != p.puddleRipples || s_ripples != p.ripples || s_glints != p.glints
-        || s_depth != p.depth || s_blur != p.blurQuarters || s_footprints != p.footprints || s_surface != p.surface)
+        || s_depth != p.depth || s_blur != p.blurQuarters || s_footprints != p.footprints || s_wetMario != p.wetMario
+        || s_surface != p.surface)
         return false;
     for (int i = 0; i < PORT_REFLECT_KINDS; i++)
         if (s_show[i] != p.show[i]) return false;
@@ -518,6 +544,8 @@ bool presetIs(const Preset& p) {
         if (s_strength[i] != p.strength[i]) return false;
     return true;
 }
+
+bool recommendedNow() { return presetIs(kPresets[1]); }
 
 int presetCount() { return 3; }
 const char* presetName(int i) { return kPresetNames[i < 0 || i > 2 ? 2 : i]; }
@@ -541,6 +569,7 @@ int presetSet(int i) {
     s_depth         = p.depth;
     s_blur          = p.blurQuarters;
     s_footprints    = p.footprints;
+    s_wetMario      = p.wetMario;
     s_surface       = p.surface;
     for (int k = 0; k < PORT_REFLECT_KINDS; k++) s_show[k] = p.show[k];
     for (int k = 0; k < PORT_PUDDLE_SURFACES; k++) s_strength[k] = p.strength[k];
@@ -650,6 +679,9 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 17, "Wet Footprints",
      "After a puddle, Mario's steps leave damp prints that dry away.", 0, nullptr, offOnCount, offOnName,
      footprintsGet, footprintsSet},
+    {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 18, "Wet Mario",
+     "Water leaves Mario wet up to where it reached, darker and dripping as he dries.", 0, nullptr,
+     offOnCount, offOnName, wetMarioGet, wetMarioSet},
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 5, "Reflect the Level",
      "Buildings, trees and the sky in puddles and water too. From the next area.", 1, nullptr, offOnCount,
      offOnName, levelGet, levelSet},
@@ -702,6 +734,7 @@ void apply() {
     port_reflect_option_set(PORT_OPT_WATER_DEPTH, s_depth);
     port_reflect_option_set(PORT_OPT_BLUR, s_blur * 25);  // quarters to hundredths
     port_reflect_option_set(PORT_OPT_FOOTPRINTS, s_footprints);
+    port_reflect_option_set(PORT_OPT_WET_MARIO, s_wetMario);
     for (int k = 0; k < PORT_REFLECT_KINDS; k++) port_reflect_option_set(PORT_OPT_SHOW + k, s_show[k]);
     port_reflect_option_set(PORT_OPT_BY_SURFACE, s_surface);
     for (int k = 0; k < PORT_PUDDLE_SURFACES; k++) port_reflect_option_set(PORT_OPT_STRENGTH + k, s_strength[k]);

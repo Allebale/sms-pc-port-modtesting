@@ -573,6 +573,18 @@ extern "C" void GXPC_SetUserClipPlane(int on, const float* plane) {
     if (on && plane) memcpy(g.userClip, plane, sizeof g.userClip);
 }
 
+// Wet Mario: how wet the models drawn from now are, 0 (dry) to 1, and up to which plane (view space,
+// wet below it; State::wet, wetLine). Mario's draw sets it and puts it back to 0 after.
+extern "C" void GXPC_SetWetness(float wet, const float* line) {
+    wet = wet < 0.0f ? 0.0f : wet > 1.0f ? 1.0f : wet;
+    static const float kNone[4] = {0.0f, 0.0f, 0.0f, -1.0f};  // no plane: wet all over
+    if (!line || wet == 0.0f) line = kNone;
+    if (wet == g.wet && !memcmp(line, g.wetLine, sizeof g.wetLine)) return;
+    flushBatch();  // what is batched so far is drawn as wet as it was (batches see no uniform change)
+    g.wet = wet;
+    memcpy(g.wetLine, line, sizeof g.wetLine);
+}
+
 void GXSetProjection(f32 mtx[4][4], GXProjectionType type) {
     float p[7];
     p[0] = float(type);
