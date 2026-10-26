@@ -268,6 +268,16 @@ typedef struct PortExtension {
 	// to draw it yourself (split-screen co-op draws it once a view) instead
 	// of the game's own pass. The first that returns 1 draws it.
 	int (*drawStage)(void* director, void* graphics);
+	// A TMario's aim: return 1 and set `*yaw` to turn his body and FLUDD that
+	// way (mModelFaceAngle, after each tick's control, before his pose is
+	// made), whichever way he moves, and `*tilt` FLUDD's tilt (the nozzle's
+	// gun angle: negative up), whatever his stance. A first-person camera's
+	// aim, so he can spray where it looks while walking sideways.
+	int (*playerAim)(void* mario, short* yaw, short* tilt);
+	// Parts of a TMario to leave out while the rest of him is drawn
+	// (PORT_PLAYER_PART_*, ORed; 0 none): a first-person camera, where the
+	// player sees his body looking down.
+	unsigned (*hiddenPlayerParts)(void* mario);
 } PortExtension;
 
 // fluddRefill's `source`
@@ -347,6 +357,12 @@ void port_ext_item_taken(void* item, void* taker);
 // 1 when save states may be used; otherwise 0 and *reason says why.
 int port_ext_allow_save_states(const char** reason);
 int port_ext_hide_player_model(void* mario);
+int port_ext_player_aim(void* mario, short* yaw, short* tilt);
+// hiddenPlayerParts: his head (the head joint, and the face, hair and cap hung
+// from it); FLUDD (not drawn; it still sprays)
+#define PORT_PLAYER_PART_HEAD  1u
+#define PORT_PLAYER_PART_FLUDD 2u
+unsigned port_ext_hidden_player_parts(void* mario);
 void port_ext_pad_read(void* status);
 int port_ext_demo_camera(const char* name, const float* pos, int frames, float angle, int option, int hasCallback,
                          void* actor, unsigned flags);

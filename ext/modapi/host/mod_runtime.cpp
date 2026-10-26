@@ -730,6 +730,16 @@ void applyHudHidden()
 	modg_set_hud_hidden(mask);
 }
 
+// The parts of Mario any loaded mod hides: each mod's bits ORed.
+int applyHiddenParts()
+{
+	uint32_t parts = 0;
+	for (SmsMod* m : g_mods)
+		if (m != nullptr)
+			parts |= m->hiddenParts;
+	return modg_player_set_hidden_parts(parts);
+}
+
 void dropRegistrations(SmsMod* m)
 {
 	for (auto& e : s_subs)
@@ -751,6 +761,14 @@ void dropRegistrations(SmsMod* m)
 	if (m->hudHidden) {
 		m->hudHidden = 0; // what it hid is shown again (unless another mod hides it)
 		applyHudHidden();
+	}
+	if (m->aims) { // Mario's body faces the way he moves again
+		m->aims = false;
+		modg_player_set_aim(0, 0.0f, 0.0f);
+	}
+	if (m->hiddenParts) { // what it hid of him is drawn again (unless another mod hides it)
+		m->hiddenParts = 0;
+		applyHiddenParts();
 	}
 	m->options.clear();
 	drawDropMod(m);
@@ -1007,10 +1025,29 @@ int apiPlayerGet(SmsPlayer* out)
 	return modg_player_get(out);
 }
 
+// player->set_aim: the mod that aims, so its aim goes when it unloads
+int apiPlayerSetAim(int on, float yaw, float pitch)
+{
+	if (SmsMod* m = current())
+		m->aims = on != 0;
+	return modg_player_set_aim(on, yaw, pitch);
+}
+
+// player->set_hidden_parts: each mod's parts, ORed, so a mod's go when it unloads
+int apiPlayerSetHiddenParts(uint32_t parts)
+{
+	SmsMod* m = current();
+	if (!m)
+		return 0;
+	m->hiddenParts = parts & (SMS_PLAYER_PART_HEAD | SMS_PLAYER_PART_FLUDD);
+	return applyHiddenParts();
+}
+
 const SmsPlayerApi s_player = {
 	sizeof(SmsPlayerApi),          apiPlayerGet,          modg_player_set_position, modg_player_set_velocity,
 	modg_player_set_forward_speed, modg_player_set_health, modg_player_set_water,   modg_player_set_status,
-	modg_player_set_nozzle,        modg_player_set_fludd,  modg_player_set_outfit,
+	modg_player_set_nozzle,        modg_player_set_fludd,  modg_player_set_outfit,   modg_player_set_yaw,
+	apiPlayerSetAim,               apiPlayerSetHiddenParts,
 };
 
 // This frame's camera, read once a frame for the projections.
