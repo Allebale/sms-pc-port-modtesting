@@ -1925,9 +1925,25 @@ static void uploadUniforms(const ShaderProgram* sp, float texW[8], float texH[8]
     const uint32_t pcm = g.bp[BP_CMODE0];
     const bool blend = pcm & 1, logic = (pcm >> 1) & 1, sub = (pcm >> 11) & 1;
     const uint32_t srcf = (pcm >> 8) & 7, dstf = (pcm >> 5) & 7;
-    const bool plain = !logic && !sub && (!blend || (srcf == 4 && dstf == 5));
+    // see-through over what is behind (water, glass): any blend that neither adds onto it (dst
+    // ONE: a glow) nor multiplies it (by a colour: shades and tints)
+    const bool plain = !logic && !sub
+                       && (!blend || (srcf != 0 && srcf != 2 && srcf != 3 && dstf != 1 && dstf != 2 && dstf != 3));
     const bool tested = g.bp[BP_ZMODE] & 1;
     plight[64] = g.plightActive && plain && tested ? float(g.plightCount) : 0.0f;
+    if (g.plightActive && !(plain && tested)) {  // for the log: each kind left unlit, once
+        static uint32_t s_told[24];
+        static int s_toldCount;
+        const uint32_t kind = (pcm & 0xFFF) | (tested ? 0x1000u : 0u);
+        bool told = false;
+        for (int i = 0; i < s_toldCount && !told; i++) told = s_told[i] == kind;
+        if (!told && s_toldCount < 24) {
+            s_told[s_toldCount++] = kind;
+            fprintf(stderr, "[lights] left unlit: blend %s (source %u, destination %u)%s%s%s\n", blend ? "on" : "off",
+                    unsigned(srcf), unsigned(dstf), sub ? ", subtract" : "", logic ? ", logic op" : "",
+                    tested ? "" : ", no depth test");
+        }
+    }
     UNI(uPlight, plight, plight, glUniform4fv(sp->uPlight, 17, plight));
 #undef UNI
     uc.init = true;
