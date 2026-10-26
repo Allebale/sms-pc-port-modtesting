@@ -16,6 +16,7 @@
 // options say (port_puddles.h), the disc fades them out, and the texture is laid over them. Off, nothing of it
 // runs and the game is as it was.
 #include "port_ext.h"
+#include "port_grass.h"
 #include "port_puddles.h"
 
 #include <Map/Map.hpp>
@@ -1594,4 +1595,5 @@ void port_draw_footprints(MtxPtr view)
 {
 	drawFootprints(view);
 	drawDrips(view);  // Wet Mario's
+	port_grass_draw(view);  // 3D Grass (port_grass.h), over the prints
 }

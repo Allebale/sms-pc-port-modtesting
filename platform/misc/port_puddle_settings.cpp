@@ -70,6 +70,7 @@ int s_puddleRipples = 0; // Puddle Ripples: 0 off, 1 gentle, 2 strong
 int s_beatMirrors = 0;    // Puddles Beat Mirrors
 int s_footprints = 0;     // Wet Footprints
 int s_wetMario = 0;       // Wet Mario
+int s_grass = 0;          // 3D Grass: 0 off, 1 by location, 2 always cut, 3 always wild
 int s_level = 0;          // Reflect the Level: 0 off (as the game has it), 1 the stage itself too
 int s_water;       // Water Reflections: 0 none (as the game has it), 1 in the stage's water and wet ground
 // 0.5x to 5x the game's 1000 units, in steps of 0.25x (250 units)
@@ -236,6 +237,8 @@ void load() {
             // done by isKind
         } else if (sscanf(line, " footprints = %d", &value) == 1) {
             s_footprints = value != 0;
+        } else if (sscanf(line, " grassblades = %d", &value) == 1) {
+            s_grass = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " wetmario = %d", &value) == 1) {
             s_wetMario  = value != 0;
             sawWetMario = true;
@@ -303,6 +306,8 @@ void save() {
     fprintf(f, "footprints = %d\n", s_footprints);
     fprintf(f, "# wetmario: 1 water leaves Mario wet up to where it reached, dripping, drying over 45 seconds, 0 not.\n");
     fprintf(f, "wetmario = %d\n", s_wetMario);
+    fprintf(f, "# grassblades: blades of grass on the grass: 0 off, 1 by location, 2 always cut, 3 always wild.\n");
+    fprintf(f, "grassblades = %d\n", s_grass);
     fprintf(f, "# level: 1 the stage itself (ground, buildings, sky) in puddles and water too, 0 not.\n");
     fprintf(f, "level = %d\n", s_level);
     fprintf(f, "# beatmirrors: 1 puddles near Mario take the reflection from a real mirror's area, 0 not.\n");
@@ -323,6 +328,22 @@ void save() {
     for (int i = 0; i < PORT_PUDDLE_SURFACES; i++)
         fprintf(f, "%s = %d.%d\n", kSurfaces[i].key, s_strength[i] / 10, s_strength[i] % 10);
     fclose(f);
+}
+
+const char* const kGrassNames[] = {"Off", "By Location", "Always Cut", "Always Wild"};
+int grassCount() { return 4; }
+const char* grassName(int i) { return kGrassNames[i < 0 || i > 3 ? 0 : i]; }
+int grassGet() {
+    load();
+    return s_grass;
+}
+int grassSet(int i) {
+    if (i < 0 || i > 3) return 0;
+    load();
+    s_grass = i;
+    save();
+    port_log("[grass] 3D Grass changed: %s\n", kGrassNames[i]);
+    return 1;
 }
 
 int count() { return kCount; }
@@ -655,6 +676,9 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 95, "Puddle Lifetime",
      "How long FLUDD's puddles last. Goop and objects react as in the original game.", 0, nullptr, count,
      name, get, set},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 96, "3D Grass",
+     "Blades of grass, cut short in town, wild in the hills. They sway and bend round Mario.", 0, nullptr,
+     grassCount, grassName, grassGet, grassSet},
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 0, "Preset",
      "The original game, or the recommended look. Some apply from the next area.", 1, nullptr, presetCount,
      presetName, presetGet, presetSet},
@@ -747,6 +771,12 @@ extern "C" {
 const PortSetting* port_puddle_settings(int* n) {
     *n = int(sizeof kPuddleSettings / sizeof kPuddleSettings[0]);
     return kPuddleSettings;
+}
+
+// 3D Grass: 0 off, 1 by location, 2 always cut, 3 always wild (ext/core/game/port_grass.cpp).
+int port_grass(void) {
+    load();
+    return s_grass;
 }
 
 // The options as the settings have them (port_puddle_options.cpp asks as it starts, and again
