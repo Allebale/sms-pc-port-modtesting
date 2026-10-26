@@ -613,7 +613,8 @@ static std::string genFS(const ShaderKey& k) {
          "      if (wn > 0.0) dark = wn * (1.0 - shadowLit(a, 0.0));\n"
          "      if (wn < 1.0 && eb < 1.0 && b.z < 1.0)\n"
          "        dark += (1.0 - wn) * (1.0 - shadowLit(b, 1.0)) * (1.0 - smoothstep(0.75, 1.0, eb));\n"
-         "      color.rgb *= 1.0 - u_shadow[9].x * dark * smoothstep(0.0, 0.2, nl);\n"
+         // a little blue, as shade lit by the sky is
+         "      color.rgb *= 1.0 - u_shadow[9].x * dark * smoothstep(0.0, 0.2, nl) * vec3(1.0, 0.94, 0.8);\n"
          "    }\n"
          "  }\n";
     if (k.fogType) {

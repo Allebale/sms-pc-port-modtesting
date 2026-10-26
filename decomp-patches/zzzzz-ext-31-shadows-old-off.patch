@@ -1,4 +1,4 @@
-Reason: Real Shadows (port_shadows.h): while on, TMBindShadowManager draws none of the game's own shadows (the round ones under characters, the trees' and buildings' shadow volumes), which the sun's shadows replace; its requests are still gathered and reset each frame. Off, nothing changes.
+Reason: Real Shadows (port_shadows.h): while on, the sun's shadows replace the game's own. TMBindShadowManager takes only round shadow requests (not trees', buildings' or boats'), and draws them lighter (half the alpha) with Round Shadows Under Characters on, or none at all with it off. Off, nothing changes.
 
 --- a/src/MarioUtil/ShadowUtil.cpp
 +++ b/src/MarioUtil/ShadowUtil.cpp
@@ -10,16 +10,53 @@ Reason: Real Shadows (port_shadows.h): while on, TMBindShadowManager draws none 
  #include <MarioUtil/GDUtil.hpp>
  #include <MarioUtil/DrawUtil.hpp>
  #include <MarioUtil/ReinitGX.hpp>
-@@ -491,6 +494,12 @@
+@@ -491,10 +494,25 @@
  	}
  
  	if (cue & CUE_DRAW) {
 +#ifdef TARGET_PC
-+		// port: Real Shadows (port_shadows.h) draws every shadow from the
-+		// sun: the game's own (round ones under characters, its trees' and
-+		// buildings') are left out, so that nothing is shadowed twice
-+		if (!port_shadows())
++		// port: Real Shadows (port_shadows.h) draws the sun's shadows of
++		// everything. Of the game's own only the round ones under characters
++		// are left (requested only, below), lighter, with Round Shadows Under
++		// Characters on; none with it off
++		const GXColor sms_port_color = mShadowColor;
++		const bool sms_port_real     = port_shadows() != 0;
++		if (sms_port_real)
++			mShadowColor.a = (u8)(mShadowColor.a / 2);
++		if (!sms_port_real || port_shadows_round()) {
 +#endif
  		if (mDLSw)
  			drawShadowGD(cue, graphics);
  		else
+ 			drawShadow(cue, graphics);
++#ifdef TARGET_PC
++		}
++		mShadowColor = sms_port_color;
++#endif
+ 
+ 		if (cue & 0x20000000)
+ 			reset();
+@@ -1347,6 +1365,12 @@
+ void TMBindShadowManager::request(const TCircleShadowRequest& param_1,
+                                   u32 param_2)
+ {
++#ifdef TARGET_PC
++	// port: Real Shadows: only round shadows (trees', buildings' and boats'
++	// are the sun's now)
++	if (port_shadows() && param_1.mShadowType != SHADOW_TYPE_CIRCLE)
++		return;
++#endif
+ 	f32 dist;
+ 	JGeometry::TVec3<f32> delta = param_1.mPosition;
+ 	delta -= gpCamera->getUnk124Vec();
+@@ -1415,6 +1439,10 @@
+ void TMBindShadowManager::forceRequest(const TCircleShadowRequest& param_1,
+                                        u32 param_2)
+ {
++#ifdef TARGET_PC
++	if (port_shadows() && param_1.mShadowType != SHADOW_TYPE_CIRCLE)
++		return;
++#endif
+ 	JGeometry::TVec3<f32> delta;
+ 	delta = ShadowUtilRequestPos(param_1);
+ 	delta -= gpCamera->getUnk124();

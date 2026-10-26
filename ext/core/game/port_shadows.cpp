@@ -6,22 +6,109 @@
 // takes it from gpLightManager), so that the shadows fall the way the stage was made for; else the
 // stage's sun (TSunModel); else a light from high above. Never lower than about 25 degrees over the
 // horizon: at sunset the shadows would run the length of the stage.
+#include "port_ext.h"
 #include "port_shadows.h"
 
 #include <Camera/Camera.hpp>
 #include <Camera/SunMgr.hpp>
 #include <Camera/SunModel.hpp>
 #include <MarioUtil/LightUtil.hpp>
+#include <Map/Map.hpp>
+#include <Map/MapData.hpp>
+#include <Map/MapModel.hpp>
+#include <JSystem/J3D/J3DGraphAnimator/J3DModel.hpp>
+#include <JSystem/J3D/J3DGraphBase/J3DMaterial.hpp>
+#include <JSystem/J3D/J3DGraphBase/J3DShape.hpp>
+#include <JSystem/JUtility/JUTNameTab.hpp>
 #include <Player/MarioAccess.hpp>
 
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 namespace {
 
 const f32 kHalf       = 2000.0f;  // the map covers this far either side of Mario
 const f32 kLowest     = 0.42f;    // the sun's direction's least height (sin of about 25 degrees)
 const f32 kStrength[] = {0.0f, 0.35f, 0.55f};
+
+// ------------------------------------------------------------------ the level's own shadows
+// Some stages have shadows painted in as part of the level: dark see-through shapes on the ground
+// under buildings and trees. While Real Shadows are on they are hidden, so that nothing is shadowed
+// twice: the map's materials whose names say they are shadows ("kage", Japanese for shadow, or
+// "shadow"). Each stage's map materials are in the log, to find the ones these miss.
+const int kMostBaked = 256;
+J3DShape* s_baked[kMostBaked];
+int s_bakedCount;
+bool s_bakedHidden;
+
+bool shadowName(const char* name)
+{
+	char low[64];
+	int n = 0;
+	for (; name && name[n] && n < 63; n++)
+		low[n] = (char)(name[n] >= 'A' && name[n] <= 'Z' ? name[n] + 32 : name[n]);
+	low[n] = 0;
+	return strstr(low, "kage") || strstr(low, "shadow") || strstr(low, "shade");
+}
+
+void findBaked(J3DModel* model, int index)
+{
+	J3DModelData* data = model ? model->getModelData() : 0;
+	JUTNameTab* names  = data ? data->getMaterialName() : 0;
+	if (!data || !names)
+		return;
+	char line[1024];
+	int len = snprintf(line, sizeof line, "[shadows] the map's model %d, %d materials:", index, data->getMaterialNum());
+	for (u16 i = 0; i < data->getMaterialNum(); i++) {
+		const char* name = names->getName((u16)i);
+		const bool baked = name && shadowName(name);
+		if (len < (int)sizeof line - 40)
+			len += snprintf(line + len, sizeof line - len, " %s%s", name ? name : "?", baked ? "(shadow)" : "");
+		J3DMaterial* mat = data->getMaterialNodePointer(i);
+		if (baked && mat && mat->getShape() && s_bakedCount < kMostBaked)
+			s_baked[s_bakedCount++] = mat->getShape();
+	}
+	fprintf(stderr, "%s\n", line);
+}
+
+void stageSetup()
+{
+	s_bakedCount  = 0;
+	s_bakedHidden = false;
+	if (!gpMap || !gpMap->getModelManager())
+		return;
+	TMapModelManager* models = gpMap->getModelManager();
+	for (int i = 0; i < models->getJointModelNum(); i++)
+		if (TJointModel* joint = models->getJointModel(i))
+			findBaked(joint->getModel(), i);
+	fprintf(stderr, "[shadows] %d of the level's own shadow shapes found\n", s_bakedCount);
+}
+
+// Hidden while Real Shadows are on, shown again when they are off.
+void hideBaked(bool hide)
+{
+	if (hide == s_bakedHidden)
+		return;
+	s_bakedHidden = hide;
+	for (int i = 0; i < s_bakedCount; i++)
+		if (hide)
+			s_baked[i]->onFlag(J3DShpFlag_Visible);  // set: not drawn (J3DJoint::entryIn)
+		else
+			s_baked[i]->offFlag(J3DShpFlag_Visible);
+}
+
+PortExtension s_extension;
+
+struct Register {
+	Register()
+	{
+		memset(&s_extension, 0, sizeof s_extension);
+		s_extension.name       = "shadows";
+		s_extension.stageSetup = stageSetup;
+		port_ext_register(&s_extension);
+	}
+} s_register;
 
 } // namespace
 
@@ -30,6 +117,7 @@ void port_shadows_main_view(void* camera, float (*view)[4])
 	if (camera != (void*)gpCamera || !view)
 		return;
 	const int level = port_shadows();
+	hideBaked(level > 0);
 	if (level <= 0 || level > 2) {
 		static bool s_toldOff;
 		if (!s_toldOff)

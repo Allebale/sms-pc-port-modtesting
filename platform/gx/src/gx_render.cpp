@@ -2416,17 +2416,15 @@ static void shadowLightVP(const float* sun, const float* focus, float half, floa
     memcpy(out, m, sizeof m);
 }
 
-// Why the batch casts no shadow (nullptr: it casts): it must write depth and colour and not be
-// see-through (blended, other than plainly, with no alpha test: glass, glows, water).
+// Why the batch casts no shadow (nullptr: it casts): it must write depth and colour and not be a
+// glow (added onto what is behind it). Blended draws that write depth cast: Mario is drawn blended
+// (source alpha), solid all the same; see-through glass and water write no depth.
 static const char* shadowNoCast() {
     const uint32_t z = g.bp[BP_ZMODE], cm = g.bp[BP_CMODE0];
     if (!(z & 1)) return "no depth test";
     if (!((z >> 4) & 1)) return "no depth write";
     if (!((cm >> 3) & 1)) return "no colour write";
-    const uint32_t af = (g.bp[BP_ALPHACOMPARE] >> 16) & 0xFF;
-    const bool alphaTest = !((af & 7) == 7 && ((af >> 3) & 7) == 7 && ((af >> 6) & 3) <= 1);
-    const bool plain = !((cm >> 11) & 1) && ((cm >> 8) & 7) == 1 && ((cm >> 5) & 7) == 0;  // ONE, ZERO
-    if ((cm & 1) && !plain && !alphaTest) return "blended (see-through)";
+    if ((cm & 1) && (((cm >> 11) & 1) || ((cm >> 5) & 7) == 1)) return "a glow (added or subtracted)";
     return nullptr;
 }
 

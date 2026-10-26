@@ -71,6 +71,7 @@ int s_beatMirrors = 0;    // Puddles Beat Mirrors
 int s_footprints = 0;     // Wet Footprints
 int s_wetMario = 0;       // Wet Mario
 int s_shadows = 0;        // Real Shadows: 0 off (the game's own), 1 soft, 2 strong
+int s_shadowsRound = 1;   // Round Shadows Under Characters, with Real Shadows: 1 kept (lighter)
 int s_level = 0;          // Reflect the Level: 0 off (as the game has it), 1 the stage itself too
 int s_water;       // Water Reflections: 0 none (as the game has it), 1 in the stage's water and wet ground
 // 0.5x to 5x the game's 1000 units, in steps of 0.25x (250 units)
@@ -237,6 +238,8 @@ void load() {
             // done by isKind
         } else if (sscanf(line, " footprints = %d", &value) == 1) {
             s_footprints = value != 0;
+        } else if (sscanf(line, " roundshadows = %d", &value) == 1) {
+            s_shadowsRound = value != 0;
         } else if (sscanf(line, " shadows = %d", &value) == 1) {
             s_shadows = value < 0 ? 0 : value > 2 ? 2 : value;
         } else if (sscanf(line, " wetmario = %d", &value) == 1) {
@@ -308,6 +311,8 @@ void save() {
     fprintf(f, "wetmario = %d\n", s_wetMario);
     fprintf(f, "# shadows: the sun's shadows of everything: 0 off (the game's own), 1 soft, 2 strong.\n");
     fprintf(f, "shadows = %d\n", s_shadows);
+    fprintf(f, "# roundshadows: with shadows on, 1 the game's round shadows under characters kept (lighter), 0 not.\n");
+    fprintf(f, "roundshadows = %d\n", s_shadowsRound);
     fprintf(f, "# level: 1 the stage itself (ground, buildings, sky) in puddles and water too, 0 not.\n");
     fprintf(f, "level = %d\n", s_level);
     fprintf(f, "# beatmirrors: 1 puddles near Mario take the reflection from a real mirror's area, 0 not.\n");
@@ -343,6 +348,19 @@ int shadowsSet(int i) {
     s_shadows = i;
     save();
     port_log("[shadows] Real Shadows changed: %s\n", kShadowNames[i]);
+    return 1;
+}
+
+int roundGet() {
+    load();
+    return s_shadowsRound;
+}
+int roundSet(int i) {
+    if (i < 0 || i > 1) return 0;
+    load();
+    s_shadowsRound = i;
+    save();
+    port_log("[shadows] Round Shadows Under Characters changed: %s\n", i ? "on" : "off");
     return 1;
 }
 
@@ -679,6 +697,9 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 96, "Real Shadows",
      "The sun's shadows of everything, the level and characters too. Off is the original.", 0,
      nullptr, shadowsCount, shadowsName, shadowsGet, shadowsSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 97, "Round Shadows Under Characters",
+     "With Real Shadows, the game's own round shadow under each character too, lighter.", 0, nullptr,
+     offOnCount, offOnName, roundGet, roundSet},
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 0, "Preset",
      "The original game, or the recommended look. Some apply from the next area.", 1, nullptr, presetCount,
      presetName, presetGet, presetSet},
@@ -777,6 +798,10 @@ const PortSetting* port_puddle_settings(int* n) {
 int port_shadows(void) {
     load();
     return s_shadows;
+}
+int port_shadows_round(void) {
+    load();
+    return s_shadowsRound;
 }
 
 // The options as the settings have them (port_puddle_options.cpp asks as it starts, and again

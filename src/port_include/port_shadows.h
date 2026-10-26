@@ -9,6 +9,10 @@ extern "C" {
 
 // The setting (the pause menu's Settings, Graphics): 0 off, 1 soft, 2 strong.
 int port_shadows(void);
+// With Real Shadows on: 1 the game's own round shadows under characters are kept, lighter, so that
+// they stand on the ground (its trees', buildings' and boats' are left out: zzzzz-ext-31-shadows-
+// old-off); 0 none of the game's own.
+int port_shadows_round(void);
 // From CPolarSubCamera::perform (zzzzz-ext-31-shadows), the main camera's projection just set:
 // the sun's direction and the box round Mario for this frame, with the camera's view (world to
 // view). camera: the camera (only the game's own, gpCamera, counts).
