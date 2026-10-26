@@ -1375,11 +1375,10 @@ void main() {
   if (outv > 0.85) h *= (1.0 - outv) / 0.15;
   // the ground's colour under it (or beside it, where something hides it)
   vec3 eye = -(u_gview[0].xyz * u_gview[0].w + u_gview[1].xyz * u_gview[1].w + u_gview[2].xyz * u_gview[2].w);
-  bool look = u_g[5].z < 0.5;  // not in a reflection (its ground is not copied)
-  vec4 ground = look ? groundAt(bp, eye) : vec4(0.0);
-  if (look && ground.w == 0.0) ground = groundAt(bp + vec3(28.0, 0.0, 0.0), eye);
-  if (look && ground.w == 0.0) ground = groundAt(bp + vec3(-20.0, 0.0, 20.0), eye);
-  if (look && ground.w == 0.0) ground = groundAt(bp + vec3(-20.0, 0.0, -20.0), eye);
+  vec4 ground = groundAt(bp, eye);
+  if (ground.w == 0.0) ground = groundAt(bp + vec3(28.0, 0.0, 0.0), eye);
+  if (ground.w == 0.0) ground = groundAt(bp + vec3(-20.0, 0.0, 20.0), eye);
+  if (ground.w == 0.0) ground = groundAt(bp + vec3(-20.0, 0.0, -20.0), eye);
   if (ground.w > 0.0) {
     // grows only where the ground is green (bare earth and paths stay bare)
     float green = ground.g / max(max(ground.r, ground.b), 0.02);

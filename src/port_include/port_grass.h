@@ -16,15 +16,11 @@ int port_grass(void);
 float port_grass_distance(void);
 // Thinned Far Away: 1 fewer (wider) blades far from Mario, cheaper; 0 every blade all the way.
 int port_grass_thin(void);
-// Grass Reflection Distance: how far the blades go in reflections, in units (0: none).
-float port_grass_reflect_distance(void);
 // Cut Grass Height and Wild Grass Height: times the kind's own (wild: 1; cut and tended: 0).
 float port_grass_height(int wild);
 // From port_draw_footprints (TModelWaterManager::perform, as the stage's ground is drawn): the
 // blades near Mario. view: the camera's (world to view).
 void port_grass_draw(float (*view)[4]);
-// The same in a puddle's or the water's reflection, seen from the mirror's camera (near Mario only).
-void port_grass_draw_mirror(float (*view)[4]);
 
 #ifdef __cplusplus
 }

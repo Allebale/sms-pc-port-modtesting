@@ -512,17 +512,12 @@ struct Register {
 } // namespace
 
 namespace {
-// mirror: the blades in a puddle's or the water's reflection (port_reflections.cpp), seen from the
-// mirror's camera: only near Mario (Grass Reflection Distance), in the kind's own colour (the ground under them
-// is not looked at: the reflection is drawn before the ground it reflects is copied).
-void drawGrass(float (*view)[4], bool mirror)
+// The blades near Mario, seen from the main camera.
+void drawGrass(float (*view)[4])
 {
 	if (!s_style || !gpMarioPos || !view || !s_bladeTotal || s_reach <= 0.0f)
 		return;
-	const f32 most  = port_grass_reflect_distance();
-	if (mirror && most <= 0.0f)
-		return;  // none in reflections
-	const f32 reach = mirror && s_reach > most ? most : s_reach;
+	const f32 reach = s_reach;
 	const Style& st = *s_style;
 	const f32 mx = gpMarioPos->x, my = gpMarioPos->y, mz = gpMarioPos->z;
 	gatherPress(mx, my, mz);
@@ -550,7 +545,7 @@ void drawGrass(float (*view)[4], bool mirror)
 		(f32)st.tip[0], (f32)st.tip[1], (f32)st.tip[2], reach,
 		mx, my, mz, s_thin ? 1.0f : 0.0f,
 		0.8f, 0.6f, st.stripes ? 1.0f : 0.0f, st.clumps ? 1.0f : 0.0f,  // the breeze's way
-		0.0f, 0.0f, mirror ? 1.0f : 0.0f, 0.0f,  // the renderer's; whether the ground is looked at
+		0.0f, 0.0f, 0.0f, 0.0f,  // the renderer's
 	};
 	GXPC_GrassBegin(view, params, press, strength, n);
 	for (int i = 0; i < kMostTiles; i++) {
@@ -582,5 +577,4 @@ void drawGrass(float (*view)[4], bool mirror)
 }
 } // namespace
 
-void port_grass_draw(float (*view)[4]) { drawGrass(view, false); }
-void port_grass_draw_mirror(float (*view)[4]) { drawGrass(view, true); }
+void port_grass_draw(float (*view)[4]) { drawGrass(view); }

@@ -291,10 +291,9 @@ bool noReflection(TLiveActor* actor)
 
 // ------------------------------------------------------------------ the mirror's extras
 // What the mirror scene has no model of: the effects (fire, smoke, sparkles: the game's particles,
-// gpMarioParticleManager's) and 3D Grass. Each frame the mirror's picture is drawn, a packet of the
-// port's at the end of the mirror scene's translucent draw buffer (the one its copies are entered
-// into, j3dSys's as the scene is performed) draws them seen from the mirror's camera: the effects
-// with Reflect Objects on, the grass with Reflect the Level.
+// gpMarioParticleManager's). Each frame the mirror's picture is drawn, a packet of the port's at the
+// end of the mirror scene's translucent draw buffer (the one its copies are entered into, j3dSys's
+// as the scene is performed) draws them seen from the mirror's camera, with Reflect Objects on.
 class TPortMirrorPacket : public J3DPacket {
 public:
 	virtual void draw()
@@ -306,10 +305,8 @@ public:
 		static bool s_told;
 		if (!s_told) {
 			s_told = true;
-			fprintf(stderr, "[puddles] effects and grass drawn in the reflection (seen from the mirror's camera)\n");
+			fprintf(stderr, "[puddles] effects drawn in the reflection (seen from the mirror's camera)\n");
 		}
-		if (port_reflect_level() && port_grass())
-			port_grass_draw_mirror(view);
 		if (port_reflect_kind(PORT_REFLECT_OBJECTS) && gpMarioParticleManager && gpMarioParticleManager->unk3B8
 		    && gpCamera) {
 			JPADrawInfo info(view, camera->getUnk80() * gpCamera->getFovy(), gpCamera->getAspect());
@@ -333,7 +330,7 @@ public:
 			return;
 		if (!gpModelWaterManager->getParticleCount() && !port_water_mirror_active())
 			return;  // no puddle or water shows a reflection this frame
-		if (!(port_reflect_level() && port_grass()) && !port_reflect_kind(PORT_REFLECT_OBJECTS))
+		if (!port_reflect_kind(PORT_REFLECT_OBJECTS))
 			return;
 		buffer->entryImm(&mPacket, 0);
 	}
@@ -348,7 +345,7 @@ void stageSetup()
 	if (!scene)
 		return;
 	rememberPlayerCopies(scene);
-	scene->insert(new TPortMirrorExtras());  // the effects and the grass, in the reflections
+	scene->insert(new TPortMirrorExtras());  // the effects, in the reflections
 
 	// the models the game gave a copy already (Mario, FLUDD, Yoshi, coins...)
 	s_modelCount = 0;
