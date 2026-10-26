@@ -1283,7 +1283,7 @@ vec4 groundAt(vec3 p, vec3 eye) {
 }
 void main() {
   vec3 bp = a_blade.xyz;
-  float h = a_blade.w;
+  float h = a_blade.w * u_g[0].w;  // Cut / Wild Grass Height
   float d = length(bp.xz - u_g[3].xz);
   float reach = u_g[2].w, whole = u_g[1].w;
   float keep = floor(a_blade2.w / 256.0), shadeB = a_blade2.w - keep * 256.0;

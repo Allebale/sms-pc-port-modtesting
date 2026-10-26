@@ -1,7 +1,7 @@
 // 3D Grass (port_grass.h): blades of grass standing on the stages' grass, as each place would have
 // it. Delfino Plaza's lawns are the town's, and the Piantas mow them: short, even, in stripes the
-// mower leaves. Pinna Park and Sirena's hotel lawns are kept the same. Ricco's verges and the
-// Airstrip are tended now and then: a little longer. Bianco Hills, Pianta Village, Noki Bay, Gelato's dunes,
+// mower leaves. Pinna Park is kept the same. Ricco's verges and the Airstrip are tended now and
+// then: a little longer. Sirena's grass has grown long round the hotel. Bianco Hills, Pianta Village, Noki Bay, Gelato's dunes,
 // Corona Mountain and any stage it does not know (a mod's) grow wild: tall, uneven, in clumps,
 // with bare patches.
 //
@@ -74,7 +74,7 @@ const Style* styleOfWorld(int world)
 	switch (world) {
 	case 1: return &kCut;     // Delfino Plaza: the town's lawns
 	case 5: return &kCut;     // Pinna Park: a park
-	case 6: return &kCut;     // Sirena Beach: the hotel's lawns, kept for its guests
+	case 6: return &kWild;    // Sirena Beach: grown long round the hotel
 	case 0:                   // the Airstrip
 	case 3: return &kTended;  // Ricco Harbor's verges
 	default: return &kWild;   // Bianco Hills, Gelato Beach, Pianta Village, Noki Bay, Corona, mods' stages
@@ -482,7 +482,7 @@ void port_grass_draw(float (*view)[4])
 		strength[i]      = s_press[i].strength;
 	}
 	const f32 params[24] = {
-		(f32)nowMs() * 0.001f, st.wind, st.width, 0.0f,
+		(f32)nowMs() * 0.001f, st.wind, st.width, port_grass_height(s_style == &kWild),
 		(f32)st.base[0], (f32)st.base[1], (f32)st.base[2], s_whole,
 		(f32)st.tip[0], (f32)st.tip[1], (f32)st.tip[2], s_reach,
 		mx, my, mz, s_thin ? 1.0f : 0.0f,
