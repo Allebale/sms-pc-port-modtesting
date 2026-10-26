@@ -615,6 +615,12 @@ void GXSetProjectionv(f32* ptr) {
         flushBatch();
         g.shadowMain = main;
     }
+    // Fire Lights: lit while the view they were set for is drawn
+    const bool lit = g.plightArmed && memcmp(ptr, g.plightProj, sizeof g.plightProj) == 0;
+    if (lit != g.plightActive) {
+        flushBatch();
+        g.plightActive = lit;
+    }
     apiXF(XF_REG_BASE + XFR_PROJ, 7, w);
 }
 

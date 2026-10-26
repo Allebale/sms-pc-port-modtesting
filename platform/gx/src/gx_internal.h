@@ -114,6 +114,14 @@ struct State {
     float shadow[48];
     float shadowProj[7];
     bool shadowArmed, shadowMain, shadowTag;
+    // Fire Lights (GXPC_SetLights, GXPC_LightsView, gx_render.cpp): up to 8 point lights, in the
+    // world (position, radius; colour, strength) and in the view they were last set for (u_plight:
+    // 16 vec4s, then (count, ...)); lit while what is drawn is that view's (its projection).
+    float plightWorld[64];
+    int plightCount;
+    float plight[68];
+    float plightProj[7];
+    bool plightArmed, plightActive;
 };
 
 extern State g;
@@ -363,12 +371,13 @@ struct UniformCache {
     float uclip[4];
     float wet[8];
     float shadow[48];
+    float plight[68];
 };
 struct ShaderProgram {
     unsigned prog;
     int id;  // creation order; SMS_GX_DUMP_SHADERS=dir writes dir/prog<id>.vs/.fs
     int uTevReg, uKonst, uTexScale, uAlphaRef, uFog, uFogColor, uIndMtx, uTexSize, uEfb,
-        uProj, uViewport, uAmbMat, uDstAlpha, uLineWidth, uUserClip, uWet, uShadow;
+        uProj, uViewport, uAmbMat, uDstAlpha, uLineWidth, uUserClip, uWet, uShadow, uPlight;
     mutable UniformCache uc;
 };
 bool shaderHasEarlyFragmentTests();

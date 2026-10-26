@@ -22,6 +22,10 @@ int port_shadows_original_direction(void);
 // the sun's direction and the box round Mario for this frame, with the camera's view (world to
 // view). camera: the camera (only the game's own, gpCamera, counts).
 void port_shadows_main_view(void* camera, float (*view)[4]);
+// Fire Lights (ext/core/game/port_lights.cpp): the fires' lights seen from a camera whose
+// projection was just set (the main camera's, from port_shadows_main_view; a mirror's, from
+// port_mirror_clip), lit in what it draws.
+void port_lights_view(float (*view)[4]);
 
 // The renderer's (platform/gx/src/gx_render.cpp, gx_api.cpp).
 // half: the near map's reach either side of focus; reach: the far one's.

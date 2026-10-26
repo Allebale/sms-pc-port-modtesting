@@ -1916,6 +1916,13 @@ static void uploadUniforms(const ShaderProgram* sp, float texW[8], float texH[8]
     memcpy(shadow, g.shadow, sizeof shadow);
     shadow[43] = g.shadowMain ? 1.0f : 0.0f;  // received only in the main camera's view
     UNI(uShadow, shadow, shadow, glUniform4fv(sp->uShadow, 12, shadow));
+    float plight[68];
+    memcpy(plight, g.plight, sizeof plight);
+    // not on glows (the fire itself, added onto what is behind it: it is the light)
+    const uint32_t pcm = g.bp[BP_CMODE0];
+    const bool glow = (pcm & 1) && (((pcm >> 11) & 1) || ((pcm >> 5) & 7) == 1);
+    plight[64] = g.plightActive && !glow ? float(g.plightCount) : 0.0f;
+    UNI(uPlight, plight, plight, glUniform4fv(sp->uPlight, 17, plight));
 #undef UNI
     uc.init = true;
 }
@@ -2478,6 +2485,34 @@ extern "C" void GXPC_GrassDraw(unsigned buf, int blades, int segments, int press
 }
 
 extern "C" void GXPC_GrassEnd(void) { s_grassSp = nullptr; }
+
+// ------------------------------------------------------------------ Fire Lights
+// Point lights (ext/core/game/port_lights.cpp: the fires burning near Mario): set in the world
+// each tick (GXPC_SetLights: 8 floats a light: x, y, z, radius, r, g, b, strength), taken into a
+// view as its camera sets its projection (GXPC_LightsView: the main camera's, a mirror's), and lit
+// in the fragment shader while that view is drawn.
+extern "C" void GXPC_SetLights(const float* lights, int count) {
+    count = count < 0 ? 0 : count > 8 ? 8 : count;
+    g.plightCount = count;
+    if (count) memcpy(g.plightWorld, lights, size_t(count) * 8 * sizeof(float));
+}
+
+extern "C" void GXPC_LightsView(const float view[3][4]) {
+    flushBatch();
+    if (!view || !g.plightCount) {
+        g.plightArmed = g.plightActive = false;
+        return;
+    }
+    for (int i = 0; i < g.plightCount; i++) {
+        const float* w = g.plightWorld + i * 8;
+        for (int r = 0; r < 3; r++)
+            g.plight[i * 8 + r] = view[r][0] * w[0] + view[r][1] * w[1] + view[r][2] * w[2] + view[r][3];
+        g.plight[i * 8 + 3] = w[3];
+        memcpy(g.plight + i * 8 + 4, w + 4, 4 * sizeof(float));
+    }
+    memcpy(g.plightProj, g.projection, sizeof g.plightProj);
+    g.plightArmed = g.plightActive = true;
+}
 
 // ------------------------------------------------------------------ Shadows
 // The sun's shadows (GXPC_ShadowFrame, from the game's main camera as it sets its projection). Depth

@@ -342,10 +342,10 @@ Press s_press[kMostPress];
 int s_pressCount;
 
 // FLUDD's spray: where its drops came down into the grass (a drop is gone as it lands on grass,
-// leaving no puddle), each spot pressing the blades flat for a second and a half; a spot sprayed
+// leaving no puddle), each spot pressing the blades flat for two and a half seconds; a spot sprayed
 // again is pressed again (each drop near one already there renews it, so the spots stay few).
-const int kMostSpray = 96;
-const s32 kSprayMs   = 1500;
+const int kMostSpray = 160;
+const s32 kSprayMs   = 2500;
 TrailPoint s_spray[kMostSpray];
 int s_sprayCount;
 
@@ -358,12 +358,14 @@ void noteSpray()
 		const JGeometry::TVec3<f32>& p = water->mParticlePositionSOA[i];
 		const int tx = (int)floorf(p.x / kTile), tz = (int)floorf(p.z / kTile);
 		const Tile& t = tileAt(tx, tz);
-		if (!t.used || t.tx != tx || t.tz != tz || !t.count || p.y < t.minY - 30.0f || p.y > t.maxY + 25.0f)
-			continue;  // not down in grass
+		if (!t.used || t.tx != tx || t.tz != tz || !t.count || p.y < t.minY - 30.0f || p.y > t.maxY + 140.0f)
+			continue;  // not down in grass, nor coming down on it
+		// where it comes down: on the grass
+		const f32 y = p.y > t.maxY ? t.maxY : p.y < t.minY ? t.minY : p.y;
 		int slot = -1;
 		for (int k = 0; k < s_sprayCount && slot < 0; k++) {
 			const f32 dx = s_spray[k].x - p.x, dz = s_spray[k].z - p.z;
-			if (dx * dx + dz * dz < 18.0f * 18.0f && fabsf(s_spray[k].y - p.y) < 60.0f)
+			if (dx * dx + dz * dz < 26.0f * 26.0f && fabsf(s_spray[k].y - y) < 60.0f)
 				slot = k;  // near one already there: renewed
 		}
 		if (slot < 0) {
@@ -376,7 +378,7 @@ void noteSpray()
 						slot = k;
 			}
 		}
-		s_spray[slot].x = p.x, s_spray[slot].y = p.y, s_spray[slot].z = p.z, s_spray[slot].at = now;
+		s_spray[slot].x = p.x, s_spray[slot].y = y, s_spray[slot].z = p.z, s_spray[slot].at = now;
 	}
 }
 
@@ -388,15 +390,15 @@ void gatherPress(f32 mx, f32 my, f32 mz)
 	Press& m = s_press[s_pressCount++];
 	m.x = mx, m.y = my, m.z = mz, m.r = 36.0f, m.strength = 1.0f;
 	// the spray's spots, newest first (by half-second bands)
-	for (int band = 0; band < 3 && s_pressCount < 36; band++)
-		for (int k = 0; k < s_sprayCount && s_pressCount < 36; k++) {
+	for (int band = 0; band < 5 && s_pressCount < 54; band++)
+		for (int k = 0; k < s_sprayCount && s_pressCount < 54; k++) {
 			const s32 age = now - s_spray[k].at;
 			if (age < band * 500 || age >= (band + 1) * 500)
 				continue;
 			Press& q = s_press[s_pressCount++];
-			q.x = s_spray[k].x, q.y = s_spray[k].y, q.z = s_spray[k].z, q.r = 30.0f;
+			q.x = s_spray[k].x, q.y = s_spray[k].y, q.z = s_spray[k].z, q.r = 58.0f;
 			const f32 left = 1.0f - (f32)age / kSprayMs;
-			q.strength     = 0.9f * (left < 0.35f ? left / 0.35f : 1.0f);  // flat, then rising again
+			q.strength     = 0.95f * (left < 0.3f ? left / 0.3f : 1.0f);  // flat, then rising again
 		}
 	for (int i = 0; i < s_trailCount && s_pressCount < kMostPress; i++) {
 		const TrailPoint& p = s_trail[i];
@@ -511,13 +513,14 @@ struct Register {
 
 namespace {
 // mirror: the blades in a puddle's or the water's reflection (port_reflections.cpp), seen from the
-// mirror's camera: only near Mario (1500 units), in the kind's own colour (the ground under them
+// mirror's camera: only near Mario (Grass Reflection Distance), in the kind's own colour (the ground under them
 // is not looked at: the reflection is drawn before the ground it reflects is copied).
 void drawGrass(float (*view)[4], bool mirror)
 {
 	if (!s_style || !gpMarioPos || !view || !s_bladeTotal || s_reach <= 0.0f)
 		return;
-	const f32 reach = mirror && s_reach > 1500.0f ? 1500.0f : s_reach;
+	const f32 most  = port_grass_reflect_distance();
+	const f32 reach = mirror && most >= 0.0f && s_reach > most ? most : s_reach;
 	const Style& st = *s_style;
 	const f32 mx = gpMarioPos->x, my = gpMarioPos->y, mz = gpMarioPos->z;
 	gatherPress(mx, my, mz);

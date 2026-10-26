@@ -315,6 +315,7 @@ in vec3 v_wn; in vec3 v_wp; in vec3 v_wl; in vec3 v_wlc;
 uniform vec4 u_wet[2];
 uniform vec4 u_shadow[12];
 uniform sampler2DShadow u_shadowMap;
+uniform vec4 u_plight[17];
 // Shadows: how lit a point is in a cascade's map (c: its clip space; tile 0 near, 1 far; the two
 // side by side in the texture), 3 by 3 taps (each comparing 4 texels), kept to the cascade's half
 float shadowLit(vec3 c, float tile) {
@@ -616,6 +617,25 @@ static std::string genFS(const ShaderKey& k) {
          // a little blue, as shade lit by the sky is
          "      color.rgb *= 1.0 - u_shadow[9].x * dark * smoothstep(0.0, 0.2, nl) * vec3(1.0, 0.94, 0.8);\n"
          "    }\n"
+         "  }\n"
+         // Fire Lights (u_plight[16].x lights, while their view is drawn): each a warm light that
+         // fades to nothing at its radius, brighter on faces turned to it; what it lights is
+         // brighter (its own colour more so), with a little of the light's own
+         "  if (u_plight[16].x > 0.5) {\n"
+         "    vec3 pn = cross(dFdx(v_wp), dFdy(v_wp));\n"
+         "    pn = dot(pn, pn) > 1e-12 ? normalize(pn) : vec3(0.0, 0.0, 1.0);\n"
+         "    if (dot(pn, v_wp) > 0.0) pn = -pn;\n"
+         "    vec3 lsum = vec3(0.0);\n"
+         "    int pc = int(u_plight[16].x);\n"
+         "    for (int i = 0; i < 8; i++) {\n"
+         "      if (i >= pc) break;\n"
+         "      vec4 lp = u_plight[i * 2], lc = u_plight[i * 2 + 1];\n"
+         "      vec3 L = lp.xyz - v_wp;\n"
+         "      float d = length(L);\n"
+         "      float a = clamp(1.0 - d / lp.w, 0.0, 1.0);\n"
+         "      lsum += lc.rgb * (lc.a * a * a * (max(dot(pn, L / max(d, 1.0)), 0.0) * 0.7 + 0.3));\n"
+         "    }\n"
+         "    color.rgb = clamp(color.rgb + color.rgb * lsum * 1.5 + lsum * 0.05, 0.0, 1.0);\n"
          "  }\n";
     if (k.fogType) {
         // u_fog: x = A, y = B, z = C, w = 1 for orthographic. The depth is the
@@ -689,6 +709,7 @@ static void setupProgram(GLuint p, ShaderProgram& sp, bool aside = false) {
     if (blk != GL_INVALID_INDEX) glUniformBlockBinding(p, blk, 0);
     GLint units[8] = {0, 1, 2, 3, 4, 5, 6, 7};
     sp.uShadow = glGetUniformLocation(p, "u_shadow");
+    sp.uPlight = glGetUniformLocation(p, "u_plight");
     GLint shadowMap = glGetUniformLocation(p, "u_shadowMap");
     if (shadowMap >= 0) glUniform1i(shadowMap, kShadowUnit);
     GLint loc = glGetUniformLocation(p, "u_tex");
@@ -1384,7 +1405,8 @@ void main() {
       vec2 pv = bp.xz - q.xz;
       float pd = length(pv);
       if (pd >= q.w || abs(q.y - bp.y) > 60.0) continue;
-      float amt = (1.0 - pd / q.w) * u_gs[i >> 2][i & 3];
+      float fr = pd / q.w;
+      float amt = (1.0 - fr * fr) * u_gs[i >> 2][i & 3];  // flat across most of it
       tip += (pd > 0.01 ? pv / pd : vec2(0.0)) * amt * h * 0.9;
       down += amt * h * 0.55;
     }

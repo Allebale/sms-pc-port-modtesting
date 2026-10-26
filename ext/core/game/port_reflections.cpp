@@ -524,6 +524,7 @@ extern "C" void GXPC_SetUserClipPlane(int on, const float* plane);
 void port_mirror_clip(TMirrorCamera* mirror)
 {
 	GXPC_ShadowNotMain();  // Real Shadows: the mirror's view is not the main camera's
+	port_lights_view(mirror ? mirror->unk30 : 0);  // Fire Lights, seen from the mirror
 	if (!port_reflect_level() || !mirror || !gpMirrorModelManager || gpMirrorModelManager->isUnk18Present())
 		return;
 	MtxPtr v                       = mirror->unk30;

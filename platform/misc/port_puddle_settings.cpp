@@ -73,6 +73,8 @@ int s_wetMario = 0;       // Wet Mario
 int s_grass = 0;          // 3D Grass: 0 off, 1 by location, 2 always cut, 3 always wild
 int s_grassDistance = 2;  // Grass Distance: into kGrassDistances
 int s_grassThin = 0;      // Thinned Far Away
+int s_grassReflect = 1;   // Grass Reflection Distance: into kGrassReflects
+int s_fireLights = 0;     // Fire Lights
 int s_grassCutHeight = 2, s_grassWildHeight = 2;  // into kGrassHeights
 int s_shadows = 0;        // Real Shadows: 0 off (the game's own), 1 soft, 2 strong
 int s_shadowsRound = 0;   // Round Shadows Under Characters, with Real Shadows: 1 kept (lighter)
@@ -248,6 +250,10 @@ void load() {
             s_grassCutHeight = value < 1 ? 1 : value > 5 ? 5 : value;  // no 50 percent for cut grass
         } else if (sscanf(line, " grasswildheight = %d", &value) == 1) {
             s_grassWildHeight = value < 0 ? 0 : value > 5 ? 5 : value;
+        } else if (sscanf(line, " grassreflectdistance = %d", &value) == 1) {
+            s_grassReflect = value < 0 ? 0 : value > 4 ? 4 : value;
+        } else if (sscanf(line, " firelights = %d", &value) == 1) {
+            s_fireLights = value != 0;
         } else if (sscanf(line, " grassthin = %d", &value) == 1) {
             s_grassThin = value != 0;
         } else if (sscanf(line, " grassdistance = %d", &value) == 1) {
@@ -335,6 +341,10 @@ void save() {
     fprintf(f, "grassdistance = %d\n", s_grassDistance);
     fprintf(f, "# grassthin: 1 fewer, wider blades far from Mario (faster), 0 every blade all the way.\n");
     fprintf(f, "grassthin = %d\n", s_grassThin);
+    fprintf(f, "# grassreflectdistance: how far the blades go in reflections: 0 short, 1 medium, 2 long, 3 very long, 4 as Grass Distance.\n");
+    fprintf(f, "grassreflectdistance = %d\n", s_grassReflect);
+    fprintf(f, "# firelights: 1 fires light up what is around them (and in reflections), 0 not.\n");
+    fprintf(f, "firelights = %d\n", s_fireLights);
     fprintf(f, "# grasscutheight, grasswildheight: 0 50%% (wild only), 1 75%%, 2 100%%, 3 150%%, 4 200%%, 5 300%%.\n");
     fprintf(f, "grasscutheight = %d\n", s_grassCutHeight);
     fprintf(f, "grasswildheight = %d\n", s_grassWildHeight);
@@ -424,6 +434,36 @@ int grassHeightSet(int i) {
     (Wild ? s_grassWildHeight : s_grassCutHeight) = i;
     save();
     port_log("[grass] %s Grass Height changed: %s\n", Wild ? "Wild" : "Cut", kGrassHeightNames[i]);
+    return 1;
+}
+
+const char* const kGrassReflectNames[] = {"Short", "Medium", "Long", "Very Long", "Same as Grass Distance"};
+const float kGrassReflects[] = {600.0f, 1500.0f, 3000.0f, 6000.0f, -1.0f};
+int grassReflectCount() { return 5; }
+const char* grassReflectName(int i) { return kGrassReflectNames[i < 0 || i > 4 ? 1 : i]; }
+int grassReflectGet() {
+    load();
+    return s_grassReflect;
+}
+int grassReflectSet(int i) {
+    if (i < 0 || i > 4) return 0;
+    load();
+    s_grassReflect = i;
+    save();
+    port_log("[grass] Grass Reflection Distance changed: %s\n", kGrassReflectNames[i]);
+    return 1;
+}
+
+int fireLightsGet() {
+    load();
+    return s_fireLights;
+}
+int fireLightsSet(int i) {
+    if (i < 0 || i > 1) return 0;
+    load();
+    s_fireLights = i;
+    save();
+    port_log("[lights] Fire Lights changed: %s\n", i ? "on" : "off");
     return 1;
 }
 
@@ -843,6 +883,12 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 104, "Wild Grass Height",
      "How tall the wild grass grows (hills, villages, beaches).", 0, nullptr, grassHeightCount<1>,
      grassHeightName<1>, grassHeightGet<1>, grassHeightSet<1>},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 105, "Grass Reflection Distance",
+     "How far from Mario the grass shows in puddles and water. Farther costs more.", 0, nullptr,
+     grassReflectCount, grassReflectName, grassReflectGet, grassReflectSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 106, "Fire Lights",
+     "Fires light up the ground and walls around them, in reflections too.", 0, nullptr, offOnCount,
+     offOnName, fireLightsGet, fireLightsSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 96, "Real Shadows",
      "The sun's shadows of everything, the level and characters too. Off is the original.", 0,
      nullptr, shadowsCount, shadowsName, shadowsGet, shadowsSet},
@@ -958,6 +1004,16 @@ float port_grass_height(int wild) {
     load();
     const int i = wild ? s_grassWildHeight : s_grassCutHeight;
     return kGrassHeights[i < 0 || i > 5 ? 2 : i];
+}
+// Grass Reflection Distance: how far the blades go in reflections (-1: as far as Grass Distance).
+float port_grass_reflect_distance(void) {
+    load();
+    return kGrassReflects[s_grassReflect < 0 || s_grassReflect > 4 ? 1 : s_grassReflect];
+}
+// Fire Lights (ext/core/game/port_lights.cpp): 1 on.
+int port_fire_lights(void) {
+    load();
+    return s_fireLights;
 }
 int port_grass_thin(void) {
     load();
