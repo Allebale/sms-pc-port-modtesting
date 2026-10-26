@@ -1034,8 +1034,8 @@ s32 s_wetLast;
 // Drips: while he is wet (not in deep water), drops of water fall from the wet part of him (from his
 // joints below the waterline, a little out from his middle, and above the water he stands in), more
 // the wetter he is, and fall as drops do, leaving a small damp spot where they land on the ground.
-const int kMostDrips   = 160;
-const f32 kDripsPerSec = 26.0f;  // soaked; fewer as he dries (by wetness squared)
+const int kMostDrips   = 320;
+const f32 kDripsPerSec = 70.0f;  // soaked; fewer as he dries (by wetness squared)
 const f32 kGravity     = 980.0f; // units per second squared (Mario: about 160 units tall)
 const f32 kSpotMs      = 900.0f; // a damp spot's fading
 struct Drip {
@@ -1087,7 +1087,7 @@ void spawnDrip(TMario* m, f32 waterY)
 		dr.x = x, dr.y = y, dr.z = z;
 		dr.vx = v.x * 15.0f + (rand01() - 0.5f) * 20.0f;
 		dr.vz = v.z * 15.0f + (rand01() - 0.5f) * 20.0f;
-		dr.vy = (v.y > 0.0f ? v.y * 15.0f : 0.0f) - 20.0f * rand01();
+		dr.vy = (v.y > 0.0f ? v.y * 15.0f : 0.0f) - 80.0f - 80.0f * rand01();  // already running off him
 		const TBGCheckData* floor = 0;
 		const f32 g   = gpMap->checkGroundIgnoreWaterSurface(x, y, z, &floor);
 		dr.onGround   = waterY < g;  // lands on the ground (not into water he stands in)
@@ -1181,26 +1181,40 @@ void drawDrips(MtxPtr view)
 			GXEnd();
 			continue;
 		}
-		// a drop: round below, pointed above, stretched as it falls faster
-		const f32 speed = sqrtf(d.vx * d.vx + d.vy * d.vy + d.vz * d.vz);
-		const f32 len   = 3.0f + speed * 0.012f;
-		const f32 w     = 1.6f;
-		const f32 x = d.x, y = d.y, z = d.z;
-		GXBegin(GX_TRIANGLEFAN, GX_VTXFMT0, 7);
-		GXPosition3f32(x, y + w * 0.6f, z);  // its middle, brightest
-		GXColor4u8(235, 245, 255, 200);
-		GXPosition3f32(x, y + len, z);
-		GXColor4u8(200, 220, 240, 40);
-		GXPosition3f32(x + rx * w, y + w * 0.7f + ry * w, z + rz * w);
-		GXColor4u8(170, 195, 225, 120);
-		GXPosition3f32(x + rx * w * 0.7f, y - w * 0.4f, z + rz * w * 0.7f);
-		GXColor4u8(170, 195, 225, 150);
-		GXPosition3f32(x - rx * w * 0.7f, y - w * 0.4f, z - rz * w * 0.7f);
-		GXColor4u8(170, 195, 225, 150);
-		GXPosition3f32(x - rx * w, y + w * 0.7f - ry * w, z - rz * w);
-		GXColor4u8(170, 195, 225, 120);
-		GXPosition3f32(x, y + len, z);
-		GXColor4u8(200, 220, 240, 40);
+		// a falling streak of water, as from a shower head: from the drop back along the way it
+		// falls, as long as it travels in about a 25th of a second (the eye blurs it so), thin and
+		// bright at its head, fading toward its tail
+		f32 dx = d.vx, dy = d.vy, dz = d.vz;
+		const f32 speed = sqrtf(dx * dx + dy * dy + dz * dz);
+		if (speed > 1.0f)
+			dx /= speed, dy /= speed, dz /= speed;
+		else
+			dx = 0.0f, dy = -1.0f, dz = 0.0f;
+		const f32 len = 5.0f + speed * 0.04f;
+		// across the streak, facing the camera: (its direction) x (the view's forward, row 2)
+		f32 sx = dy * view[2][2] - dz * view[2][1];
+		f32 sy = dz * view[2][0] - dx * view[2][2];
+		f32 sz = dx * view[2][1] - dy * view[2][0];
+		f32 sl = sqrtf(sx * sx + sy * sy + sz * sz);
+		if (sl < 1e-3f)
+			sx = rx, sy = ry, sz = rz, sl = 1.0f;
+		const f32 w = 1.3f / sl;
+		sx *= w, sy *= w, sz *= w;
+		const f32 hx = d.x, hy = d.y, hz = d.z;                                  // its head
+		const f32 tx = hx - dx * len, ty = hy - dy * len, tz = hz - dz * len;  // its tail
+		GXBegin(GX_TRIANGLEFAN, GX_VTXFMT0, 6);
+		GXPosition3f32(hx, hy, hz);
+		GXColor4u8(240, 248, 255, 210);
+		GXPosition3f32(hx + sx, hy + sy, hz + sz);
+		GXColor4u8(200, 220, 245, 150);
+		GXPosition3f32(tx + sx * 0.4f, ty + sy * 0.4f, tz + sz * 0.4f);
+		GXColor4u8(190, 210, 240, 0);
+		GXPosition3f32(tx - sx * 0.4f, ty - sy * 0.4f, tz - sz * 0.4f);
+		GXColor4u8(190, 210, 240, 0);
+		GXPosition3f32(hx - sx, hy - sy, hz - sz);
+		GXColor4u8(200, 220, 245, 150);
+		GXPosition3f32(hx, hy - 1.2f, hz);  // a round tip below
+		GXColor4u8(200, 220, 245, 120);
 		GXEnd();
 	}
 }
