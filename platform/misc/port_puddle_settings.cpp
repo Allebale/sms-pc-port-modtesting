@@ -241,7 +241,7 @@ void load() {
         } else if (sscanf(line, " footprints = %d", &value) == 1) {
             s_footprints = value != 0;
         } else if (sscanf(line, " grasscutheight = %d", &value) == 1) {
-            s_grassCutHeight = value < 0 ? 0 : value > 5 ? 5 : value;
+            s_grassCutHeight = value < 1 ? 1 : value > 5 ? 5 : value;  // no 50 percent for cut grass
         } else if (sscanf(line, " grasswildheight = %d", &value) == 1) {
             s_grassWildHeight = value < 0 ? 0 : value > 5 ? 5 : value;
         } else if (sscanf(line, " grassthin = %d", &value) == 1) {
@@ -323,7 +323,7 @@ void save() {
     fprintf(f, "grassdistance = %d\n", s_grassDistance);
     fprintf(f, "# grassthin: 1 fewer, wider blades far from Mario (faster), 0 every blade all the way.\n");
     fprintf(f, "grassthin = %d\n", s_grassThin);
-    fprintf(f, "# grasscutheight, grasswildheight: 0 50%%, 1 75%%, 2 100%%, 3 150%%, 4 200%%, 5 300%%.\n");
+    fprintf(f, "# grasscutheight, grasswildheight: 0 50%% (wild only), 1 75%%, 2 100%%, 3 150%%, 4 200%%, 5 300%%.\n");
     fprintf(f, "grasscutheight = %d\n", s_grassCutHeight);
     fprintf(f, "grasswildheight = %d\n", s_grassWildHeight);
     fprintf(f, "# level: 1 the stage itself (ground, buildings, sky) in puddles and water too, 0 not.\n");
@@ -383,16 +383,23 @@ int grassDistanceSet(int i) {
 
 const char* const kGrassHeightNames[] = {"50 percent", "75 percent", "Normal", "150 percent", "Twice", "Three Times"};
 const float kGrassHeights[] = {0.5f, 0.75f, 1.0f, 1.5f, 2.0f, 3.0f};
-int grassHeightCount() { return 6; }
-const char* grassHeightName(int i) { return kGrassHeightNames[i < 0 || i > 5 ? 2 : i]; }
+// The menu's rows: cut grass has no 50 percent (too short to see), so its first is 75 percent.
+template <int Wild>
+int grassHeightCount() { return Wild ? 6 : 5; }
+template <int Wild>
+const char* grassHeightName(int i) {
+    i += Wild ? 0 : 1;
+    return kGrassHeightNames[i < 0 || i > 5 ? 2 : i];
+}
 template <int Wild>
 int grassHeightGet() {
     load();
-    return Wild ? s_grassWildHeight : s_grassCutHeight;
+    return Wild ? s_grassWildHeight : s_grassCutHeight - 1;
 }
 template <int Wild>
 int grassHeightSet(int i) {
-    if (i < 0 || i > 5) return 0;
+    i += Wild ? 0 : 1;
+    if (i < (Wild ? 0 : 1) || i > 5) return 0;
     load();
     (Wild ? s_grassWildHeight : s_grassCutHeight) = i;
     save();
@@ -753,11 +760,11 @@ const PortSetting kPuddleSettings[] = {
      "Fewer, wider blades far from Mario: faster, but they show as you come near.", 0, nullptr,
      offOnCount, offOnName, grassThinGet, grassThinSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 99, "Cut Grass Height",
-     "How tall the cut and tended grass grows (town lawns, parks).", 0, nullptr, grassHeightCount,
-     grassHeightName, grassHeightGet<0>, grassHeightSet<0>},
+     "How tall the cut and tended grass grows (town lawns, parks).", 0, nullptr, grassHeightCount<0>,
+     grassHeightName<0>, grassHeightGet<0>, grassHeightSet<0>},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 100, "Wild Grass Height",
-     "How tall the wild grass grows (hills, villages, beaches).", 0, nullptr, grassHeightCount,
-     grassHeightName, grassHeightGet<1>, grassHeightSet<1>},
+     "How tall the wild grass grows (hills, villages, beaches).", 0, nullptr, grassHeightCount<1>,
+     grassHeightName<1>, grassHeightGet<1>, grassHeightSet<1>},
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 0, "Preset",
      "The original game, or the recommended look. Some apply from the next area.", 1, nullptr, presetCount,
      presetName, presetGet, presetSet},
