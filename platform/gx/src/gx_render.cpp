@@ -1914,7 +1914,12 @@ static void uploadUniforms(const ShaderProgram* sp, float texW[8], float texH[8]
     UNI(uWet, wet, wet, glUniform4fv(sp->uWet, 2, wet));
     float shadow[48];
     memcpy(shadow, g.shadow, sizeof shadow);
-    shadow[43] = g.shadowMain ? 1.0f : 0.0f;  // received only in the main camera's view
+    // received only in the main camera's view, and not on see-through surfaces that write no depth
+    // (water, glass): the shadow falls through them onto what is under them (else it shows twice,
+    // on the water's surface and on the sand below)
+    const uint32_t scm = g.bp[BP_CMODE0];
+    const bool seeThrough = (scm & 1) && !((g.bp[BP_ZMODE] >> 4) & 1);
+    shadow[43] = g.shadowMain && !seeThrough ? 1.0f : 0.0f;
     UNI(uShadow, shadow, shadow, glUniform4fv(sp->uShadow, 12, shadow));
     float plight[68];
     memcpy(plight, g.plight, sizeof plight);
