@@ -52,11 +52,11 @@ struct Style {
 };
 
 const Style kCut    = {"cut short (the Piantas mow it)", 8.0f, 5.0f, 9.0f, 1.7f, 0.05f, 650.0f, 1, true, false,
-                       {46, 112, 30}, {104, 186, 54}};
+                       {58, 146, 36}, {112, 210, 58}};
 const Style kTended = {"tended now and then", 9.0f, 9.0f, 17.0f, 1.9f, 0.09f, 700.0f, 1, false, false,
-                       {44, 106, 32}, {116, 184, 60}};
+                       {56, 140, 38}, {122, 210, 62}};
 const Style kWild   = {"wild", 11.0f, 14.0f, 44.0f, 2.4f, 0.17f, 850.0f, 2, false, true,
-                       {38, 90, 28}, {142, 176, 64}};
+                       {50, 132, 34}, {140, 214, 66}};
 
 // The grass of a world (SMS_getShineStage's order), by location.
 const Style* styleOfWorld(int world)
@@ -171,8 +171,12 @@ int grassNear(f32 x, f32 z, f32 radius, const TBGCheckData** out, int n)
 }
 
 // ------------------------------------------------------------------ the tiles
-const f32 kTile      = 256.0f;
-const int kMostTiles = 120;
+// The tiles round Mario live in a 64 by 64 window that wraps round the world (a tile's place in it
+// is its x and z modulo 64): every tile Grass Distance can reach fits in it at once, so a tile is
+// found at its place, or replaced there.
+const f32 kTile       = 256.0f;
+const int kWindow     = 64;
+const int kMostTiles  = kWindow * kWindow;
 const int kMostBlades = 1400;  // in a tile: (256 / 8)^2 at the closest spacing, and more
 
 struct Blade {
@@ -186,6 +190,7 @@ struct Tile {
 	int tx, tz;
 	int count;
 	bool used;
+	f32 made;       // the share of its blades it was made with (far away, fewer: keepShare)
 	Blade* blades;  // malloc: the host's memory, not the game's
 	f32 minY, maxY;
 };
@@ -193,54 +198,54 @@ struct Tile {
 Tile s_tiles[kMostTiles];
 int s_bladeTotal;
 
+// Grass Distance: how far the blades go, times the kind's own reach; whole (every blade) to half
+// the kind's reach, then thinning as the square of the distance, so that the far ones cost little.
+f32 s_reach, s_whole;
+
+// The share of the blades drawn at distance d (blade.keep below 256 times it).
+f32 keepShare(f32 d) { return d <= s_whole ? 1.0f : (s_whole / d) * (s_whole / d); }
+
+void dropTile(Tile& t)
+{
+	if (t.used)
+		s_bladeTotal -= t.count;
+	free(t.blades);
+	t.blades = 0;
+	t.used   = false;
+	t.count  = 0;
+}
+
 void forgetTiles()
 {
-	for (int i = 0; i < kMostTiles; i++) {
-		free(s_tiles[i].blades);
-		s_tiles[i].blades = 0;
-		s_tiles[i].used   = false;
-	}
+	for (int i = 0; i < kMostTiles; i++)
+		dropTile(s_tiles[i]);
 	s_bladeTotal = 0;
 }
 
-Tile* findTile(int tx, int tz)
+Tile& tileAt(int tx, int tz)
 {
-	for (int i = 0; i < kMostTiles; i++)
-		if (s_tiles[i].used && s_tiles[i].tx == tx && s_tiles[i].tz == tz)
-			return &s_tiles[i];
-	return 0;
+	const int wx = ((tx % kWindow) + kWindow) % kWindow, wz = ((tz % kWindow) + kWindow) % kWindow;
+	return s_tiles[wz * kWindow + wx];
 }
 
-// A slot for a new tile: a free one, else the one farthest from Mario.
-Tile* slotFor(f32 mx, f32 mz)
+// How near Mario a tile comes (0 when he is on it).
+f32 tileDistance(int tx, int tz, f32 mx, f32 mz)
 {
-	Tile* worst = 0;
-	f32 worstD  = -1.0f;
-	for (int i = 0; i < kMostTiles; i++) {
-		Tile& t = s_tiles[i];
-		if (!t.used)
-			return &t;
-		const f32 dx = (t.tx + 0.5f) * kTile - mx, dz = (t.tz + 0.5f) * kTile - mz;
-		const f32 d = dx * dx + dz * dz;
-		if (d > worstD)
-			worstD = d, worst = &t;
-	}
-	if (worst) {
-		s_bladeTotal -= worst->count;
-		free(worst->blades);
-		worst->blades = 0;
-		worst->used   = false;
-	}
-	return worst;
+	const f32 x0 = tx * kTile, z0 = tz * kTile;
+	const f32 dx = mx < x0 ? x0 - mx : mx > x0 + kTile ? mx - x0 - kTile : 0.0f;
+	const f32 dz = mz < z0 ? z0 - mz : mz > z0 + kTile ? mz - z0 - kTile : 0.0f;
+	return sqrtf(dx * dx + dz * dz);
 }
 
-void makeTile(Tile* t, int tx, int tz)
+// The tile's blades, as many as are drawn as near Mario as `share` says (the rest of a far tile's
+// are not made at all, until he comes nearer).
+void makeTile(Tile* t, int tx, int tz, f32 share)
 {
 	const Style& st = *s_style;
+	dropTile(*t);
 	t->tx = tx, t->tz = tz;
 	t->used   = true;
-	t->count  = 0;
-	t->blades = 0;
+	t->made   = share;
 	t->minY = 1e9f, t->maxY = -1e9f;
 	const f32 x0 = tx * kTile, z0 = tz * kTile;
 	const TBGCheckData* tris[96];
@@ -256,6 +261,9 @@ void makeTile(Tile* t, int tx, int tz)
 	const TBGCheckData* last = tris[0];
 	for (int cz = c0z; cz < c1z && t->count < kMostBlades; cz++)
 		for (int cx = c0x; cx < c1x && t->count < kMostBlades; cx++) {
+			const u8 keep = (u8)(hash2(cx, cz, 0x3Cu) >> 24);
+			if ((keep + 0.5f) * (1.0f / 256) >= share)
+				continue;  // drawn only nearer than this tile comes
 			const u32 h = hash2(cx, cz, 0x9E37u);
 			const f32 x = (cx + rand01(h)) * st.spacing;
 			const f32 z = (cz + rand01(h * 0x2545F491u + 7u)) * st.spacing;
@@ -290,7 +298,7 @@ void makeTile(Tile* t, int tx, int tz)
 			b.dirX = cosf(yaw), b.dirZ = sinf(yaw);
 			b.phase = (u16)(h >> 7);
 			b.shade = (u8)(h >> 17);
-			b.keep  = (u8)(hash2(cx, cz, 0x3Cu) >> 24);
+			b.keep  = keep;
 			if (b.y < t->minY)
 				t->minY = b.y;
 			if (b.y + b.h > t->maxY)
@@ -381,26 +389,31 @@ void afterMovement()
 		if (s_trailCount < kTrail)
 			s_trailCount++;
 	}
-	// the tiles round Mario, nearest first, two a tick
-	const f32 reach = s_style->reach + kTile;
+	// the tiles round Mario, nearest first: those missing, and those he has come nearer to than
+	// they were made for; for at most 2 ms a tick
+	s_reach = s_style->reach * port_grass_distance();
+	s_whole = s_style->reach * 0.5f;
+	const f32 reach = s_reach + kTile;
 	const int tx0 = (int)floorf((mx - reach) / kTile), tx1 = (int)floorf((mx + reach) / kTile);
 	const int tz0 = (int)floorf((mz - reach) / kTile), tz1 = (int)floorf((mz + reach) / kTile);
-	for (int made = 0; made < 2;) {
+	const OSTime start = OSGetTime();
+	for (int made = 0; made < 32 && OSTicksToMicroseconds(OSGetTime() - start) < 2000;) {
 		int bx = 0, bz = 0;
-		f32 best = 1e30f;
+		f32 best = 1e30f, bestShare = 0.0f;
 		for (int tz = tz0; tz <= tz1; tz++)
 			for (int tx = tx0; tx <= tx1; tx++) {
-				const f32 dx = (tx + 0.5f) * kTile - mx, dz = (tz + 0.5f) * kTile - mz;
-				const f32 d = dx * dx + dz * dz;
-				if (d < best && d < reach * reach && !findTile(tx, tz))
-					best = d, bx = tx, bz = tz;
+				const f32 d = tileDistance(tx, tz, mx, mz);
+				if (d >= best || d > s_reach)
+					continue;
+				const Tile& t     = tileAt(tx, tz);
+				const f32 share   = keepShare(d > kTile ? d - kTile : 0.0f);  // a tile's margin
+				const bool needed = !t.used || t.tx != tx || t.tz != tz || share > t.made * 1.3f;
+				if (needed)
+					best = d, bx = tx, bz = tz, bestShare = share;
 			}
 		if (best >= 1e30f)
 			break;
-		Tile* slot = slotFor(mx, mz);
-		if (!slot)
-			break;
-		makeTile(slot, bx, bz);
+		makeTile(&tileAt(bx, bz), bx, bz, bestShare);
 		made++;
 	}
 }
@@ -490,13 +503,13 @@ void port_grass_draw(float (*view)[4])
 	GXSetDstAlpha(GX_FALSE, 0);
 
 	const f32 t     = (f32)nowMs() * 0.001f;
-	const f32 reach = st.reach;
+	const f32 reach = s_reach;
 	// the breeze: from one way, its strength rolling across the stage
 	const f32 windX = 0.8f, windZ = 0.6f;
 	Press close[64];  // (not `near`: windows.h defines it as nothing)
 	for (int i = 0; i < kMostTiles; i++) {
 		const Tile& tile = s_tiles[i];
-		if (!tile.used || !tile.count)
+		if (!tile.used || !tile.count || tileDistance(tile.tx, tile.tz, mx, mz) > reach)
 			continue;
 		const f32 cx = (tile.tx + 0.5f) * kTile, cz = (tile.tz + 0.5f) * kTile;
 		const f32 tdx = cx - mx, tdz = cz - mz;
@@ -522,11 +535,13 @@ void port_grass_draw(float (*view)[4])
 			const f32 d  = sqrtf(dx * dx + dz * dz);
 			if (d > reach)
 				continue;
-			// fewer farther out (whole to 45% of the way, then thinning), shorter at the edge
-			const f32 out = d / reach;
-			if (out > 0.45f && (f32)b.keep > 255.0f * (1.0f - (out - 0.45f) * 1.2f))
+			// fewer farther out (keepShare), each of those wider, so the grass looks as full; shorter
+			// at the edge
+			const f32 share = keepShare(d);
+			if ((b.keep + 0.5f) * (1.0f / 256) >= share)
 				continue;
-			f32 h = b.h * (out > 0.8f ? (1.0f - out) * 5.0f : 1.0f);
+			const f32 out = d / reach;
+			f32 h = b.h * (out > 0.85f ? (1.0f - out) * (1.0f / 0.15f) : 1.0f);
 			if (h < 0.5f)
 				continue;
 			// the breeze
@@ -561,12 +576,13 @@ void port_grass_draw(float (*view)[4])
 			f32 tip[3]        = {st.tip[0] * shade, st.tip[1] * shade, st.tip[2] * shade};
 			if (st.clumps && (b.shade & 7) == 0)
 				tip[0] *= 1.35f, tip[2] *= 0.85f;
-			const f32 w  = st.width * 0.5f;
+			const f32 widen = share < 1.0f ? 1.0f / sqrtf(share) : 1.0f;
+			const f32 w     = st.width * 0.5f * (widen > 3.0f ? 3.0f : widen);
 			const f32 ax = b.dirX * w, az = b.dirZ * w;
 			const f32 topY = b.y + h - tipDown;
 			if (s_vertCount + 9 > kChunk)
 				flushVerts();
-			if (st.segments == 1 || out > 0.55f) {
+			if (st.segments == 1 || d > s_whole) {
 				put(b.x - ax, b.y, b.z - az, base);
 				put(b.x + ax, b.y, b.z + az, base);
 				put(b.x + tipX, topY, b.z + tipZ, tip);

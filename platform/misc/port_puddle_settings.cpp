@@ -71,6 +71,7 @@ int s_beatMirrors = 0;    // Puddles Beat Mirrors
 int s_footprints = 0;     // Wet Footprints
 int s_wetMario = 0;       // Wet Mario
 int s_grass = 0;          // 3D Grass: 0 off, 1 by location, 2 always cut, 3 always wild
+int s_grassDistance = 2;  // Grass Distance: into kGrassDistances
 int s_level = 0;          // Reflect the Level: 0 off (as the game has it), 1 the stage itself too
 int s_water;       // Water Reflections: 0 none (as the game has it), 1 in the stage's water and wet ground
 // 0.5x to 5x the game's 1000 units, in steps of 0.25x (250 units)
@@ -237,6 +238,8 @@ void load() {
             // done by isKind
         } else if (sscanf(line, " footprints = %d", &value) == 1) {
             s_footprints = value != 0;
+        } else if (sscanf(line, " grassdistance = %d", &value) == 1) {
+            s_grassDistance = value < 0 ? 0 : value > 4 ? 4 : value;
         } else if (sscanf(line, " grassblades = %d", &value) == 1) {
             s_grass = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " wetmario = %d", &value) == 1) {
@@ -308,6 +311,8 @@ void save() {
     fprintf(f, "wetmario = %d\n", s_wetMario);
     fprintf(f, "# grassblades: blades of grass on the grass: 0 off, 1 by location, 2 always cut, 3 always wild.\n");
     fprintf(f, "grassblades = %d\n", s_grass);
+    fprintf(f, "# grassdistance: how far the blades go: 0 low, 1 medium, 2 high, 3 very high, 4 max.\n");
+    fprintf(f, "grassdistance = %d\n", s_grassDistance);
     fprintf(f, "# level: 1 the stage itself (ground, buildings, sky) in puddles and water too, 0 not.\n");
     fprintf(f, "level = %d\n", s_level);
     fprintf(f, "# beatmirrors: 1 puddles near Mario take the reflection from a real mirror's area, 0 not.\n");
@@ -343,6 +348,23 @@ int grassSet(int i) {
     s_grass = i;
     save();
     port_log("[grass] 3D Grass changed: %s\n", kGrassNames[i]);
+    return 1;
+}
+
+const char* const kGrassDistanceNames[] = {"Low", "Medium", "High", "Very High", "Max"};
+const float kGrassDistances[] = {1.0f, 2.0f, 3.5f, 5.0f, 8.0f};
+int grassDistanceCount() { return 5; }
+const char* grassDistanceName(int i) { return kGrassDistanceNames[i < 0 || i > 4 ? 2 : i]; }
+int grassDistanceGet() {
+    load();
+    return s_grassDistance;
+}
+int grassDistanceSet(int i) {
+    if (i < 0 || i > 4) return 0;
+    load();
+    s_grassDistance = i;
+    save();
+    port_log("[grass] Grass Distance changed: %s\n", kGrassDistanceNames[i]);
     return 1;
 }
 
@@ -679,6 +701,9 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 96, "3D Grass",
      "Blades of grass, cut short in town, wild in the hills. They sway and bend round Mario.", 0, nullptr,
      grassCount, grassName, grassGet, grassSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 97, "Grass Distance",
+     "How far from Mario the blades of grass go. Farther costs a little more.", 0, nullptr,
+     grassDistanceCount, grassDistanceName, grassDistanceGet, grassDistanceSet},
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 0, "Preset",
      "The original game, or the recommended look. Some apply from the next area.", 1, nullptr, presetCount,
      presetName, presetGet, presetSet},
@@ -777,6 +802,10 @@ const PortSetting* port_puddle_settings(int* n) {
 int port_grass(void) {
     load();
     return s_grass;
+}
+float port_grass_distance(void) {
+    load();
+    return kGrassDistances[s_grassDistance < 0 || s_grassDistance > 4 ? 2 : s_grassDistance];
 }
 
 // The options as the settings have them (port_puddle_options.cpp asks as it starts, and again

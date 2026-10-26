@@ -12,6 +12,8 @@ extern "C" {
 // The setting (the pause menu's Settings, Graphics): 0 off, 1 by location, 2 always cut, 3 always
 // wild.
 int port_grass(void);
+// Grass Distance: how far from Mario the blades go, times each kind's own reach (Low 1 to Max 8).
+float port_grass_distance(void);
 // From port_draw_footprints (TModelWaterManager::perform, as the stage's ground is drawn): the
 // blades near Mario. view: the camera's (world to view).
 void port_grass_draw(float (*view)[4]);
