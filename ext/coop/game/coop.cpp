@@ -192,8 +192,11 @@ u32 imageBytes(const ResTIMG& t)
 }
 
 // A texture table of a model's own: its headers and then every image and
-// palette, copied into one block so each header's offsets stay positive (the
-// 64-bit build keeps them unsigned). Texture 0 is `first` when given.
+// palette, copied into one block so each header's offsets stay positive.
+// Texture 0 is `first` when given. A header's offsets are 32-bit and may point
+// back before it (Eclipse sets some of Mario's textures to images loaded
+// earlier): the game's memory is under 4 GB, so the game's own 32-bit image
+// addresses wrap to the right place; read here, they are signed.
 J3DTexture* ownTextures(J3DTexture* old, const ResTIMG* first)
 {
 	if (!old || !old->getNum())
@@ -217,12 +220,17 @@ J3DTexture* ownTextures(J3DTexture* old, const ResTIMG* first)
 		heads[i]         = t;
 		at               = (at + 31) & ~31u;
 		const u32 bytes  = imageBytes(t);
-		memcpy(block + at, (const u8*)&t + t.imageDataOffset, bytes);
+		if (getenv("SMS_COOP_DEBUG"))
+			fprintf(stderr, "[coop] texture %d/%d at %p: format %d %dx%d mips %d/%d image +0x%x (%u bytes) palette %d +0x%x (%d)\n",
+			        (int)i, (int)n, (const void*)&t, (int)t.format, (int)t.width, (int)t.height, (int)t.mipmapEnabled,
+			        (int)t.mipmapCount, (unsigned)t.imageDataOffset, (unsigned)bytes, (int)t.isIndexTexture,
+			        (unsigned)t.paletteOffset, (int)t.numColors);
+		memcpy(block + at, (const u8*)&t + (s32)t.imageDataOffset, bytes);
 		heads[i].imageDataOffset = (u32)(at - sizeof(ResTIMG) * i);
 		at += bytes;
 		if (t.isIndexTexture && t.numColors) {
 			at = (at + 31) & ~31u;
-			memcpy(block + at, (const u8*)&t + t.paletteOffset, t.numColors * 2);
+			memcpy(block + at, (const u8*)&t + (s32)t.paletteOffset, t.numColors * 2);
 			heads[i].paletteOffset = (u32)(at - sizeof(ResTIMG) * i);
 			at += t.numColors * 2;
 		}
@@ -491,12 +499,15 @@ void stageSetup()
 	}
 	if (!s_made || !gpMarDirector)
 		return;
+	// camera 2's list of the actors the close-up view Y opens can turn to, as
+	// the director makes camera 1's (TMarDirector::setupObjects, once the
+	// conductor has its managers): without it, Y read an unmade list
+	s_p2.cam->setNoticeInfo();
 	TMarDirector* d = gpMarDirector;
 	findCamLinks(d->unk34, s_p1.cam);
 	findCamLinks(d->mPerformListGX, s_p1.cam);
 	findCamLinks(d->mPerformListSilhouette, s_p1.cam);
 	findCamLinks(d->mPerformListGXPost, s_p1.cam);
-	JDrama::TViewObj* composite = (JDrama::TViewObj*)JDrama::TNameRefGen::search2("合成3");
 	JDrama::TViewObj* group2D2  = (JDrama::TViewObj*)JDrama::TNameRefGen::search2("Group 2D 2");
 	for (JGadget::TSingleLinkList<TPerformLink, 0>::iterator it = d->mPerformListGXPost->getChildren().begin();
 	     it != d->mPerformListGXPost->getChildren().end() && s_postCount < kMostPost; ++it) {
@@ -506,11 +517,16 @@ void stageSetup()
 		const char* name = l->mPerformer ? l->mPerformer->getName() : nullptr;
 		if (s_post3DEnd < 0 && name && !strcmp(name, "stageDisp"))
 			s_post3DEnd = i;
-		if (s_composite < 0 && composite && l->mPerformer == composite)
-			s_composite = i;
 		if (s_postOverlayTo < 0 && group2D2 && l->mPerformer == group2D2)
 			s_postOverlayTo = i - 1; // the projection before Group 2D 2
 	}
+	// the composite (合成3) follows the 2D part's viewport and projection
+	// (TMarDirector::initECDisp); found by place, as a literal in Japanese
+	// would not match the scene's names where the compiler cannot write them
+	// in Shift-JIS (the CP932 mirror covers the game's sources, not ext/)
+	if (s_post3DEnd >= 0 && s_post3DEnd + 3 < s_postCount && s_post[s_post3DEnd + 1]->mPerformer
+	    && s_post[s_post3DEnd + 1]->mPerformer->getName() && !strcmp(s_post[s_post3DEnd + 1]->mPerformer->getName(), "Screen 2D"))
+		s_composite = s_post3DEnd + 3;
 	s_postOverlayFrom = s_composite + 1;
 	if (s_post3DEnd < 0 || s_composite < s_post3DEnd || s_postOverlayTo < s_postOverlayFrom) {
 		fprintf(stderr, "[coop] this stage's GX Post list is not as expected: one view only\n");
@@ -845,6 +861,15 @@ void afterMovement()
 			s_dir->setNextStage((u16)(((area + 1) << 8) | episode), nullptr);
 		}
 	}
+	// FLUDD put on player 2's back mid-stage, frames after joining (as a stage
+	// that starts without it hands it out)
+	static bool gaveFludd;
+	if (const char* t = getenv("SMS_COOP_TEST_FLUDD"))
+		if (!gaveFludd && s_testJoined && s_frame >= s_testJoinFrame + atoi(t)) {
+			gaveFludd = true;
+			m->onFlag(MARIO_FLAG_HAS_FLUDD);
+			fprintf(stderr, "[coop] test: player 2 has FLUDD now\n");
+		}
 	// coins brought out at player 2 and taken by them, frames after joining
 	static int coinsDone;
 	if (const char* t = getenv("SMS_COOP_TEST_COINS")) {
@@ -987,8 +1012,10 @@ void padRead(void* statusv)
 		for (char* tok = strtok(buf, ","); tok && s_testCount < 32; tok = strtok(nullptr, ",")) {
 			TestPress p = { 0, 0, 0, 0, 0 };
 			int len     = 8;
-			if (tok[0] == 'a' || tok[0] == 'b' || tok[0] == 'r') {
-				p.buttons = tok[0] == 'a' ? PAD_BUTTON_A : tok[0] == 'b' ? PAD_BUTTON_B : PAD_TRIGGER_R;
+			if (strchr("abrxyzl", tok[0]) && tok[1] == '@') {
+				p.buttons = tok[0] == 'a' ? PAD_BUTTON_A : tok[0] == 'b' ? PAD_BUTTON_B : tok[0] == 'x' ? PAD_BUTTON_X
+				          : tok[0] == 'y' ? PAD_BUTTON_Y : tok[0] == 'z' ? PAD_TRIGGER_Z : tok[0] == 'l' ? PAD_TRIGGER_L
+				                                                                         : PAD_TRIGGER_R;
 				if (sscanf(tok + 1, "@%d+%d", &p.at, &len) < 1)
 					continue;
 			} else if (sscanf(tok, "%d:%d@%d+%d", &p.x, &p.y, &p.at, &len) < 3) {
@@ -1010,6 +1037,8 @@ void padRead(void* statusv)
 				s.stickX = (s8)s_test[i].x, s.stickY = (s8)s_test[i].y;
 			if (s_test[i].buttons & PAD_TRIGGER_R)
 				s.triggerRight = 255;
+			if (s_test[i].buttons & PAD_TRIGGER_L)
+				s.triggerLeft = 255;
 		}
 }
 
@@ -1017,6 +1046,24 @@ int allowSaveStates() { return !s_active; }
 const char* saveStatesOffReason() { return "Save states are off while two play"; }
 
 PortExtension s_extension;
+
+} // namespace
+
+// decomp-patches/zzzzzz-coop-02: the camera a controller's player sees
+// through, for the controller's meanings (TMarioGamePad::updateMeaning reads
+// whether it is in the close-up view Y opens). Controller 2 is player 2's,
+// with camera 2, while they play this stage; everything else gpCamera.
+CPolarSubCamera* port_coop_pad_camera(const TMarioGamePad* pad)
+{
+	if (s_made && s_active && s_p2.cam && gpApplication.mAppState == TApplication::APP_STATE_GAMEPLAY
+	    && gpMarDirector == s_dir && pad == gpMarDirector->getGamePad(1))
+		return s_p2.cam;
+	if (s_made && s_inP2 && s_p1.cam && pad == gpMarDirector->getGamePad(0))
+		return s_p1.cam; // controller 1 updated while player 2's globals are in force
+	return gpCamera;
+}
+
+namespace {
 
 struct Register {
 	Register()
