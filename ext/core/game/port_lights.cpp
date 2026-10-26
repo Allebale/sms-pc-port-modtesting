@@ -41,7 +41,7 @@ const s32 kFires[] = {
 const int kFireCount = sizeof kFires / sizeof kFires[0];
 
 const int kMostLights = 8;
-const f32 kRadius     = 520.0f;   // where a fire's light fades to nothing (a big one, more)
+const f32 kRadius     = 750.0f;   // where a fire's light fades to nothing (a big one, more)
 const f32 kMerge      = 160.0f;   // fires this close are one light
 const f32 kSeen       = 4000.0f;  // only fires this near Mario
 
@@ -135,7 +135,9 @@ void afterMovement()
 	// the nearest 8
 	f32 lights[kMostLights * 8];
 	int n = 0;
-	const f32 t = (f32)OSTicksToMilliseconds(OSGetTime()) * 0.001f;
+	// the time (seconds, kept small: the flicker's sines of a huge number are not numbers)
+	const s32 ms = (s32)OSTicksToMilliseconds(OSGetTime());
+	const f32 t  = (f32)(((ms % 600000) + 600000) % 600000) * 0.001f;
 	while (n < kMostLights && count > 0) {
 		int best = 0;
 		f32 bestD = 1e30f;
@@ -155,6 +157,8 @@ void afterMovement()
 		o[3] = kRadius * (0.7f + 0.6f * size);
 		o[4] = 1.0f, o[5] = 0.55f, o[6] = 0.22f;  // warm: orange
 		o[7] = (0.45f + 0.75f * size) * flicker;
+		if (!(o[7] > 0.0f && o[7] < 10.0f))
+			o[7] = 0.45f + 0.75f * size;  // never not a number
 		n++;
 		found[best] = found[--count];
 	}
