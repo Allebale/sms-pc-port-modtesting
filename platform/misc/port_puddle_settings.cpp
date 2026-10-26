@@ -75,6 +75,7 @@ int s_grassDistance = 2;  // Grass Distance: into kGrassDistances
 int s_grassThin = 0;      // Thinned Far Away
 int s_grassReflect = 2;   // Grass Reflection Distance: into kGrassReflects
 int s_fireLights = 0;     // Fire Lights
+int s_fireReach = 2;      // Fire Light Intensity: into kFireReaches
 int s_grassCutHeight = 2, s_grassWildHeight = 2;  // into kGrassHeights
 int s_shadows = 0;        // Real Shadows: 0 off (the game's own), 1 soft, 2 strong
 int s_shadowsRound = 0;   // Round Shadows Under Characters, with Real Shadows: 1 kept (lighter)
@@ -252,6 +253,8 @@ void load() {
             s_grassWildHeight = value < 0 ? 0 : value > 5 ? 5 : value;
         } else if (sscanf(line, " grassreflections = %d", &value) == 1) {
             s_grassReflect = value < 0 ? 0 : value > 2 ? 2 : value;
+        } else if (sscanf(line, " firelightreach = %d", &value) == 1) {
+            s_fireReach = value < 0 ? 0 : value > 4 ? 4 : value;
         } else if (sscanf(line, " firelights = %d", &value) == 1) {
             s_fireLights = value != 0;
         } else if (sscanf(line, " grassthin = %d", &value) == 1) {
@@ -345,6 +348,8 @@ void save() {
     fprintf(f, "grassreflections = %d\n", s_grassReflect);
     fprintf(f, "# firelights: 1 fires light up what is around them (and in reflections), 0 not.\n");
     fprintf(f, "firelights = %d\n", s_fireLights);
+    fprintf(f, "# firelightreach: how far a fire's light goes: 0 very short, 1 short, 2 normal, 3 far, 4 very far.\n");
+    fprintf(f, "firelightreach = %d\n", s_fireReach);
     fprintf(f, "# grasscutheight, grasswildheight: 0 50%% (wild only), 1 75%%, 2 100%%, 3 150%%, 4 200%%, 5 300%%.\n");
     fprintf(f, "grasscutheight = %d\n", s_grassCutHeight);
     fprintf(f, "grasswildheight = %d\n", s_grassWildHeight);
@@ -451,6 +456,23 @@ int grassReflectSet(int i) {
     s_grassReflect = i;
     save();
     port_log("[grass] Grass Reflection Distance changed: %s\n", kGrassReflectNames[i]);
+    return 1;
+}
+
+const char* const kFireReachNames[] = {"Very Short", "Short", "Normal", "Far", "Very Far"};
+const float kFireReaches[] = {0.4f, 0.7f, 1.0f, 1.6f, 2.5f};
+int fireReachCount() { return 5; }
+const char* fireReachName(int i) { return kFireReachNames[i < 0 || i > 4 ? 2 : i]; }
+int fireReachGet() {
+    load();
+    return s_fireReach;
+}
+int fireReachSet(int i) {
+    if (i < 0 || i > 4) return 0;
+    load();
+    s_fireReach = i;
+    save();
+    port_log("[lights] Fire Light Intensity changed: %s\n", kFireReachNames[i]);
     return 1;
 }
 
@@ -889,6 +911,9 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 106, "Fire Lights",
      "Fires light up the ground and walls around them, in reflections too.", 0, nullptr, offOnCount,
      offOnName, fireLightsGet, fireLightsSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 107, "Fire Light Intensity",
+     "How far a fire's light reaches round it, with Fire Lights on.", 0, nullptr, fireReachCount,
+     fireReachName, fireReachGet, fireReachSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 96, "Real Shadows",
      "The sun's shadows of everything, the level and characters too. Off is the original.", 0,
      nullptr, shadowsCount, shadowsName, shadowsGet, shadowsSet},
@@ -1009,6 +1034,11 @@ float port_grass_height(int wild) {
 float port_grass_reflect_distance(void) {
     load();
     return kGrassReflects[s_grassReflect < 0 || s_grassReflect > 2 ? 2 : s_grassReflect];
+}
+// Fire Light Intensity: how far a fire's light reaches, times the normal reach.
+float port_fire_light_reach(void) {
+    load();
+    return kFireReaches[s_fireReach < 0 || s_fireReach > 4 ? 2 : s_fireReach];
 }
 // Fire Lights (ext/core/game/port_lights.cpp): 1 on.
 int port_fire_lights(void) {

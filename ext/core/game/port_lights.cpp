@@ -25,6 +25,7 @@ extern "C" void GXPC_SetLights(const float* lights, int count);
 extern "C" void GXPC_LightsView(const float view[3][4]);
 
 extern "C" int port_fire_lights(void);  // platform/misc/port_puddle_settings.cpp
+extern "C" float port_fire_light_reach(void);  // Fire Light Intensity: times kRadius
 
 namespace {
 
@@ -154,7 +155,7 @@ void afterMovement()
 		const f32 flicker = 0.85f + 0.09f * sinf(t * 13.0f + seed) + 0.06f * sinf(t * 23.7f + seed * 1.7f);
 		f32* o = lights + n * 8;
 		o[0] = l.x, o[1] = l.y + 40.0f, o[2] = l.z;  // the light from the flames, a little above where they start
-		o[3] = kRadius * (0.7f + 0.6f * size);
+		o[3] = kRadius * port_fire_light_reach() * (0.7f + 0.6f * size);
 		o[4] = 1.0f, o[5] = 0.55f, o[6] = 0.22f;  // warm: orange
 		o[7] = (0.45f + 0.75f * size) * flicker;
 		if (!(o[7] > 0.0f && o[7] < 10.0f))
