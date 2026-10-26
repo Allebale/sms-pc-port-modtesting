@@ -341,12 +341,63 @@ const int kMostPress = 160;
 Press s_press[kMostPress];
 int s_pressCount;
 
+// FLUDD's spray: where its drops came down into the grass (a drop is gone as it lands on grass,
+// leaving no puddle), each spot pressing the blades flat for a second and a half; a spot sprayed
+// again is pressed again (each drop near one already there renews it, so the spots stay few).
+const int kMostSpray = 96;
+const s32 kSprayMs   = 1500;
+TrailPoint s_spray[kMostSpray];
+int s_sprayCount;
+
+void noteSpray()
+{
+	TModelWaterManager* water = gpModelWaterManager;
+	const int count           = water ? water->getParticleCount() : 0;
+	const s32 now             = nowMs();
+	for (int i = 0; i < count; i++) {
+		const JGeometry::TVec3<f32>& p = water->mParticlePositionSOA[i];
+		const int tx = (int)floorf(p.x / kTile), tz = (int)floorf(p.z / kTile);
+		const Tile& t = tileAt(tx, tz);
+		if (!t.used || t.tx != tx || t.tz != tz || !t.count || p.y < t.minY - 30.0f || p.y > t.maxY + 25.0f)
+			continue;  // not down in grass
+		int slot = -1;
+		for (int k = 0; k < s_sprayCount && slot < 0; k++) {
+			const f32 dx = s_spray[k].x - p.x, dz = s_spray[k].z - p.z;
+			if (dx * dx + dz * dz < 18.0f * 18.0f && fabsf(s_spray[k].y - p.y) < 60.0f)
+				slot = k;  // near one already there: renewed
+		}
+		if (slot < 0) {
+			if (s_sprayCount < kMostSpray)
+				slot = s_sprayCount++;
+			else {  // the oldest goes
+				slot = 0;
+				for (int k = 1; k < kMostSpray; k++)
+					if (s_spray[k].at < s_spray[slot].at)
+						slot = k;
+			}
+		}
+		s_spray[slot].x = p.x, s_spray[slot].y = p.y, s_spray[slot].z = p.z, s_spray[slot].at = now;
+	}
+}
+
+// The renderer takes 64: Mario, then the spray's spots (newest first), his way, the puddles.
 void gatherPress(f32 mx, f32 my, f32 mz)
 {
 	s_pressCount = 0;
 	const s32 now = nowMs();
 	Press& m = s_press[s_pressCount++];
 	m.x = mx, m.y = my, m.z = mz, m.r = 36.0f, m.strength = 1.0f;
+	// the spray's spots, newest first (by half-second bands)
+	for (int band = 0; band < 3 && s_pressCount < 36; band++)
+		for (int k = 0; k < s_sprayCount && s_pressCount < 36; k++) {
+			const s32 age = now - s_spray[k].at;
+			if (age < band * 500 || age >= (band + 1) * 500)
+				continue;
+			Press& q = s_press[s_pressCount++];
+			q.x = s_spray[k].x, q.y = s_spray[k].y, q.z = s_spray[k].z, q.r = 30.0f;
+			const f32 left = 1.0f - (f32)age / kSprayMs;
+			q.strength     = 0.9f * (left < 0.35f ? left / 0.35f : 1.0f);  // flat, then rising again
+		}
 	for (int i = 0; i < s_trailCount && s_pressCount < kMostPress; i++) {
 		const TrailPoint& p = s_trail[i];
 		const s32 age       = now - p.at;
@@ -383,6 +434,7 @@ void afterMovement()
 		s_styleSetting = port_grass();
 		s_styleArea    = area;
 		s_trailCount = s_trailNext = 0;
+		s_sprayCount = 0;
 		if (want)
 			fprintf(stderr, "[grass] %s: %s grass\n",
 			        world >= 0 && world < 10 ? kWorldNames[world] : "this stage", want->name);
@@ -391,6 +443,7 @@ void afterMovement()
 	}
 	if (!s_style || !gpMarioPos)
 		return;
+	noteSpray();
 	const f32 mx = gpMarioPos->x, my = gpMarioPos->y, mz = gpMarioPos->z;
 	// Mario's way, a point each time he has moved 14 units
 	const TrailPoint* lastPoint = s_trailCount ? &s_trail[(s_trailNext + kTrail - 1) % kTrail] : 0;

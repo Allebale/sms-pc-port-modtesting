@@ -1286,6 +1286,7 @@ uniform vec4 u_g[6];       // see GXPC_GrassBegin
 uniform vec4 u_gp[64];     // what presses: x, y, z, radius
 uniform vec4 u_gs[16];     // their strengths, four a vec4
 uniform vec4 u_gtile;      // x: presses reach this tile; y: segments (1 or 2)
+uniform vec4 u_uclip;      // the port's clip plane (a puddle's surface while its reflection is drawn)
 uniform sampler2D u_gcolor; // the ground drawn so far: its colour (with mipmaps)...
 uniform sampler2D u_gdepth; // ...and its depth
 in vec4 a_blade;
@@ -1302,9 +1303,11 @@ void hide() {
 // clip space, as the GX vertex shader places a point (world to view, the projection, the viewport);
 // s_gx: its two clip distances, as that shader gives them
 vec2 s_gx;
+vec3 s_vpos;
 vec4 place(vec3 p) {
   vec4 wp = vec4(p, 1.0);
   vec3 vpos = vec3(dot(u_gview[0], wp), dot(u_gview[1], wp), dot(u_gview[2], wp));
+  s_vpos = vpos;
   vec4 clip;
   if (u_proj[1].z == 0.0) {
     clip = vec4(u_proj[0].x * vpos.x + u_proj[0].y * vpos.z, u_proj[0].z * vpos.y + u_proj[0].w * vpos.z,
@@ -1419,7 +1422,7 @@ void main() {
   gl_Position = place(p);
   gl_ClipDistance[0] = s_gx.x;
   gl_ClipDistance[1] = s_gx.y;
-  gl_ClipDistance[2] = 1.0;
+  gl_ClipDistance[2] = dot(vec4(s_vpos, 1.0), u_uclip);
 }
 )";
 static const char* kGrassFs = R"(#version 330 core

@@ -9,6 +9,7 @@
 // nor clipped out (no ghost of an enemy beaten or a coin taken), and the setting is on.
 #include "port_ext.h"
 #include "port_puddles.h"
+#include "port_grass.h"
 #include "port_shadows.h"
 
 #include <Enemy/Conductor.hpp>
@@ -36,6 +37,12 @@
 #include <Strategic/LiveManager.hpp>
 #include <Map/MapMirror.hpp>
 #include <Strategic/MirrorActor.hpp>
+#include <JSystem/J3D/J3DGraphBase/J3DDrawBuffer.hpp>
+#include <JSystem/J3D/J3DGraphBase/J3DPacket.hpp>
+#include <JSystem/JDrama/JDRDrawBufObj.hpp>
+#include <JSystem/JParticle/JPAEmitterManager.hpp>
+#include <MarioUtil/ReinitGX.hpp>
+#include <System/EmitterViewObj.hpp>
 
 #include <stdio.h>
 #include <string.h>
@@ -281,6 +288,55 @@ bool noReflection(TLiveActor* actor)
 	       || dynamic_cast<TBossGesso*>(actor);
 }
 
+// ------------------------------------------------------------------ the mirror's extras
+// What the mirror scene has no model of: the effects (fire, smoke, sparkles: the game's particles,
+// gpMarioParticleManager's) and 3D Grass. Each frame the mirror's picture is drawn, a packet of the
+// port's at the end of its translucent draw buffer ("DrawBuf MirrorAlways Xlu") draws them seen
+// from the mirror's camera: the effects with Reflect Objects on, the grass with Reflect the Level.
+class TPortMirrorPacket : public J3DPacket {
+public:
+	virtual void draw()
+	{
+		TMirrorCamera* camera = gpMirrorModelManager ? gpMirrorModelManager->unk24 : 0;
+		if (!camera)
+			return;
+		MtxPtr view = camera->getUnk30();
+		if (port_reflect_level() && port_grass())
+			port_grass_draw(view);
+		if (port_reflect_kind(PORT_REFLECT_OBJECTS) && gpMarioParticleManager && gpMarioParticleManager->unk3B8
+		    && gpCamera) {
+			JPADrawInfo info(view, camera->getUnk80() * gpCamera->getFovy(), gpCamera->getAspect());
+			gpMarioParticleManager->unk3B8->draw(&info);
+		}
+		ReInitializeGX();
+	}
+};
+
+class TPortMirrorExtras : public JDrama::TViewObj {
+public:
+	TPortMirrorExtras()
+	    : JDrama::TViewObj("port mirror extras")
+	    , mBuffer(0)
+	{
+		JDrama::TDrawBufObj* obj = JDrama::TNameRefGen::search<JDrama::TDrawBufObj>("DrawBuf MirrorAlways Xlu");
+		mBuffer = obj ? obj->getDrawBuffer() : 0;
+	}
+
+	virtual void perform(u32 cue, JDrama::TGraphics*)
+	{
+		if (!(cue & CUE_ENTRY) || !mBuffer || !gpModelWaterManager)
+			return;
+		if (!gpModelWaterManager->getParticleCount() && !port_water_mirror_active())
+			return;  // no puddle or water shows a reflection this frame
+		if (!(port_reflect_level() && port_grass()) && !port_reflect_kind(PORT_REFLECT_OBJECTS))
+			return;
+		mBuffer->entryImm(&mPacket, 0);
+	}
+
+	J3DDrawBuffer* mBuffer;
+	TPortMirrorPacket mPacket;
+};
+
 void stageSetup()
 {
 	JDrama::TViewObjPtrListT<JDrama::TViewObj>* scene
@@ -288,6 +344,7 @@ void stageSetup()
 	if (!scene)
 		return;
 	rememberPlayerCopies(scene);
+	scene->insert(new TPortMirrorExtras());  // the effects and the grass, in the reflections
 
 	// the models the game gave a copy already (Mario, FLUDD, Yoshi, coins...)
 	s_modelCount = 0;
