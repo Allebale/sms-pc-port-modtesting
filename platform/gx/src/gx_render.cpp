@@ -2333,6 +2333,88 @@ static void resetBatch() {
     s_barenaVerts = s_barenaIdx = 0;
 }
 
+// ------------------------------------------------------------------ 3D Grass
+// The blades of grass (ext/core/game/port_grass.cpp) drawn on the GPU: each tile's blades in a
+// buffer of their own (GXPC_GrassBuffer, 8 floats a blade), drawn as instances of one blade
+// (GXPC_GrassDraw) by the grass program (gx_shader.cpp), with the GX state the game set (depth,
+// culling, the main camera's projection and viewport) and the grass's own uniforms
+// (GXPC_GrassBegin: the view, the kind, what presses the blades).
+static GLuint s_grassVao;
+static GrassUniforms s_grassU;
+static const ShaderProgram* s_grassSp;
+
+extern "C" unsigned GXPC_GrassBuffer(unsigned buf, const float* data, int blades) {
+    if (blades <= 0 || !data) {
+        if (buf) {
+            GLuint b = buf;
+            glDeleteBuffers(1, &b);
+            if (g_glc.arrayBuffer == b) g_glc.arrayBuffer = ~0u;
+        }
+        return 0;
+    }
+    GLuint b = buf;
+    if (!b) glGenBuffers(1, &b);
+    glBindBuffer(GL_ARRAY_BUFFER, b);
+    g_glc.arrayBuffer = b;
+    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(size_t(blades) * 8 * sizeof(float)), data, GL_STATIC_DRAW);
+    return b;
+}
+
+// params: 24 floats (u_g, 6 vec4s): time, wind, width, 0; base rgb, whole; tip rgb, reach; Mario
+// x y z, thinned far away; wind x z, stripes, clumps; fog type (set here), press count, 0, 0.
+// press: count x (x, y, z, radius); strength: count.
+extern "C" void GXPC_GrassBegin(const float view[3][4], const float* params, const float* press,
+                                const float* strength, int count) {
+    flushBatch();
+    s_grassSp = grassProgram(&s_grassU);
+    s_xmap    = drawXMap();
+    s_bclass  = PRIM_TRIS;
+    glcUseProgram(s_grassSp->prog);
+    applyGlState();
+    float texW[8] = {0}, texH[8] = {0};
+    uploadUniforms(s_grassSp, texW, texH);
+    float g6[24];
+    memcpy(g6, params, sizeof g6);
+    g6[20] = float((g.bp[BP_FOG3] >> 21) & 7);
+    count = count < 0 ? 0 : count > 64 ? 64 : count;
+    g6[21] = float(count);
+    float v[12];
+    memcpy(v, view, sizeof v);
+    float pr[256] = {0}, st[64] = {0};
+    if (count) {
+        memcpy(pr, press, size_t(count) * 4 * sizeof(float));
+        memcpy(st, strength, size_t(count) * sizeof(float));
+    }
+    if (s_grassU.view >= 0) glUniform4fv(s_grassU.view, 3, v);
+    if (s_grassU.params >= 0) glUniform4fv(s_grassU.params, 6, g6);
+    if (s_grassU.press >= 0) glUniform4fv(s_grassU.press, 64, pr);
+    if (s_grassU.strength >= 0) glUniform4fv(s_grassU.strength, 16, st);
+    if (!s_grassVao) {
+        glGenVertexArrays(1, &s_grassVao);
+        glcBindVertexArray(s_grassVao);
+        glEnableVertexAttribArray(0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribDivisor(0, 1);
+        glVertexAttribDivisor(1, 1);
+    }
+    glcBindVertexArray(s_grassVao);
+}
+
+extern "C" void GXPC_GrassDraw(unsigned buf, int blades, int segments, int pressed) {
+    if (!buf || blades <= 0 || !s_grassSp) return;
+    float tile[4] = {pressed ? 1.0f : 0.0f, float(segments), 0.0f, 0.0f};
+    if (s_grassU.tile >= 0) glUniform4fv(s_grassU.tile, 1, tile);
+    glBindBuffer(GL_ARRAY_BUFFER, buf);
+    g_glc.arrayBuffer = buf;
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 32, reinterpret_cast<const void*>(0));
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 32, reinterpret_cast<const void*>(16));
+    glDrawArraysInstanced(GL_TRIANGLES, 0, segments > 1 ? 9 : 3, blades);
+    s_stats.draws++;
+    s_drawGen++;
+}
+
+extern "C" void GXPC_GrassEnd(void) { s_grassSp = nullptr; }
+
 void flushBatch() {
     if ((!s_bidx.size && !s_barenaIdx) || !s_ready) {
         resetBatch();

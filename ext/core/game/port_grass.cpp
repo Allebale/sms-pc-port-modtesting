@@ -18,6 +18,13 @@
 #include "port_ext.h"
 #include "port_grass.h"
 
+// The renderer's (platform/gx/src/gx_render.cpp): the blades drawn on the GPU.
+extern "C" unsigned GXPC_GrassBuffer(unsigned buf, const float* data, int blades);
+extern "C" void GXPC_GrassBegin(const float view[3][4], const float* params, const float* press,
+                                const float* strength, int count);
+extern "C" void GXPC_GrassDraw(unsigned buf, int blades, int segments, int pressed);
+extern "C" void GXPC_GrassEnd(void);
+
 #include <Camera/Camera.hpp>
 #include <Map/Map.hpp>
 #include <Map/MapCollisionData.hpp>
@@ -171,48 +178,46 @@ int grassNear(f32 x, f32 z, f32 radius, const TBGCheckData** out, int n)
 }
 
 // ------------------------------------------------------------------ the tiles
-// The tiles round Mario live in a 64 by 64 window that wraps round the world (a tile's place in it
-// is its x and z modulo 64): every tile Grass Distance can reach fits in it at once, so a tile is
-// found at its place, or replaced there.
+// The tiles round Mario live in a 128 by 128 window that wraps round the world (a tile's place in
+// it is its x and z modulo 128): every tile Grass Distance can reach fits in it at once, so a tile
+// is found at its place, or replaced there. Each tile's blades are in a buffer of the renderer's
+// (GXPC_GrassBuffer), drawn on the GPU.
 const f32 kTile       = 256.0f;
-const int kWindow     = 64;
+const int kWindow     = 128;
 const int kMostTiles  = kWindow * kWindow;
 const int kMostBlades = 1400;  // in a tile: (256 / 8)^2 at the closest spacing, and more
-
-struct Blade {
-	f32 x, y, z, h;
-	f32 dirX, dirZ;  // the way its face looks (its width across it)
-	u16 phase;
-	u8 shade, keep;  // its colour's variation; how far out it is still drawn (0 to 255)
-};
+// Nearer than this, a blade must be open to the sky (no bench, step or bridge over it); farther,
+// that is not looked for (it costs the most, and is not seen from there).
+const f32 kSkyCheck = 1600.0f;
 
 struct Tile {
 	int tx, tz;
 	int count;
-	bool used;
-	f32 made;       // the share of its blades it was made with (far away, fewer: keepShare)
-	Blade* blades;  // malloc: the host's memory, not the game's
+	bool used, distant;  // distant: made without the sky looked for
+	f32 made;         // the share of its blades it was made with (far away, fewer: keepShare)
+	unsigned buf;     // the renderer's buffer of its blades
 	f32 minY, maxY;
 };
 
 Tile s_tiles[kMostTiles];
 int s_bladeTotal;
 
-// Grass Distance: how far the blades go, times the kind's own reach; whole (every blade) to half
-// the kind's reach, then thinning as the square of the distance, so that the far ones cost little.
+// Grass Distance: how far the blades go, times the kind's own reach. Thinned Far Away: whole
+// (every blade) to half the kind's reach, then thinning as the square of the distance, so that
+// the far ones cost little; else whole all the way.
 f32 s_reach, s_whole;
+bool s_thin;
 
 // The share of the blades drawn at distance d (blade.keep below 256 times it).
-f32 keepShare(f32 d) { return d <= s_whole ? 1.0f : (s_whole / d) * (s_whole / d); }
+f32 keepShare(f32 d) { return !s_thin || d <= s_whole ? 1.0f : (s_whole / d) * (s_whole / d); }
 
 void dropTile(Tile& t)
 {
 	if (t.used)
 		s_bladeTotal -= t.count;
-	free(t.blades);
-	t.blades = 0;
-	t.used   = false;
-	t.count  = 0;
+	t.buf   = GXPC_GrassBuffer(t.buf, 0, 0);
+	t.used  = false;
+	t.count = 0;
 }
 
 void forgetTiles()
@@ -237,30 +242,33 @@ f32 tileDistance(int tx, int tz, f32 mx, f32 mz)
 	return sqrtf(dx * dx + dz * dz);
 }
 
+// A blade for the renderer: its root and height; its facing, its phase (0 to 1), its shade and
+// keep (shade + 256 keep).
+f32 s_blades[kMostBlades * 8];
+
 // The tile's blades, as many as are drawn as near Mario as `share` says (the rest of a far tile's
-// are not made at all, until he comes nearer).
-void makeTile(Tile* t, int tx, int tz, f32 share)
+// are not made at all, until he comes nearer). distance: how near Mario the tile comes.
+void makeTile(Tile* t, int tx, int tz, f32 share, f32 distance)
 {
 	const Style& st = *s_style;
 	dropTile(*t);
 	t->tx = tx, t->tz = tz;
-	t->used   = true;
-	t->made   = share;
+	t->used = true;
+	t->made = share;
+	t->distant = distance >= kSkyCheck;
 	t->minY = 1e9f, t->maxY = -1e9f;
 	const f32 x0 = tx * kTile, z0 = tz * kTile;
 	const TBGCheckData* tris[96];
 	const int n = grassNear(x0 + kTile * 0.5f, z0 + kTile * 0.5f, kTile * 0.75f, tris, 96);
 	if (!n)
 		return;
-	t->blades = (Blade*)malloc(sizeof(Blade) * kMostBlades);
-	if (!t->blades)
-		return;
+	int count = 0;
 	// the world's grid of cells, so that a blade is the same whichever tile finds it
 	const int c0x = (int)ceilf(x0 / st.spacing), c1x = (int)ceilf((x0 + kTile) / st.spacing);
 	const int c0z = (int)ceilf(z0 / st.spacing), c1z = (int)ceilf((z0 + kTile) / st.spacing);
 	const TBGCheckData* last = tris[0];
-	for (int cz = c0z; cz < c1z && t->count < kMostBlades; cz++)
-		for (int cx = c0x; cx < c1x && t->count < kMostBlades; cx++) {
+	for (int cz = c0z; cz < c1z && count < kMostBlades; cz++)
+		for (int cx = c0x; cx < c1x && count < kMostBlades; cx++) {
 			const u8 keep = (u8)(hash2(cx, cz, 0x3Cu) >> 24);
 			if ((keep + 0.5f) * (1.0f / 256) >= share)
 				continue;  // drawn only nearer than this tile comes
@@ -280,31 +288,33 @@ void makeTile(Tile* t, int tx, int tz, f32 share)
 					tri = tris[i];
 			if (!tri)
 				continue;
-			last          = tri;
-			const f32 y   = heightAt(tri, x, z);
+			last        = tri;
+			const f32 y = heightAt(tri, x, z);
 			// open to the sky: the ground found from a little above is this grass, not a bench or
 			// a step on it
-			const TBGCheckData* top = 0;
-			const f32 g             = gpMap->checkGroundIgnoreWaterSurface(x, y + 60.0f, z, &top);
-			if (top != tri && fabsf(g - y) > 2.0f)
-				continue;
-			Blade& b = t->blades[t->count++];
-			b.x = x, b.y = y - 1.0f, b.z = z;
+			if (!t->distant) {
+				const TBGCheckData* top = 0;
+				const f32 g             = gpMap->checkGroundIgnoreWaterSurface(x, y + 60.0f, z, &top);
+				if (top != tri && fabsf(g - y) > 2.0f)
+					continue;
+			}
 			f32 hgt = st.low + (st.high - st.low) * rand01(h >> 5);
 			if (st.clumps)
 				hgt *= 0.55f + 0.7f * clump;
-			b.h = hgt;
 			const f32 yaw = rand01(h >> 9) * 6.2831853f;
-			b.dirX = cosf(yaw), b.dirZ = sinf(yaw);
-			b.phase = (u16)(h >> 7);
-			b.shade = (u8)(h >> 17);
-			b.keep  = keep;
-			if (b.y < t->minY)
-				t->minY = b.y;
-			if (b.y + b.h > t->maxY)
-				t->maxY = b.y + b.h;
+			f32* b = &s_blades[count++ * 8];
+			b[0] = x, b[1] = y - 1.0f, b[2] = z, b[3] = hgt;
+			b[4] = cosf(yaw), b[5] = sinf(yaw);
+			b[6] = (f32)((h >> 7) & 0xFFFF) * (1.0f / 65536);
+			b[7] = (f32)((h >> 17) & 0xFF) + 256.0f * keep;
+			if (y - 1.0f < t->minY)
+				t->minY = y - 1.0f;
+			if (y + hgt > t->maxY)
+				t->maxY = y + hgt;
 		}
-	s_bladeTotal += t->count;
+	t->count = count;
+	t->buf   = GXPC_GrassBuffer(0, s_blades, count);
+	s_bladeTotal += count;
 }
 
 // ------------------------------------------------------------------ what presses the grass down
@@ -390,14 +400,15 @@ void afterMovement()
 			s_trailCount++;
 	}
 	// the tiles round Mario, nearest first: those missing, and those he has come nearer to than
-	// they were made for; for at most 2 ms a tick
+	// they were made for; for at most 4 ms a tick
 	s_reach = s_style->reach * port_grass_distance();
 	s_whole = s_style->reach * 0.5f;
+	s_thin  = port_grass_thin() != 0;
 	const f32 reach = s_reach + kTile;
 	const int tx0 = (int)floorf((mx - reach) / kTile), tx1 = (int)floorf((mx + reach) / kTile);
 	const int tz0 = (int)floorf((mz - reach) / kTile), tz1 = (int)floorf((mz + reach) / kTile);
 	const OSTime start = OSGetTime();
-	for (int made = 0; made < 32 && OSTicksToMicroseconds(OSGetTime() - start) < 2000;) {
+	for (int made = 0; made < 64 && OSTicksToMicroseconds(OSGetTime() - start) < 4000;) {
 		int bx = 0, bz = 0;
 		f32 best = 1e30f, bestShare = 0.0f;
 		for (int tz = tz0; tz <= tz1; tz++)
@@ -407,13 +418,14 @@ void afterMovement()
 					continue;
 				const Tile& t     = tileAt(tx, tz);
 				const f32 share   = keepShare(d > kTile ? d - kTile : 0.0f);  // a tile's margin
-				const bool needed = !t.used || t.tx != tx || t.tz != tz || share > t.made * 1.3f;
+				const bool needed = !t.used || t.tx != tx || t.tz != tz || share > t.made * 1.3f
+				                    || (t.distant && d < kSkyCheck - kTile);
 				if (needed)
 					best = d, bx = tx, bz = tz, bestShare = share;
 			}
 		if (best >= 1e30f)
 			break;
-		makeTile(&tileAt(bx, bz), bx, bz, bestShare);
+		makeTile(&tileAt(bx, bz), bx, bz, bestShare, best);
 		made++;
 	}
 }
@@ -439,61 +451,18 @@ struct Register {
 } s_register;
 
 // ------------------------------------------------------------------ drawing
-struct Vert {
-	f32 x, y, z;
-	u8 r, g, b;
-};
-const int kChunk = 65535 / 9 * 9;
-Vert s_verts[kChunk];
-int s_vertCount;
-
-void flushVerts()
-{
-	if (!s_vertCount)
-		return;
-	GXBegin(GX_TRIANGLES, GX_VTXFMT0, (u16)s_vertCount);
-	for (int i = 0; i < s_vertCount; i++) {
-		const Vert& v = s_verts[i];
-		GXPosition3f32(v.x, v.y, v.z);
-		GXColor4u8(v.r, v.g, v.b, 255);
-	}
-	GXEnd();
-	s_vertCount = 0;
-}
-
-inline void put(f32 x, f32 y, f32 z, const f32* c)
-{
-	Vert& v = s_verts[s_vertCount++];
-	v.x = x, v.y = y, v.z = z;
-	v.r = (u8)(c[0] > 255.0f ? 255.0f : c[0]);
-	v.g = (u8)(c[1] > 255.0f ? 255.0f : c[1]);
-	v.b = (u8)(c[2] > 255.0f ? 255.0f : c[2]);
-}
-
 } // namespace
 
 void port_grass_draw(float (*view)[4])
 {
-	if (!s_style || !gpMarioPos || !view || !s_bladeTotal)
+	if (!s_style || !gpMarioPos || !view || !s_bladeTotal || s_reach <= 0.0f)
 		return;
 	const Style& st = *s_style;
 	const f32 mx = gpMarioPos->x, my = gpMarioPos->y, mz = gpMarioPos->z;
 	gatherPress(mx, my, mz);
 
-	GXClearVtxDesc();
-	GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-	GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
-	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-	GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
-	GXSetCurrentMtx(GX_PNMTX0);
-	GXLoadPosMtxImm(view, GX_PNMTX0);
+	// the GX state the blades are drawn with: depth tested and written, both sides, solid
 	GXSetCullMode(GX_CULL_NONE);
-	GXSetNumChans(1);
-	GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX, 0, GX_DF_NONE, GX_AF_NONE);
-	GXSetNumTexGens(0);
-	GXSetNumTevStages(1);
-	GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
-	GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
 	GXSetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_NOOP);
 	GXSetZCompLoc(GX_TRUE);
 	GXSetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
@@ -502,107 +471,46 @@ void port_grass_draw(float (*view)[4])
 	GXSetAlphaUpdate(GX_FALSE);
 	GXSetDstAlpha(GX_FALSE, 0);
 
-	const f32 t     = (f32)nowMs() * 0.001f;
-	const f32 reach = s_reach;
-	// the breeze: from one way, its strength rolling across the stage
-	const f32 windX = 0.8f, windZ = 0.6f;
-	Press close[64];  // (not `near`: windows.h defines it as nothing)
+	const int n = s_pressCount > 64 ? 64 : s_pressCount;
+	f32 press[64 * 4], strength[64];
+	for (int i = 0; i < n; i++) {
+		press[i * 4] = s_press[i].x, press[i * 4 + 1] = s_press[i].y, press[i * 4 + 2] = s_press[i].z;
+		press[i * 4 + 3] = s_press[i].r;
+		strength[i]      = s_press[i].strength;
+	}
+	const f32 params[24] = {
+		(f32)nowMs() * 0.001f, st.wind, st.width, 0.0f,
+		(f32)st.base[0], (f32)st.base[1], (f32)st.base[2], s_whole,
+		(f32)st.tip[0], (f32)st.tip[1], (f32)st.tip[2], s_reach,
+		mx, my, mz, s_thin ? 1.0f : 0.0f,
+		0.8f, 0.6f, st.stripes ? 1.0f : 0.0f, st.clumps ? 1.0f : 0.0f,  // the breeze's way
+		0.0f, 0.0f, 0.0f, 0.0f,
+	};
+	GXPC_GrassBegin(view, params, press, strength, n);
 	for (int i = 0; i < kMostTiles; i++) {
 		const Tile& tile = s_tiles[i];
-		if (!tile.used || !tile.count || tileDistance(tile.tx, tile.tz, mx, mz) > reach)
+		if (!tile.used || !tile.count || !tile.buf)
 			continue;
-		const f32 cx = (tile.tx + 0.5f) * kTile, cz = (tile.tz + 0.5f) * kTile;
-		const f32 tdx = cx - mx, tdz = cz - mz;
-		if (tdx * tdx + tdz * tdz > (reach + kTile) * (reach + kTile))
+		const f32 d = tileDistance(tile.tx, tile.tz, mx, mz);
+		if (d > s_reach)
 			continue;
 		// behind the camera (view space z > 0 is behind it), with a tile's margin
+		const f32 cx = (tile.tx + 0.5f) * kTile, cz = (tile.tz + 0.5f) * kTile;
 		const f32 cy = (tile.minY + tile.maxY) * 0.5f;
 		const f32 vz = view[2][0] * cx + view[2][1] * cy + view[2][2] * cz + view[2][3];
 		if (vz > kTile)
 			continue;
-		// the presses that reach into this tile
-		int nn = 0;
-		for (int k = 0; k < s_pressCount && nn < 64; k++) {
+		// whether anything that presses reaches it
+		bool pressed = false;
+		for (int k = 0; k < n && !pressed; k++) {
 			const Press& p = s_press[k];
-			if (p.x + p.r < tile.tx * kTile || p.x - p.r > (tile.tx + 1) * kTile || p.z + p.r < tile.tz * kTile
-			    || p.z - p.r > (tile.tz + 1) * kTile || p.y < tile.minY - 60.0f || p.y > tile.maxY + 60.0f)
-				continue;
-			close[nn++] = p;
+			pressed = p.x + p.r >= tile.tx * kTile && p.x - p.r <= (tile.tx + 1) * kTile
+			          && p.z + p.r >= tile.tz * kTile && p.z - p.r <= (tile.tz + 1) * kTile
+			          && p.y >= tile.minY - 60.0f && p.y <= tile.maxY + 60.0f;
 		}
-		for (int k = 0; k < tile.count; k++) {
-			const Blade& b = tile.blades[k];
-			const f32 dx = b.x - mx, dz = b.z - mz;
-			const f32 d  = sqrtf(dx * dx + dz * dz);
-			if (d > reach)
-				continue;
-			// fewer farther out (keepShare), each of those wider, so the grass looks as full; shorter
-			// at the edge
-			const f32 share = keepShare(d);
-			if ((b.keep + 0.5f) * (1.0f / 256) >= share)
-				continue;
-			const f32 out = d / reach;
-			f32 h = b.h * (out > 0.85f ? (1.0f - out) * (1.0f / 0.15f) : 1.0f);
-			if (h < 0.5f)
-				continue;
-			// the breeze
-			const f32 ph   = (f32)b.phase * (6.2831853f / 65536.0f);
-			const f32 gust = 0.6f + 0.4f * sinf(t * 0.7f + (b.x * windX + b.z * windZ) * 0.0035f);
-			const f32 sway = (sinf(t * 2.1f + ph + (b.x + b.z) * 0.01f) * 0.6f + 0.4f) * gust * st.wind * h;
-			f32 tipX = windX * sway, tipZ = windZ * sway, tipDown = 0.0f;
-			// pressed: away from what presses, and down
-			for (int p = 0; p < nn; p++) {
-				const Press& q = close[p];
-				const f32 px = b.x - q.x, pz = b.z - q.z;
-				const f32 pd2 = px * px + pz * pz;
-				if (pd2 >= q.r * q.r || fabsf(q.y - b.y) > 60.0f)
-					continue;
-				const f32 pd  = sqrtf(pd2);
-				const f32 amt = (1.0f - pd / q.r) * q.strength;
-				const f32 inv = pd > 0.01f ? 1.0f / pd : 0.0f;
-				tipX += px * inv * amt * h * 0.9f;
-				tipZ += pz * inv * amt * h * 0.9f;
-				tipDown += amt * h * 0.55f;
-			}
-			if (tipDown > h * 0.8f)
-				tipDown = h * 0.8f;
-			// colour: darker at the root, lighter at the tip; each blade a little its own; the
-			// mower's stripes on cut lawns
-			f32 shade = 0.86f + 0.28f * (b.shade / 255.0f);
-			if (st.stripes)
-				shade *= ((int)floorf((b.x * 0.6f + b.z * 0.8f) / 110.0f) & 1) ? 1.07f : 0.94f;
-			if (st.clumps && (b.shade & 7) == 0)  // wild grass: a few dry, yellowed blades
-				shade *= 1.12f;
-			const f32 base[3] = {st.base[0] * shade, st.base[1] * shade, st.base[2] * shade};
-			f32 tip[3]        = {st.tip[0] * shade, st.tip[1] * shade, st.tip[2] * shade};
-			if (st.clumps && (b.shade & 7) == 0)
-				tip[0] *= 1.35f, tip[2] *= 0.85f;
-			const f32 widen = share < 1.0f ? 1.0f / sqrtf(share) : 1.0f;
-			const f32 w     = st.width * 0.5f * (widen > 3.0f ? 3.0f : widen);
-			const f32 ax = b.dirX * w, az = b.dirZ * w;
-			const f32 topY = b.y + h - tipDown;
-			if (s_vertCount + 9 > kChunk)
-				flushVerts();
-			if (st.segments == 1 || d > s_whole) {
-				put(b.x - ax, b.y, b.z - az, base);
-				put(b.x + ax, b.y, b.z + az, base);
-				put(b.x + tipX, topY, b.z + tipZ, tip);
-			} else {
-				// two segments: the middle bends a third as far as the tip, so the blade curves
-				const f32 midX = b.x + tipX * 0.3f, midZ = b.z + tipZ * 0.3f;
-				const f32 midY = b.y + (h - tipDown) * 0.55f;
-				const f32 mid[3] = {(base[0] + tip[0]) * 0.5f, (base[1] + tip[1]) * 0.5f, (base[2] + tip[2]) * 0.5f};
-				const f32 mx2 = ax * 0.65f, mz2 = az * 0.65f;
-				put(b.x - ax, b.y, b.z - az, base);
-				put(b.x + ax, b.y, b.z + az, base);
-				put(midX - mx2, midY, midZ - mz2, mid);
-				put(b.x + ax, b.y, b.z + az, base);
-				put(midX + mx2, midY, midZ + mz2, mid);
-				put(midX - mx2, midY, midZ - mz2, mid);
-				put(midX - mx2, midY, midZ - mz2, mid);
-				put(midX + mx2, midY, midZ + mz2, mid);
-				put(b.x + tipX, topY, b.z + tipZ, tip);
-			}
-		}
+		// curved two-segment blades near Mario, straight ones farther
+		const int segments = st.segments > 1 && d < s_whole ? 2 : 1;
+		GXPC_GrassDraw(tile.buf, tile.count, segments, pressed ? 1 : 0);
 	}
-	flushVerts();
+	GXPC_GrassEnd();
 }

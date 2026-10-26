@@ -363,6 +363,11 @@ bool shaderHasEarlyFragmentTests();
 bool earlyZWritesRejected();
 // `lines`: the program for a line batch, which draws each line as a quad
 // GXSetLineWidth wide (a geometry shader)
+// 3D Grass (gx_shader.cpp, gx_render.cpp): its program, and its own uniforms' locations.
+struct GrassUniforms {
+    int view, params, press, strength, tile;
+};
+const ShaderProgram* grassProgram(GrassUniforms* u);
 const ShaderProgram* shaderForCurrentState(bool depthOnly = false, bool lines = false);
 void shaderPrepareStage(int stage);  // while a stage loads: its programs (the warm-up)
 

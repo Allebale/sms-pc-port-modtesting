@@ -1217,6 +1217,171 @@ const ShaderProgram* shaderForCurrentState(bool depthOnly, bool lines) {
     return s_lastProgram = &(s_programs[key] = sp);
 }
 
+// ------------------------------------------------------------------ 3D Grass
+// The program for the blades of grass (GXPC_Grass*, gx_render.cpp): each blade an instance
+// (a_blade: its root and height; a_blade2: its facing, its phase, its shade and keep), its
+// triangles from gl_VertexID; swaying, pressed and coloured here, placed as the GX vertex shader
+// places the game's vertices (the same projection and viewport uniforms), fogged as its fragments.
+static const char* kGrassVs = R"(#version 330 core
+uniform vec4 u_proj[2];
+uniform vec4 u_vp[2];
+uniform vec2 u_efb;
+uniform vec4 u_gview[3];   // world to view, rows
+uniform vec4 u_g[6];       // see GXPC_GrassBegin
+uniform vec4 u_gp[64];     // what presses: x, y, z, radius
+uniform vec4 u_gs[16];     // their strengths, four a vec4
+uniform vec4 u_gtile;      // x: presses reach this tile; y: segments (1 or 2)
+in vec4 a_blade;
+in vec4 a_blade2;
+out vec3 v_col;
+const ivec2 kV1[3] = ivec2[3](ivec2(-1, 0), ivec2(1, 0), ivec2(0, 2));
+const ivec2 kV2[9] = ivec2[9](ivec2(-1, 0), ivec2(1, 0), ivec2(-1, 1), ivec2(1, 0), ivec2(1, 1), ivec2(-1, 1),
+                             ivec2(-1, 1), ivec2(1, 1), ivec2(0, 2));
+void hide() {
+  gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+  gl_ClipDistance[0] = -1.0; gl_ClipDistance[1] = -1.0; gl_ClipDistance[2] = -1.0;
+  v_col = vec3(0.0);
+}
+void main() {
+  vec3 bp = a_blade.xyz;
+  float h = a_blade.w;
+  float d = length(bp.xz - u_g[3].xz);
+  float reach = u_g[2].w, whole = u_g[1].w;
+  float keep = floor(a_blade2.w / 256.0), shadeB = a_blade2.w - keep * 256.0;
+  float share = 1.0;
+  if (u_g[3].w > 0.5 && d > whole) share = (whole / d) * (whole / d);
+  if (d > reach || (keep + 0.5) / 256.0 >= share) { hide(); return; }
+  float outv = d / reach;
+  if (outv > 0.85) h *= (1.0 - outv) / 0.15;
+  if (h < 0.5) { hide(); return; }
+  // the breeze
+  float t = u_g[0].x;
+  vec2 wind = u_g[4].xy;
+  float ph = a_blade2.z * 6.2831853;
+  float gust = 0.6 + 0.4 * sin(t * 0.7 + dot(bp.xz, wind) * 0.0035);
+  float sway = (sin(t * 2.1 + ph + (bp.x + bp.z) * 0.01) * 0.6 + 0.4) * gust * u_g[0].y * h;
+  vec2 tip = wind * sway;
+  float down = 0.0;
+  // pressed: away from what presses, and down
+  if (u_gtile.x > 0.5) {
+    int n = int(u_g[5].y);
+    for (int i = 0; i < n; i++) {
+      vec4 q = u_gp[i];
+      vec2 pv = bp.xz - q.xz;
+      float pd = length(pv);
+      if (pd >= q.w || abs(q.y - bp.y) > 60.0) continue;
+      float amt = (1.0 - pd / q.w) * u_gs[i >> 2][i & 3];
+      tip += (pd > 0.01 ? pv / pd : vec2(0.0)) * amt * h * 0.9;
+      down += amt * h * 0.55;
+    }
+  }
+  down = min(down, h * 0.8);
+  // the vertex: which side, how high
+  ivec2 vtx = u_gtile.y > 1.5 ? kV2[gl_VertexID % 9] : kV1[gl_VertexID % 3];
+  float widen = share < 1.0 ? min(1.0 / sqrt(share), 3.0) : 1.0;
+  vec2 across = a_blade2.xy * (u_g[0].z * 0.5 * widen);
+  float topY = h - down;
+  vec3 p;
+  float level;
+  if (vtx.y == 0) {
+    p = vec3(bp.x + across.x * float(vtx.x), bp.y, bp.z + across.y * float(vtx.x));
+    level = 0.0;
+  } else if (vtx.y == 1) {
+    p = vec3(bp.x + tip.x * 0.3 + across.x * 0.65 * float(vtx.x), bp.y + topY * 0.55,
+             bp.z + tip.y * 0.3 + across.y * 0.65 * float(vtx.x));
+    level = 0.5;
+  } else {
+    p = vec3(bp.x + tip.x, bp.y + topY, bp.z + tip.y);
+    level = 1.0;
+  }
+  // colour: darker at the root; each blade its own; the mower's stripes; some dry wild blades
+  float shade = 0.86 + 0.28 * (shadeB / 255.0);
+  if (u_g[4].z > 0.5) shade *= (int(floor(dot(bp.xz, vec2(0.6, 0.8)) / 110.0)) & 1) != 0 ? 1.07 : 0.94;
+  bool dry = u_g[4].w > 0.5 && mod(shadeB, 8.0) < 0.5;
+  if (dry) shade *= 1.12;
+  vec3 tipC = u_g[2].rgb;
+  if (dry) tipC *= vec3(1.35, 1.0, 0.85);
+  v_col = clamp(mix(u_g[1].rgb, tipC, level) * shade / 255.0, 0.0, 1.0);
+  // placed as the GX vertex shader places the game's
+  vec4 wp = vec4(p, 1.0);
+  vec3 vpos = vec3(dot(u_gview[0], wp), dot(u_gview[1], wp), dot(u_gview[2], wp));
+  vec4 clip;
+  if (u_proj[1].z == 0.0) {
+    clip = vec4(u_proj[0].x * vpos.x + u_proj[0].y * vpos.z, u_proj[0].z * vpos.y + u_proj[0].w * vpos.z,
+                u_proj[1].x * vpos.z + u_proj[1].y, -vpos.z);
+  } else {
+    clip = vec4(u_proj[0].x * vpos.x + u_proj[0].y, u_proj[0].z * vpos.y + u_proj[0].w,
+                u_proj[1].x * vpos.z + u_proj[1].y, 1.0);
+  }
+  gl_Position.x = ((u_vp[1].x - 342.0) * clip.w + u_vp[0].x * clip.x) * (2.0 / u_efb.x) - clip.w;
+  gl_Position.y = ((u_vp[1].y - 342.0) * clip.w + u_vp[0].y * clip.y) * (2.0 / u_efb.y) - clip.w;
+  float zw = u_vp[1].z * clip.w + u_vp[0].z * clip.z;
+  gl_Position.z = zw * (2.0 / 16777215.0) - clip.w;
+  gl_Position.w = clip.w;
+  gl_ClipDistance[0] = clip.z + clip.w;
+  gl_ClipDistance[1] = -clip.z;
+  gl_ClipDistance[2] = 1.0;
+}
+)";
+static const char* kGrassFs = R"(#version 330 core
+in vec3 v_col;
+uniform vec4 u_fog;
+uniform vec4 u_fogcolor;
+uniform vec4 u_g[6];
+out vec4 o_color;
+void main() {
+  vec4 color = vec4(v_col, 1.0);
+  int fogType = int(u_g[5].x);
+  if (fogType != 0) {
+    float ze = u_fog.w != 0.0 ? u_fog.x * gl_FragCoord.z : u_fog.x / (u_fog.y - gl_FragCoord.z);
+    float f = clamp(ze - u_fog.z, 0.0, 1.0);
+    if (fogType == 4) f = 1.0 - exp2(-8.0 * f);
+    else if (fogType == 5) f = 1.0 - exp2(-8.0 * f * f);
+    else if (fogType == 6) f = exp2(-8.0 * (1.0 - f));
+    else if (fogType == 7) f = exp2(-8.0 * (1.0 - f) * (1.0 - f));
+    color.rgb = mix(color.rgb, u_fogcolor.rgb, f);
+  }
+  o_color = color;
+}
+)";
+
+static ShaderProgram s_grassProgram;
+static bool s_grassMade = false;
+static GrassUniforms s_grassUniforms;
+
+const ShaderProgram* grassProgram(GrassUniforms* u) {
+    if (!s_grassMade) {
+        s_grassMade = true;
+        glt::sync([&] {
+            GLuint v = compile(GL_VERTEX_SHADER, kGrassVs), f = compile(GL_FRAGMENT_SHADER, kGrassFs);
+            GLuint p = glCreateProgram();
+            glAttachShader(p, v);
+            glAttachShader(p, f);
+            glBindAttribLocation(p, 0, "a_blade");
+            glBindAttribLocation(p, 1, "a_blade2");
+            glBindFragDataLocation(p, 0, "o_color");
+            glLinkProgram(p);
+            GLint ok = 0;
+            glGetProgramiv(p, GL_LINK_STATUS, &ok);
+            if (!ok) {
+                char log[4096];
+                glGetProgramInfoLog(p, sizeof log, nullptr, log);
+                logmsg("grass program link failed: %s", log);
+            }
+            glDeleteShader(v);
+            glDeleteShader(f);
+            setupProgram(p, s_grassProgram);
+            s_grassUniforms.view = glGetUniformLocation(p, "u_gview");
+            s_grassUniforms.params = glGetUniformLocation(p, "u_g");
+            s_grassUniforms.press = glGetUniformLocation(p, "u_gp");
+            s_grassUniforms.strength = glGetUniformLocation(p, "u_gs");
+            s_grassUniforms.tile = glGetUniformLocation(p, "u_gtile");
+        });
+    }
+    *u = s_grassUniforms;
+    return &s_grassProgram;
+}
+
 void shaderShutdown() {
     glt::sync([] { warmPoll(); });
     warmDrain();
@@ -1235,6 +1400,8 @@ void shaderShutdown() {
     s_linePrograms.clear();
     s_lastProgram = nullptr;
     s_earlyFragmentTests = -1;
+    if (s_grassMade && s_grassProgram.prog) glDeleteProgram(s_grassProgram.prog);
+    s_grassMade = false;
 }
 
 }  // namespace gx
