@@ -2429,7 +2429,7 @@ extern "C" unsigned GXPC_GrassBuffer(unsigned buf, const float* data, int blades
 extern "C" void GXPC_GrassBegin(const float view[3][4], const float* params, const float* press,
                                 const float* strength, int count) {
     flushBatch();
-    grassCopyGround();
+    if (params[22] < 0.5f) grassCopyGround();  // not for a reflection: it keeps the main view's copy
     s_grassSp = grassProgram(&s_grassU);
     s_xmap    = drawXMap();
     s_bclass  = PRIM_TRIS;

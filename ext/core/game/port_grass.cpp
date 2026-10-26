@@ -456,7 +456,7 @@ void afterMovement()
 			s_trailCount++;
 	}
 	// the tiles round Mario, nearest first: those missing, and those he has come nearer to than
-	// they were made for; for at most 4 ms a tick
+	// they were made for; for at most 1.5 ms a tick
 	s_reach = s_style->reach * port_grass_distance();
 	s_whole = s_style->reach * 0.5f;
 	s_thin  = port_grass_thin() != 0;
@@ -464,7 +464,7 @@ void afterMovement()
 	const int tx0 = (int)floorf((mx - reach) / kTile), tx1 = (int)floorf((mx + reach) / kTile);
 	const int tz0 = (int)floorf((mz - reach) / kTile), tz1 = (int)floorf((mz + reach) / kTile);
 	const OSTime start = OSGetTime();
-	for (int made = 0; made < 64 && OSTicksToMicroseconds(OSGetTime() - start) < 4000;) {
+	for (int made = 0; made < 64 && OSTicksToMicroseconds(OSGetTime() - start) < 1500;) {
 		int bx = 0, bz = 0;
 		f32 best = 1e30f, bestShare = 0.0f;
 		for (int tz = tz0; tz <= tz1; tz++)
@@ -509,10 +509,15 @@ struct Register {
 // ------------------------------------------------------------------ drawing
 } // namespace
 
-void port_grass_draw(float (*view)[4])
+namespace {
+// mirror: the blades in a puddle's or the water's reflection (port_reflections.cpp), seen from the
+// mirror's camera: only near Mario (1500 units), in the kind's own colour (the ground under them
+// is not looked at: the reflection is drawn before the ground it reflects is copied).
+void drawGrass(float (*view)[4], bool mirror)
 {
 	if (!s_style || !gpMarioPos || !view || !s_bladeTotal || s_reach <= 0.0f)
 		return;
+	const f32 reach = mirror && s_reach > 1500.0f ? 1500.0f : s_reach;
 	const Style& st = *s_style;
 	const f32 mx = gpMarioPos->x, my = gpMarioPos->y, mz = gpMarioPos->z;
 	gatherPress(mx, my, mz);
@@ -537,10 +542,10 @@ void port_grass_draw(float (*view)[4])
 	const f32 params[24] = {
 		(f32)nowMs() * 0.001f, st.wind, st.width, port_grass_height(s_style == &kWild),
 		(f32)st.base[0], (f32)st.base[1], (f32)st.base[2], s_whole,
-		(f32)st.tip[0], (f32)st.tip[1], (f32)st.tip[2], s_reach,
+		(f32)st.tip[0], (f32)st.tip[1], (f32)st.tip[2], reach,
 		mx, my, mz, s_thin ? 1.0f : 0.0f,
 		0.8f, 0.6f, st.stripes ? 1.0f : 0.0f, st.clumps ? 1.0f : 0.0f,  // the breeze's way
-		0.0f, 0.0f, 0.0f, 0.0f,
+		0.0f, 0.0f, mirror ? 1.0f : 0.0f, 0.0f,  // the renderer's; whether the ground is looked at
 	};
 	GXPC_GrassBegin(view, params, press, strength, n);
 	for (int i = 0; i < kMostTiles; i++) {
@@ -548,7 +553,7 @@ void port_grass_draw(float (*view)[4])
 		if (!tile.used || !tile.count || !tile.buf)
 			continue;
 		const f32 d = tileDistance(tile.tx, tile.tz, mx, mz);
-		if (d > s_reach)
+		if (d > reach)
 			continue;
 		// behind the camera (view space z > 0 is behind it), with a tile's margin
 		const f32 cx = (tile.tx + 0.5f) * kTile, cz = (tile.tz + 0.5f) * kTile;
@@ -570,3 +575,7 @@ void port_grass_draw(float (*view)[4])
 	}
 	GXPC_GrassEnd();
 }
+} // namespace
+
+void port_grass_draw(float (*view)[4]) { drawGrass(view, false); }
+void port_grass_draw_mirror(float (*view)[4]) { drawGrass(view, true); }

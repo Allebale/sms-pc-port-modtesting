@@ -39,6 +39,7 @@
 #include <Strategic/MirrorActor.hpp>
 #include <JSystem/J3D/J3DGraphBase/J3DDrawBuffer.hpp>
 #include <JSystem/J3D/J3DGraphBase/J3DPacket.hpp>
+#include <JSystem/J3D/J3DGraphBase/J3DSys.hpp>
 #include <JSystem/JDrama/JDRDrawBufObj.hpp>
 #include <JSystem/JParticle/JPAEmitterManager.hpp>
 #include <MarioUtil/ReinitGX.hpp>
@@ -291,8 +292,9 @@ bool noReflection(TLiveActor* actor)
 // ------------------------------------------------------------------ the mirror's extras
 // What the mirror scene has no model of: the effects (fire, smoke, sparkles: the game's particles,
 // gpMarioParticleManager's) and 3D Grass. Each frame the mirror's picture is drawn, a packet of the
-// port's at the end of its translucent draw buffer ("DrawBuf MirrorAlways Xlu") draws them seen
-// from the mirror's camera: the effects with Reflect Objects on, the grass with Reflect the Level.
+// port's at the end of the mirror scene's translucent draw buffer (the one its copies are entered
+// into, j3dSys's as the scene is performed) draws them seen from the mirror's camera: the effects
+// with Reflect Objects on, the grass with Reflect the Level.
 class TPortMirrorPacket : public J3DPacket {
 public:
 	virtual void draw()
@@ -301,8 +303,13 @@ public:
 		if (!camera)
 			return;
 		MtxPtr view = camera->getUnk30();
+		static bool s_told;
+		if (!s_told) {
+			s_told = true;
+			fprintf(stderr, "[puddles] effects and grass drawn in the reflection (seen from the mirror's camera)\n");
+		}
 		if (port_reflect_level() && port_grass())
-			port_grass_draw(view);
+			port_grass_draw_mirror(view);
 		if (port_reflect_kind(PORT_REFLECT_OBJECTS) && gpMarioParticleManager && gpMarioParticleManager->unk3B8
 		    && gpCamera) {
 			JPADrawInfo info(view, camera->getUnk80() * gpCamera->getFovy(), gpCamera->getAspect());
@@ -316,24 +323,21 @@ class TPortMirrorExtras : public JDrama::TViewObj {
 public:
 	TPortMirrorExtras()
 	    : JDrama::TViewObj("port mirror extras")
-	    , mBuffer(0)
 	{
-		JDrama::TDrawBufObj* obj = JDrama::TNameRefGen::search<JDrama::TDrawBufObj>("DrawBuf MirrorAlways Xlu");
-		mBuffer = obj ? obj->getDrawBuffer() : 0;
 	}
 
 	virtual void perform(u32 cue, JDrama::TGraphics*)
 	{
-		if (!(cue & CUE_ENTRY) || !mBuffer || !gpModelWaterManager)
+		J3DDrawBuffer* buffer = (cue & CUE_ENTRY) ? j3dSys.getDrawBuffer(1) : 0;  // the scene's translucent one
+		if (!buffer || !gpModelWaterManager)
 			return;
 		if (!gpModelWaterManager->getParticleCount() && !port_water_mirror_active())
 			return;  // no puddle or water shows a reflection this frame
 		if (!(port_reflect_level() && port_grass()) && !port_reflect_kind(PORT_REFLECT_OBJECTS))
 			return;
-		mBuffer->entryImm(&mPacket, 0);
+		buffer->entryImm(&mPacket, 0);
 	}
 
-	J3DDrawBuffer* mBuffer;
 	TPortMirrorPacket mPacket;
 };
 
