@@ -16,7 +16,7 @@ int port_shadows_round(void);
 // Shadow Distance: how far the far map reaches either side of Mario, in units.
 float port_shadows_distance(void);
 // Keep the Original Shadow Direction: 1 the sun's shadows fall exactly where the game's own fell
-// (along its light, as TMBindShadowManager casts them); 0 from the stage's sun in the sky.
+// (straight below what casts them, as TMBindShadowManager puts them); 0 from the stage's sun.
 int port_shadows_original_direction(void);
 // From CPolarSubCamera::perform (zzzzz-ext-31-shadows), the main camera's projection just set:
 // the sun's direction and the box round Mario for this frame, with the camera's view (world to

@@ -5,7 +5,7 @@
 // The sun: the stage's sun in the sky (TSunModel), else the game's light (gpLightManager), else a
 // light from high above; never lower than about 25 degrees over the horizon (at sunset the shadows
 // would run the length of the stage). With Keep the Original Shadow Direction on, exactly the way
-// the game's own shadows fell (TMBindShadowManager's, along its light).
+// the game's own shadows fell: straight down, under what casts them.
 #include "port_ext.h"
 #include "port_shadows.h"
 
@@ -138,12 +138,11 @@ void port_shadows_main_view(void* camera, float (*view)[4])
 	const Vec* light    = gpLightManager ? gpLightManager->getLightPos() : 0;
 	const bool lit = light && light->y > 0.0f && light->x * light->x + light->y * light->y + light->z * light->z > 1e-6f;
 	const bool sky = gpSunModel && gpSunMgr && gpSunMgr->unk14;
-	if (original && lit) {
-		// exactly where the game's own fall: TMBindShadowManager moves a point h above the ground by
-		// h times its light's (normalized) x and z, which is along (x, 1, z)
-		f32 d[3] = {light->x, light->y, light->z};
-		const f32 dl = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
-		sun[0] = d[0] / dl, sun[1] = 1.0f, sun[2] = d[2] / dl;
+	if (original) {
+		// exactly where the game's own fall: TMBindShadowManager puts each round, tree's and
+		// umbrella's shadow on the ground straight below what casts it (TMBindShadowManager::calcVtx:
+		// the request's position, its height the ground's), so the light is straight overhead
+		sun[0] = 0.0f, sun[1] = 1.0f, sun[2] = 0.0f;
 		source = 0;
 	} else if (sky) {
 		const JGeometry::TVec3<f32>& p = gpSunModel->mPosition;
