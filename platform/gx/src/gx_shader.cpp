@@ -111,6 +111,7 @@ uniform vec2 u_efb;
 uniform vec4 u_chan[4];
 uniform vec4 u_uclip;
 uniform vec4 u_wet[2];
+uniform vec4 u_shadow[12];
 in vec3 a_pos; in vec3 a_nrm; in vec3 a_bin; in vec3 a_tan;
 in vec4 a_clr0; in vec4 a_clr1;
 in vec2 a_tex0; in vec2 a_tex1; in vec2 a_tex2; in vec2 a_tex3;
@@ -294,6 +295,15 @@ static std::string genVS(const ShaderKey& k) {
         snprintf(buf, sizeof buf, "    v_tc%u = t; }\n", i);
         s += buf;
     }
+    // Shadows: a caster's draw into the sun's shadow map (depthOnly 2): from the sun, not the
+    // camera (u_shadow rows 4-7: view space to the map), none of the camera's clipping
+    // (rows 6-8), into its cascade's half of the texture (u_shadow[11].x: 0 the left, 1 the right),
+    // clipped to that half
+    if (k.depthOnly == 2)
+        s += "  { vec4 sp = vec4(vpos, 1.0);\n"
+             "    vec3 c = vec3(dot(u_shadow[6], sp), dot(u_shadow[7], sp), dot(u_shadow[8], sp));\n"
+             "    gl_Position = vec4(c.x * 0.5 + (u_shadow[11].x > 0.5 ? 0.5 : -0.5), c.y, c.z, 1.0);\n"
+             "    gl_ClipDistance[0] = 1.0 - c.x; gl_ClipDistance[1] = 1.0 + c.x; gl_ClipDistance[2] = 1.0; }\n";
     s += "}\n";
     return s;
 }
@@ -303,6 +313,21 @@ static const char* kFsHeader = R"(#version 330 core
 in vec4 v_c0; in vec4 v_c1;
 in vec3 v_wn; in vec3 v_wp; in vec3 v_wl; in vec3 v_wlc;
 uniform vec4 u_wet[2];
+uniform vec4 u_shadow[12];
+uniform sampler2DShadow u_shadowMap;
+// Shadows: how lit a point is in a cascade's map (c: its clip space; tile 0 near, 1 far; the two
+// side by side in the texture), 3 by 3 taps (each comparing 4 texels), kept to the cascade's half
+float shadowLit(vec3 c, float tile) {
+  vec2 uv = c.xy * 0.5 + 0.5;
+  float t = u_shadow[9].w;
+  float lit = 0.0;
+  for (int sy = -1; sy <= 1; sy++)
+    for (int sx = -1; sx <= 1; sx++) {
+      vec2 q = clamp(uv + vec2(sx, sy) * t, vec2(t), vec2(1.0 - t));
+      lit += textureLod(u_shadowMap, vec3((q.x + tile) * 0.5, q.y, c.z * 0.5 + 0.5), 0.0);
+    }
+  return lit / 9.0;
+}
 in vec3 v_tc0; in vec3 v_tc1; in vec3 v_tc2; in vec3 v_tc3;
 in vec3 v_tc4; in vec3 v_tc5; in vec3 v_tc6; in vec3 v_tc7;
 uniform sampler2D u_tex[8];
@@ -361,7 +386,7 @@ static std::string genFS(const ShaderKey& k) {
     if (k.earlyZ) {
         s.insert(s.find('\n') + 1, "#extension GL_ARB_shader_image_load_store : require\nlayout(early_fragment_tests) in;\n");
     }
-    if (k.depthOnly) return s + "void main() { o_color = vec4(0.0); }\n";
+    if (k.depthOnly == 1) return s + "void main() { o_color = vec4(0.0); }\n";
     char buf[2048];
     s += "void main() {\n"
          "  ivec4 cprev = u_tevreg[0], creg0 = u_tevreg[1], creg1 = u_tevreg[2], creg2 = u_tevreg[3];\n"
@@ -565,6 +590,32 @@ static std::string genFS(const ShaderKey& k) {
          "      vec3 lc = dot(v_wlc, v_wlc) > 0.0 ? v_wlc : vec3(1.0);\n"
          "      color.rgb = clamp(c + w * (0.3 * sl * lc + 0.08 * ss + 0.06 * fr), 0.0, 1.0);\n"
          "    }\n"
+         "  }\n"
+         // Shadows (u_shadow[9].x, 0 off; u_shadow[10].w, 1 for the main camera's view): where the
+         // sun's light is blocked, the surface darker. The face's own normal (from the position's
+         // slopes, whatever the model has), turned to the camera; only faces toward the sun; the
+         // position pushed out along it a little (no shadow of a surface on itself). The near map
+         // where it reaches, the far one past it, blended between; fading out at the far one's edge
+         "  if (u_shadow[9].x > 0.0 && u_shadow[10].w > 0.0) {\n"
+         "    vec3 fn = cross(dFdx(v_wp), dFdy(v_wp));\n"
+         "    fn = dot(fn, fn) > 1e-12 ? normalize(fn) : vec3(0.0, 0.0, 1.0);\n"
+         "    if (dot(fn, v_wp) > 0.0) fn = -fn;\n"
+         "    float nl = dot(fn, u_shadow[10].xyz);\n"
+         "    if (nl > 0.0) {\n"
+         "      float lean = 1.0 + 2.0 * (1.0 - nl);\n"
+         "      vec4 p0 = vec4(v_wp + fn * u_shadow[9].y * lean, 1.0);\n"
+         "      vec4 p1 = vec4(v_wp + fn * u_shadow[9].z * lean, 1.0);\n"
+         "      vec3 a = vec3(dot(u_shadow[0], p0), dot(u_shadow[1], p0), dot(u_shadow[2], p0));\n"
+         "      vec3 b = vec3(dot(u_shadow[3], p1), dot(u_shadow[4], p1), dot(u_shadow[5], p1));\n"
+         "      float ea = max(abs(a.x), abs(a.y)), eb = max(abs(b.x), abs(b.y));\n"
+         "      float wn = a.z < 1.0 ? 1.0 - smoothstep(0.8, 0.95, ea) : 0.0;\n"
+         "      float dark = 0.0;\n"
+         "      if (wn > 0.0) dark = wn * (1.0 - shadowLit(a, 0.0));\n"
+         "      if (wn < 1.0 && eb < 1.0 && b.z < 1.0)\n"
+         "        dark += (1.0 - wn) * (1.0 - shadowLit(b, 1.0)) * (1.0 - smoothstep(0.75, 1.0, eb));\n"
+         // a little blue, as shade lit by the sky is
+         "      color.rgb *= 1.0 - u_shadow[9].x * dark * smoothstep(0.0, 0.2, nl) * vec3(1.0, 0.94, 0.8);\n"
+         "    }\n"
          "  }\n";
     if (k.fogType) {
         // u_fog: x = A, y = B, z = C, w = 1 for orthographic. The depth is the
@@ -637,6 +688,9 @@ static void setupProgram(GLuint p, ShaderProgram& sp, bool aside = false) {
     GLuint blk = glGetUniformBlockIndex(p, "XFBlock");
     if (blk != GL_INVALID_INDEX) glUniformBlockBinding(p, blk, 0);
     GLint units[8] = {0, 1, 2, 3, 4, 5, 6, 7};
+    sp.uShadow = glGetUniformLocation(p, "u_shadow");
+    GLint shadowMap = glGetUniformLocation(p, "u_shadowMap");
+    if (shadowMap >= 0) glUniform1i(shadowMap, kShadowUnit);
     GLint loc = glGetUniformLocation(p, "u_tex");
     if (loc >= 0) glUniform1iv(loc, 8, units);
     sp.uTevReg = glGetUniformLocation(p, "u_tevreg");
@@ -1163,12 +1217,13 @@ static const ShaderProgram* lineProgram(const ProgramKey& key) {
     return &(s_linePrograms[key] = sp);
 }
 
-const ShaderProgram* shaderForCurrentState(bool depthOnly, bool lines) {
+const ShaderProgram* shaderForCurrentState(int depthOnly, bool lines) {
     if (s_cacheState < 0) shaderSetup();
     ProgramKey key;
     ShaderKey& k = key.k;
     buildKey(k);
-    k.depthOnly = depthOnly;
+    k.depthOnly = uint32_t(depthOnly);
+    if (depthOnly == 2) k.earlyZ = 0;  // a shadow caster: its alpha test discards before depth
     key.indScale[0] = k.numInd ? g.bp[BP_RAS1_SS0] : 0;
     key.indScale[1] = k.numInd ? g.bp[BP_RAS1_SS0 + 1] : 0;
     if (lines) return lineProgram(key);

@@ -74,6 +74,10 @@ int s_grass = 0;          // 3D Grass: 0 off, 1 by location, 2 always cut, 3 alw
 int s_grassDistance = 2;  // Grass Distance: into kGrassDistances
 int s_grassThin = 0;      // Thinned Far Away
 int s_grassCutHeight = 2, s_grassWildHeight = 2;  // into kGrassHeights
+int s_shadows = 0;        // Real Shadows: 0 off (the game's own), 1 soft, 2 strong
+int s_shadowsRound = 0;   // Round Shadows Under Characters, with Real Shadows: 1 kept (lighter)
+int s_shadowsDistance = 2;  // Shadow Distance: into kShadowDistances
+int s_shadowsOriginal = 0;  // Keep the Original Shadow Direction
 int s_level = 0;          // Reflect the Level: 0 off (as the game has it), 1 the stage itself too
 int s_water;       // Water Reflections: 0 none (as the game has it), 1 in the stage's water and wet ground
 // 0.5x to 5x the game's 1000 units, in steps of 0.25x (250 units)
@@ -250,6 +254,14 @@ void load() {
             s_grassDistance = value < 0 ? 0 : value > 4 ? 4 : value;
         } else if (sscanf(line, " grassblades = %d", &value) == 1) {
             s_grass = value < 0 ? 0 : value > 3 ? 3 : value;
+        } else if (sscanf(line, " characterroundshadows = %d", &value) == 1) {
+            s_shadowsRound = value != 0;
+        } else if (sscanf(line, " shadowdistance = %d", &value) == 1) {
+            s_shadowsDistance = value < 0 ? 0 : value > 4 ? 4 : value;
+        } else if (sscanf(line, " shadoworiginaldirection = %d", &value) == 1) {
+            s_shadowsOriginal = value != 0;
+        } else if (sscanf(line, " shadows = %d", &value) == 1) {
+            s_shadows = value < 0 ? 0 : value > 2 ? 2 : value;
         } else if (sscanf(line, " wetmario = %d", &value) == 1) {
             s_wetMario  = value != 0;
             sawWetMario = true;
@@ -326,6 +338,14 @@ void save() {
     fprintf(f, "# grasscutheight, grasswildheight: 0 50%% (wild only), 1 75%%, 2 100%%, 3 150%%, 4 200%%, 5 300%%.\n");
     fprintf(f, "grasscutheight = %d\n", s_grassCutHeight);
     fprintf(f, "grasswildheight = %d\n", s_grassWildHeight);
+    fprintf(f, "# shadows: the sun's shadows of everything: 0 off (the game's own), 1 soft, 2 strong.\n");
+    fprintf(f, "shadows = %d\n", s_shadows);
+    fprintf(f, "# characterroundshadows: with shadows on, 1 the game's round shadows under characters kept (lighter), 0 not.\n");
+    fprintf(f, "characterroundshadows = %d\n", s_shadowsRound);
+    fprintf(f, "# shadowdistance: how far the shadows reach: 0 short, 1 medium, 2 long, 3 very long, 4 max.\n");
+    fprintf(f, "shadowdistance = %d\n", s_shadowsDistance);
+    fprintf(f, "# shadoworiginaldirection: 1 the shadows fall where the game's own did, 0 from the sun in the sky.\n");
+    fprintf(f, "shadoworiginaldirection = %d\n", s_shadowsOriginal);
     fprintf(f, "# level: 1 the stage itself (ground, buildings, sky) in puddles and water too, 0 not.\n");
     fprintf(f, "level = %d\n", s_level);
     fprintf(f, "# beatmirrors: 1 puddles near Mario take the reflection from a real mirror's area, 0 not.\n");
@@ -417,6 +437,64 @@ int grassThinSet(int i) {
     s_grassThin = i;
     save();
     port_log("[grass] Thinned Far Away changed: %s\n", i ? "on" : "off");
+    return 1;
+}
+
+const char* const kShadowNames[] = {"Off", "Soft", "Strong"};
+int shadowsCount() { return 3; }
+const char* shadowsName(int i) { return kShadowNames[i < 0 || i > 2 ? 0 : i]; }
+int shadowsGet() {
+    load();
+    return s_shadows;
+}
+int shadowsSet(int i) {
+    if (i < 0 || i > 2) return 0;
+    load();
+    s_shadows = i;
+    save();
+    port_log("[shadows] Real Shadows changed: %s\n", kShadowNames[i]);
+    return 1;
+}
+
+const char* const kShadowDistanceNames[] = {"Short", "Medium", "Long", "Very Long", "Max"};
+const float kShadowDistances[] = {4000.0f, 8000.0f, 16000.0f, 24000.0f, 32000.0f};
+int distanceCount5() { return 5; }
+const char* shadowDistanceName(int i) { return kShadowDistanceNames[i < 0 || i > 4 ? 2 : i]; }
+int shadowDistanceGet() {
+    load();
+    return s_shadowsDistance;
+}
+int shadowDistanceSet(int i) {
+    if (i < 0 || i > 4) return 0;
+    load();
+    s_shadowsDistance = i;
+    save();
+    port_log("[shadows] Shadow Distance changed: %s\n", kShadowDistanceNames[i]);
+    return 1;
+}
+int originalGet() {
+    load();
+    return s_shadowsOriginal;
+}
+int originalSet(int i) {
+    if (i < 0 || i > 1) return 0;
+    load();
+    s_shadowsOriginal = i;
+    save();
+    port_log("[shadows] Keep the Original Shadow Direction changed: %s\n", i ? "on" : "off");
+    return 1;
+}
+
+int roundGet() {
+    load();
+    return s_shadowsRound;
+}
+int roundSet(int i) {
+    if (i < 0 || i > 1) return 0;
+    load();
+    s_shadowsRound = i;
+    save();
+    port_log("[shadows] Round Shadows Under Characters changed: %s\n", i ? "on" : "off");
     return 1;
 }
 
@@ -750,21 +828,33 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 95, "Puddle Lifetime",
      "How long FLUDD's puddles last. Goop and objects react as in the original game.", 0, nullptr, count,
      name, get, set},
-    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 96, "3D Grass",
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 100, "3D Grass",
      "Blades of grass, cut short in town, wild in the hills. They sway and bend round Mario.", 0, nullptr,
      grassCount, grassName, grassGet, grassSet},
-    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 97, "Grass Distance",
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 101, "Grass Distance",
      "How far from Mario the blades of grass go. Farther costs a little more.", 0, nullptr,
      grassDistanceCount, grassDistanceName, grassDistanceGet, grassDistanceSet},
-    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 98, "Grass Thinned Far Away",
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 102, "Grass Thinned Far Away",
      "Fewer, wider blades far from Mario: faster, but they show as you come near.", 0, nullptr,
      offOnCount, offOnName, grassThinGet, grassThinSet},
-    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 99, "Cut Grass Height",
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 103, "Cut Grass Height",
      "How tall the cut and tended grass grows (town lawns, parks).", 0, nullptr, grassHeightCount<0>,
      grassHeightName<0>, grassHeightGet<0>, grassHeightSet<0>},
-    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 100, "Wild Grass Height",
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 104, "Wild Grass Height",
      "How tall the wild grass grows (hills, villages, beaches).", 0, nullptr, grassHeightCount<1>,
      grassHeightName<1>, grassHeightGet<1>, grassHeightSet<1>},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 96, "Real Shadows",
+     "The sun's shadows of everything, the level and characters too. Off is the original.", 0,
+     nullptr, shadowsCount, shadowsName, shadowsGet, shadowsSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 97, "Round Shadows Under Characters",
+     "With Real Shadows, the game's own round shadow under each character too, lighter.", 0, nullptr,
+     offOnCount, offOnName, roundGet, roundSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 98, "Shadow Distance",
+     "How far from Mario Real Shadows reach. Farther is a little softer far away.", 0, nullptr,
+     distanceCount5, shadowDistanceName, shadowDistanceGet, shadowDistanceSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 99, "Keep the Original Shadow Direction",
+     "Real Shadows fall exactly where the game's own did. Off, from the sun in the sky.", 0, nullptr,
+     offOnCount, offOnName, originalGet, originalSet},
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 0, "Preset",
      "The original game, or the recommended look. Some apply from the next area.", 1, nullptr, presetCount,
      presetName, presetGet, presetSet},
@@ -876,6 +966,24 @@ int port_grass_thin(void) {
 float port_grass_distance(void) {
     load();
     return kGrassDistances[s_grassDistance < 0 || s_grassDistance > 4 ? 2 : s_grassDistance];
+}
+
+// Real Shadows: 0 off, 1 soft, 2 strong (ext/core/game/port_shadows.cpp, each frame).
+int port_shadows(void) {
+    load();
+    return s_shadows;
+}
+int port_shadows_round(void) {
+    load();
+    return s_shadowsRound;
+}
+float port_shadows_distance(void) {
+    load();
+    return kShadowDistances[s_shadowsDistance < 0 || s_shadowsDistance > 4 ? 2 : s_shadowsDistance];
+}
+int port_shadows_original_direction(void) {
+    load();
+    return s_shadowsOriginal;
 }
 
 // The options as the settings have them (port_puddle_options.cpp asks as it starts, and again

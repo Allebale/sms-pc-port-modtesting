@@ -1912,6 +1912,10 @@ static void uploadUniforms(const ShaderProgram* sp, float texW[8], float texH[8]
     UNI(uUserClip, uclip, uclip, glUniform4fv(sp->uUserClip, 1, uclip));
     float wet[8] = {g.wet, 0.0f, 0.0f, 0.0f, g.wetLine[0], g.wetLine[1], g.wetLine[2], g.wetLine[3]};
     UNI(uWet, wet, wet, glUniform4fv(sp->uWet, 2, wet));
+    float shadow[48];
+    memcpy(shadow, g.shadow, sizeof shadow);
+    shadow[43] = g.shadowMain ? 1.0f : 0.0f;  // received only in the main camera's view
+    UNI(uShadow, shadow, shadow, glUniform4fv(sp->uShadow, 12, shadow));
 #undef UNI
     uc.init = true;
 }
@@ -2475,6 +2479,219 @@ extern "C" void GXPC_GrassDraw(unsigned buf, int blades, int segments, int press
 
 extern "C" void GXPC_GrassEnd(void) { s_grassSp = nullptr; }
 
+// ------------------------------------------------------------------ Shadows
+// The sun's shadows (GXPC_ShadowFrame, from the game's main camera as it sets its projection). Depth
+// maps seen from the sun, two boxes round Mario (cascades): a near one, sharp, and a far one as
+// wide as Shadow Distance asks (GXPC_ShadowFrame's `reach`), for the distance; side by side in one
+// texture. What the main camera draws (writing depth, not a glow) is drawn into both a second
+// time, from the sun (flushBatch, shadowCast), and the main camera's view reads them: a surface toward the sun that a map has
+// something in front of is darker (gx_shader.cpp), from the near map where it reaches, else the
+// far one. Two textures, one drawn each frame while the other, last frame's, is read: the view's
+// pixels need the whole map before any of them is drawn.
+static const int kShadowSize = 4096;  // each cascade's, square; the texture is two wide
+static GLuint s_shadowTex[2], s_shadowFbo[2];
+static int s_shadowWrite = 0;
+static bool s_shadowFilled[2];
+static uint32_t s_shadowFrame = ~0u;
+static float s_shadowLightVP[2][2][16];  // [texture][cascade]: world to the cascade's clip space, rows
+static float s_shadowWriteRows[2][12];   // this frame's, view space to each cascade (3 rows)
+
+static void shadowMake() {
+    if (s_shadowFbo[0]) return;
+    glGenTextures(2, s_shadowTex);
+    glGenFramebuffers(2, s_shadowFbo);
+    glActiveTexture(GL_TEXTURE0 + kShadowUnit);
+    for (int i = 0; i < 2; i++) {
+        glBindTexture(GL_TEXTURE_2D, s_shadowTex[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, 2 * kShadowSize, kShadowSize, 0, GL_DEPTH_COMPONENT,
+                     GL_UNSIGNED_INT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);  // each tap compares 4 texels
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+        glBindFramebuffer(GL_FRAMEBUFFER, s_shadowFbo[i]);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, s_shadowTex[i], 0);
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+        GLenum st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (st != GL_FRAMEBUFFER_COMPLETE) logmsg("shadows: the shadow map's framebuffer is not complete (0x%x)", st);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, s_efbFbo);
+    g_glc.fbo = s_efbFbo;
+    g_glc.activeUnit = -1;  // unit kShadowUnit is active: the cache sets its own again
+    logmsg("shadows: two %dx%d shadow maps made, two cascades each", kShadowSize, kShadowSize);
+}
+
+// out = a * b, 4x4 rows
+static void mul44(const float* a, const float* b, float* out) {
+    for (int r = 0; r < 4; r++)
+        for (int c = 0; c < 4; c++)
+            out[r * 4 + c] = a[r * 4] * b[c] + a[r * 4 + 1] * b[4 + c] + a[r * 4 + 2] * b[8 + c] + a[r * 4 + 3] * b[12 + c];
+}
+
+// World to a cascade's clip space: an orthographic box `half` either side of focus across the
+// sun's light, from `above` units toward the sun to `depth` beyond. Its middle on whole texels, so
+// that the map does not shimmer as Mario moves.
+static void shadowLightVP(const float* sun, const float* focus, float half, float above, float depth, float* out) {
+    float z[3] = {sun[0], sun[1], sun[2]};  // the light's view looks down -z: z is toward the sun
+    float up[3] = {0.0f, 1.0f, 0.0f};
+    if (fabsf(z[1]) > 0.99f) up[1] = 0.0f, up[2] = 1.0f;
+    float x[3] = {up[1] * z[2] - up[2] * z[1], up[2] * z[0] - up[0] * z[2], up[0] * z[1] - up[1] * z[0]};
+    float xl = sqrtf(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
+    for (int i = 0; i < 3; i++) x[i] /= xl;
+    float y[3] = {z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0]};
+    const float texel = 2.0f * half / float(kShadowSize);
+    float cx = x[0] * focus[0] + x[1] * focus[1] + x[2] * focus[2];
+    float cy = y[0] * focus[0] + y[1] * focus[1] + y[2] * focus[2];
+    cx = floorf(cx / texel) * texel;
+    cy = floorf(cy / texel) * texel;
+    const float eyeZ = z[0] * focus[0] + z[1] * focus[1] + z[2] * focus[2] + above;  // dot(z, eye)
+    const float m[16] = {
+        x[0] / half, x[1] / half, x[2] / half, -cx / half,
+        y[0] / half, y[1] / half, y[2] / half, -cy / half,
+        -z[0] * 2.0f / depth, -z[1] * 2.0f / depth, -z[2] * 2.0f / depth, eyeZ * 2.0f / depth - 1.0f,
+        0.0f, 0.0f, 0.0f, 1.0f,
+    };
+    memcpy(out, m, sizeof m);
+}
+
+// Why the batch casts no shadow (nullptr: it casts): it must write depth and colour and not be a
+// glow (added onto what is behind it). Blended draws that write depth cast: Mario is drawn blended
+// (source alpha), solid all the same; see-through glass and water write no depth.
+static const char* shadowNoCast() {
+    const uint32_t z = g.bp[BP_ZMODE], cm = g.bp[BP_CMODE0];
+    if (!(z & 1)) return "no depth test";
+    if (!((z >> 4) & 1)) return "no depth write";
+    if (!((cm >> 3) & 1)) return "no colour write";
+    if ((cm & 1) && (((cm >> 11) & 1) || ((cm >> 5) & 7) == 1)) return "a glow (added or subtracted)";
+    return nullptr;
+}
+
+// Mario's own draw, for the log (GXPC_ShadowTag, from port_wet_mario_draw): whether its batches
+// cast, and why not.
+extern "C" void GXPC_ShadowTag(int on) {
+    if (g.shadowTag == (on != 0)) return;
+    flushBatch();
+    g.shadowTag = on != 0;
+}
+
+extern "C" void GXPC_ShadowFrame(const float view[3][4], const float sun[3], const float focus[3], float strength,
+                                 float half, float reach) {
+    flushBatch();
+    if (strength <= 0.0f || !view || !sun || !focus) {
+        g.shadow[36] = 0.0f;
+        g.shadowArmed = g.shadowMain = false;
+        return;
+    }
+    shadowMake();
+    const uint32_t frame = GXPC_FrameCount();
+    if (frame != s_shadowFrame) {  // a new frame: last frame's maps are read, the others drawn
+        s_shadowFrame = frame;
+        s_shadowWrite ^= 1;
+        shadowLightVP(sun, focus, half, 4000.0f, 8000.0f, s_shadowLightVP[s_shadowWrite][0]);
+        shadowLightVP(sun, focus, reach, 8000.0f, 8000.0f + reach * 1.25f, s_shadowLightVP[s_shadowWrite][1]);
+        glBindFramebuffer(GL_FRAMEBUFFER, s_shadowFbo[s_shadowWrite]);
+        g_glc.fbo = s_shadowFbo[s_shadowWrite];
+        glcCap(GL_SCISSOR_TEST, g_glc.scissor, false);
+        if (g_glc.depthMask != GL_TRUE) {
+            g_glc.depthMask = GL_TRUE;
+            glDepthMask(GL_TRUE);
+        }
+        glClearDepth(1.0);
+        glClear(GL_DEPTH_BUFFER_BIT);
+        s_shadowFilled[s_shadowWrite] = false;
+        glActiveTexture(GL_TEXTURE0 + kShadowUnit);
+        glBindTexture(GL_TEXTURE_2D, s_shadowTex[s_shadowWrite ^ 1]);
+        g_glc.activeUnit = -1;
+        glBindFramebuffer(GL_FRAMEBUFFER, s_efbFbo);  // the EFB's again, as the copies expect
+        g_glc.fbo = s_efbFbo;
+    }
+    // the view's inverse (view: world to view, a rotation and a move)
+    const float inv[16] = {
+        view[0][0], view[1][0], view[2][0], -(view[0][0] * view[0][3] + view[1][0] * view[1][3] + view[2][0] * view[2][3]),
+        view[0][1], view[1][1], view[2][1], -(view[0][1] * view[0][3] + view[1][1] * view[1][3] + view[2][1] * view[2][3]),
+        view[0][2], view[1][2], view[2][2], -(view[0][2] * view[0][3] + view[1][2] * view[1][3] + view[2][2] * view[2][3]),
+        0.0f, 0.0f, 0.0f, 1.0f,
+    };
+    const int read = s_shadowWrite ^ 1;
+    float m[16];
+    for (int c = 0; c < 2; c++) {
+        mul44(s_shadowLightVP[read][c], inv, m);
+        memcpy(g.shadow + c * 12, m, 12 * sizeof(float));
+        mul44(s_shadowLightVP[s_shadowWrite][c], inv, m);
+        memcpy(s_shadowWriteRows[c], m, 12 * sizeof(float));
+    }
+    memcpy(g.shadow + 24, s_shadowWriteRows[0], 12 * sizeof(float));
+    g.shadow[36] = s_shadowFilled[read] ? strength : 0.0f;
+    g.shadow[37] = 1.5f * 2.0f * half / float(kShadowSize);  // normal biases: a texel and a half
+    g.shadow[38] = 1.5f * 2.0f * reach / float(kShadowSize);
+    g.shadow[39] = 1.0f / float(kShadowSize);
+    for (int r = 0; r < 3; r++) g.shadow[40 + r] = view[r][0] * sun[0] + view[r][1] * sun[1] + view[r][2] * sun[2];
+    g.shadow[43] = 0.0f;
+    g.shadow[44] = 0.0f;
+    memcpy(g.shadowProj, g.projection, sizeof g.shadowProj);
+    g.shadowArmed = true;
+    g.shadowMain = true;
+}
+
+// The batch again, into each cascade of the sun's shadow map, then the EFB's state back.
+template <typename Ranges>
+static void shadowCast(const Ranges& ranges, GLenum mode, const ShaderProgram* sp, float texW[8], float texH[8]) {
+    const ShaderProgram* csp = shaderForCurrentState(2, false);
+    glcUseProgram(csp->prog);
+    GlCache& c = g_glc;
+    const GLuint fbo = s_shadowFbo[s_shadowWrite];
+    if (c.fbo != fbo) {
+        c.fbo = fbo;
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    }
+    if (c.vp[0] != 0 || c.vp[1] != 0 || c.vp[2] != 2 * kShadowSize || c.vp[3] != kShadowSize) {
+        c.vp[0] = c.vp[1] = 0;
+        c.vp[2] = 2 * kShadowSize;
+        c.vp[3] = kShadowSize;
+        glViewport(0, 0, 2 * kShadowSize, kShadowSize);
+    }
+    glcCap(GL_SCISSOR_TEST, c.scissor, false);
+    glcCap(GL_CULL_FACE, c.cull, false);
+    glcCap(GL_BLEND, c.blend, false);
+    glcCap(GL_COLOR_LOGIC_OP, c.logic, false);
+    glcCap(GL_DEPTH_TEST, c.depth, true);
+    glcCap(GL_CLIP_DISTANCE0, c.clip0, true);  // each cascade kept to its half of the texture
+    glcCap(GL_CLIP_DISTANCE0 + 1, c.clip1, true);
+    glcCap(GL_CLIP_DISTANCE0 + 2, c.clip2, false);
+    glcCap(GL_DEPTH_CLAMP, c.depthClamp, false);
+    if (c.depthFunc != GL_LESS) {
+        c.depthFunc = GL_LESS;
+        glDepthFunc(GL_LESS);
+    }
+    if (c.depthMask != GL_TRUE) {
+        c.depthMask = GL_TRUE;
+        glDepthMask(GL_TRUE);
+    }
+    const GLboolean off[4] = {GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE};
+    if (memcmp(off, c.cmask, sizeof off) != 0) {
+        memcpy(c.cmask, off, sizeof off);
+        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+    }
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(1.5f, 4.0f);
+    for (int cascade = 0; cascade < 2; cascade++) {
+        memcpy(g.shadow + 24, s_shadowWriteRows[cascade], 12 * sizeof(float));
+        g.shadow[44] = float(cascade);
+        uploadUniforms(csp, texW, texH);
+        for (const auto& r : ranges) {
+            glcBindVertexArray(r.vao);
+            glDrawElementsBaseVertex(mode, r.count, GL_UNSIGNED_INT, reinterpret_cast<const void*>(r.iOff), r.base);
+        }
+    }
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    s_shadowFilled[s_shadowWrite] = true;
+    glcUseProgram(sp->prog);
+    applyGlState();
+}
+
 void flushBatch() {
     if ((!s_bidx.size && !s_barenaIdx) || !s_ready) {
         resetBatch();
@@ -2626,6 +2843,18 @@ void flushBatch() {
                                               bases.data());
             }
             i = j;
+        }
+    }
+    if (g.shadowArmed && s_bclass == PRIM_TRIS) {
+        const char* why = g.shadowMain ? shadowNoCast() : "not the main camera's view";
+        if (!why) shadowCast(ranges, mode, sp, texW, texH);
+        // the log: Mario's batches that cast no shadow, and why (the first few)
+        static int s_toldMario;
+        if (why && g.shadowTag && s_toldMario < 12) {
+            s_toldMario++;
+            logmsg("shadows: a batch of Mario's casts none: %s (z 0x%x, blend 0x%x, alpha 0x%x)", why,
+                   unsigned(g.bp[BP_ZMODE] & 0xFFFFFF), unsigned(g.bp[BP_CMODE0] & 0xFFFFFF),
+                   unsigned(g.bp[BP_ALPHACOMPARE] & 0xFFFFFF));
         }
     }
     s_stats.draws++;

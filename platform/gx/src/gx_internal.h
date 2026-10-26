@@ -103,6 +103,17 @@ struct State {
     // small, tight highlight, as a thin film of water on cloth and skin gives.
     float wet;
     float wetLine[4];
+    // Shadows (GXPC_ShadowFrame, gx_render.cpp): the sun's shadow maps, a near one and a far one
+    // (cascades) side by side in one texture. u_shadow: rows 0-2, view space to the near map read
+    // this frame (last frame's), rows 3-5 to the far one; rows 6-8, view space to the cascade a
+    // caster is drawn into now; row 9, (strength, near normal bias, far normal bias, a texel);
+    // row 10, (the sun's direction in view space, 1 while the main camera's view is drawn); row
+    // 11, (the caster's cascade, 0 near or 1 far, ...). shadowMain: what is drawn now is the main
+    // camera's view (its projection, as GXPC_ShadowFrame saw it set): it casts and receives.
+    // shadowTag: Mario's own draw (GXPC_ShadowTag), for the log.
+    float shadow[48];
+    float shadowProj[7];
+    bool shadowArmed, shadowMain, shadowTag;
 };
 
 extern State g;
@@ -351,18 +362,17 @@ struct UniformCache {
     float linewidth[1];
     float uclip[4];
     float wet[8];
+    float shadow[48];
 };
 struct ShaderProgram {
     unsigned prog;
     int id;  // creation order; SMS_GX_DUMP_SHADERS=dir writes dir/prog<id>.vs/.fs
     int uTevReg, uKonst, uTexScale, uAlphaRef, uFog, uFogColor, uIndMtx, uTexSize, uEfb,
-        uProj, uViewport, uAmbMat, uDstAlpha, uLineWidth, uUserClip, uWet;
+        uProj, uViewport, uAmbMat, uDstAlpha, uLineWidth, uUserClip, uWet, uShadow;
     mutable UniformCache uc;
 };
 bool shaderHasEarlyFragmentTests();
 bool earlyZWritesRejected();
-// `lines`: the program for a line batch, which draws each line as a quad
-// GXSetLineWidth wide (a geometry shader)
 // 3D Grass (gx_shader.cpp, gx_render.cpp): its program, and its own uniforms' locations.
 struct GrassUniforms {
     int view, params, press, strength, tile;
@@ -370,7 +380,12 @@ struct GrassUniforms {
 const ShaderProgram* grassProgram(GrassUniforms* u);
 // Its copies of the ground drawn so far (colour, depth), on these texture units.
 const int kGrassColorUnit = 11, kGrassDepthUnit = 12;
-const ShaderProgram* shaderForCurrentState(bool depthOnly = false, bool lines = false);
+// `lines`: the program for a line batch, which draws each line as a quad
+// GXSetLineWidth wide (a geometry shader)
+// depthOnly: 0 the draw, 1 its depth only (the ordered depth pass), 2 into the sun's shadow map
+const ShaderProgram* shaderForCurrentState(int depthOnly = 0, bool lines = false);
+// The texture unit the sun's shadow map is bound on (gx_render.cpp), past the game's eight.
+const int kShadowUnit = 10;
 void shaderPrepareStage(int stage);  // while a stage loads: its programs (the warm-up)
 
 // ---------------------------------------------------------------- overlay panels

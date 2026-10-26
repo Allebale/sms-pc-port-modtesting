@@ -9,6 +9,7 @@
 // nor clipped out (no ghost of an enemy beaten or a coin taken), and the setting is on.
 #include "port_ext.h"
 #include "port_puddles.h"
+#include "port_shadows.h"
 
 #include <Enemy/Conductor.hpp>
 #include <Enemy/BossGesso.hpp>
@@ -461,6 +462,7 @@ extern "C" void GXPC_SetUserClipPlane(int on, const float* plane);
 
 void port_mirror_clip(TMirrorCamera* mirror)
 {
+	GXPC_ShadowNotMain();  // Real Shadows: the mirror's view is not the main camera's
 	if (!port_reflect_level() || !mirror || !gpMirrorModelManager || gpMirrorModelManager->isUnk18Present())
 		return;
 	MtxPtr v                       = mirror->unk30;
