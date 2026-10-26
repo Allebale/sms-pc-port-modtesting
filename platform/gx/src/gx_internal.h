@@ -368,6 +368,8 @@ struct GrassUniforms {
     int view, params, press, strength, tile;
 };
 const ShaderProgram* grassProgram(GrassUniforms* u);
+// Its copies of the ground drawn so far (colour, depth), on these texture units.
+const int kGrassColorUnit = 11, kGrassDepthUnit = 12;
 const ShaderProgram* shaderForCurrentState(bool depthOnly = false, bool lines = false);
 void shaderPrepareStage(int stage);  // while a stage loads: its programs (the warm-up)
 

@@ -1231,6 +1231,8 @@ uniform vec4 u_g[6];       // see GXPC_GrassBegin
 uniform vec4 u_gp[64];     // what presses: x, y, z, radius
 uniform vec4 u_gs[16];     // their strengths, four a vec4
 uniform vec4 u_gtile;      // x: presses reach this tile; y: segments (1 or 2)
+uniform sampler2D u_gcolor; // the ground drawn so far: its colour (with mipmaps)...
+uniform sampler2D u_gdepth; // ...and its depth
 in vec4 a_blade;
 in vec4 a_blade2;
 out vec3 v_col;
@@ -1241,6 +1243,43 @@ void hide() {
   gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
   gl_ClipDistance[0] = -1.0; gl_ClipDistance[1] = -1.0; gl_ClipDistance[2] = -1.0;
   v_col = vec3(0.0);
+}
+// clip space, as the GX vertex shader places a point (world to view, the projection, the viewport);
+// s_gx: its two clip distances, as that shader gives them
+vec2 s_gx;
+vec4 place(vec3 p) {
+  vec4 wp = vec4(p, 1.0);
+  vec3 vpos = vec3(dot(u_gview[0], wp), dot(u_gview[1], wp), dot(u_gview[2], wp));
+  vec4 clip;
+  if (u_proj[1].z == 0.0) {
+    clip = vec4(u_proj[0].x * vpos.x + u_proj[0].y * vpos.z, u_proj[0].z * vpos.y + u_proj[0].w * vpos.z,
+                u_proj[1].x * vpos.z + u_proj[1].y, -vpos.z);
+  } else {
+    clip = vec4(u_proj[0].x * vpos.x + u_proj[0].y, u_proj[0].z * vpos.y + u_proj[0].w,
+                u_proj[1].x * vpos.z + u_proj[1].y, 1.0);
+  }
+  vec4 o;
+  o.x = ((u_vp[1].x - 342.0) * clip.w + u_vp[0].x * clip.x) * (2.0 / u_efb.x) - clip.w;
+  o.y = ((u_vp[1].y - 342.0) * clip.w + u_vp[0].y * clip.y) * (2.0 / u_efb.y) - clip.w;
+  float zw = u_vp[1].z * clip.w + u_vp[0].z * clip.z;
+  o.z = zw * (2.0 / 16777215.0) - clip.w;
+  o.w = clip.w;
+  s_gx = vec2(clip.z + clip.w, -clip.z);
+  return o;
+}
+// The ground's colour at a point on it, if it shows there (nothing drawn in front of it): w 1.
+vec4 groundAt(vec3 p, vec3 eye) {
+  vec4 c = place(p + vec3(0.0, 1.5, 0.0));
+  if (c.w <= 0.0) return vec4(0.0);
+  vec3 n = c.xyz / c.w;
+  vec2 uv = n.xy * 0.5 + 0.5;
+  if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec4(0.0);
+  // in front of the ground by more than 20 units: something else is there
+  vec3 toEye = eye - p;
+  vec4 f = place(p + toEye * (20.0 / max(length(toEye), 1.0)));
+  float front = f.z / f.w * 0.5 + 0.5;
+  if (textureLod(u_gdepth, uv, 0.0).r < front) return vec4(0.0);
+  return vec4(textureLod(u_gcolor, uv, 0.0).rgb, 1.0);
 }
 void main() {
   vec3 bp = a_blade.xyz;
@@ -1253,6 +1292,22 @@ void main() {
   if (d > reach || (keep + 0.5) / 256.0 >= share) { hide(); return; }
   float outv = d / reach;
   if (outv > 0.85) h *= (1.0 - outv) / 0.15;
+  // the ground's colour under it (or beside it, where something hides it)
+  vec3 eye = -(u_gview[0].xyz * u_gview[0].w + u_gview[1].xyz * u_gview[1].w + u_gview[2].xyz * u_gview[2].w);
+  vec4 ground = groundAt(bp, eye);
+  if (ground.w == 0.0) ground = groundAt(bp + vec3(28.0, 0.0, 0.0), eye);
+  if (ground.w == 0.0) ground = groundAt(bp + vec3(-20.0, 0.0, 20.0), eye);
+  if (ground.w == 0.0) ground = groundAt(bp + vec3(-20.0, 0.0, -20.0), eye);
+  if (ground.w > 0.0) {
+    // grows only where the ground is green (bare earth and paths stay bare)
+    float green = ground.g / max(max(ground.r, ground.b), 0.02);
+    h *= smoothstep(0.9, 1.1, green);
+  } else {
+    // hidden all round: the kind's own colour, as bright as the picture is
+    vec3 avg = textureLod(u_gcolor, vec2(0.5), 20.0).rgb;
+    float lum = dot(avg, vec3(0.3, 0.59, 0.11));
+    ground = vec4((u_g[1].rgb + u_g[2].rgb) * (0.5 / 255.0) * clamp(lum / 0.42, 0.35, 1.15), 1.0);
+  }
   if (h < 0.5) { hide(); return; }
   // the breeze
   float t = u_g[0].x;
@@ -1299,27 +1354,16 @@ void main() {
   if (u_g[4].z > 0.5) shade *= (int(floor(dot(bp.xz, vec2(0.6, 0.8)) / 110.0)) & 1) != 0 ? 1.07 : 0.94;
   bool dry = u_g[4].w > 0.5 && mod(shadeB, 8.0) < 0.5;
   if (dry) shade *= 1.12;
-  vec3 tipC = u_g[2].rgb;
-  if (dry) tipC *= vec3(1.35, 1.0, 0.85);
-  v_col = clamp(mix(u_g[1].rgb, tipC, level) * shade / 255.0, 0.0, 1.0);
+  // the ground's colour: darker at the root (its own shade), lighter toward the tip (light through
+  // the blade), a little greener
+  vec3 baseC = ground.rgb * 0.78;
+  vec3 tipC  = ground.rgb * 1.22 + vec3(-0.01, 0.025, -0.01);
+  if (dry) tipC *= vec3(1.3, 1.05, 0.8);
+  v_col = clamp(mix(baseC, tipC, level) * shade, 0.0, 1.0);
   // placed as the GX vertex shader places the game's
-  vec4 wp = vec4(p, 1.0);
-  vec3 vpos = vec3(dot(u_gview[0], wp), dot(u_gview[1], wp), dot(u_gview[2], wp));
-  vec4 clip;
-  if (u_proj[1].z == 0.0) {
-    clip = vec4(u_proj[0].x * vpos.x + u_proj[0].y * vpos.z, u_proj[0].z * vpos.y + u_proj[0].w * vpos.z,
-                u_proj[1].x * vpos.z + u_proj[1].y, -vpos.z);
-  } else {
-    clip = vec4(u_proj[0].x * vpos.x + u_proj[0].y, u_proj[0].z * vpos.y + u_proj[0].w,
-                u_proj[1].x * vpos.z + u_proj[1].y, 1.0);
-  }
-  gl_Position.x = ((u_vp[1].x - 342.0) * clip.w + u_vp[0].x * clip.x) * (2.0 / u_efb.x) - clip.w;
-  gl_Position.y = ((u_vp[1].y - 342.0) * clip.w + u_vp[0].y * clip.y) * (2.0 / u_efb.y) - clip.w;
-  float zw = u_vp[1].z * clip.w + u_vp[0].z * clip.z;
-  gl_Position.z = zw * (2.0 / 16777215.0) - clip.w;
-  gl_Position.w = clip.w;
-  gl_ClipDistance[0] = clip.z + clip.w;
-  gl_ClipDistance[1] = -clip.z;
+  gl_Position = place(p);
+  gl_ClipDistance[0] = s_gx.x;
+  gl_ClipDistance[1] = s_gx.y;
   gl_ClipDistance[2] = 1.0;
 }
 )";
@@ -1376,6 +1420,9 @@ const ShaderProgram* grassProgram(GrassUniforms* u) {
             s_grassUniforms.press = glGetUniformLocation(p, "u_gp");
             s_grassUniforms.strength = glGetUniformLocation(p, "u_gs");
             s_grassUniforms.tile = glGetUniformLocation(p, "u_gtile");
+            GLint gc = glGetUniformLocation(p, "u_gcolor"), gd = glGetUniformLocation(p, "u_gdepth");
+            if (gc >= 0) glUniform1i(gc, kGrassColorUnit);
+            if (gd >= 0) glUniform1i(gd, kGrassDepthUnit);
         });
     }
     *u = s_grassUniforms;

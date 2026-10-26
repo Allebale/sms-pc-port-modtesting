@@ -2342,6 +2342,65 @@ static void resetBatch() {
 static GLuint s_grassVao;
 static GrassUniforms s_grassU;
 static const ShaderProgram* s_grassSp;
+// What is drawn so far (the ground the blades stand on), copied each frame the grass is drawn: the
+// blades take the ground's own colour under them (its texture, its light, the time of day), and
+// grow only where it is green. Colour with its mipmaps (the smallest, the picture's average, for
+// a blade whose ground is hidden), and depth (to tell when it is).
+static GLuint s_grassCopyFbo, s_grassCopyColor, s_grassCopyDepth;
+static int s_grassCopyW, s_grassCopyH;
+static GLuint efbReadFbo(int x0, int y0, int x1, int y1, GLbitfield bits);
+
+static void grassCopyGround() {
+    const int W = scaled(s_efbW), H = scaled(EFB_H);
+    if (W != s_grassCopyW || H != s_grassCopyH) {
+        if (s_grassCopyFbo) {
+            glDeleteFramebuffers(1, &s_grassCopyFbo);
+            glDeleteTextures(1, &s_grassCopyColor);
+            glDeleteTextures(1, &s_grassCopyDepth);
+        }
+        s_grassCopyW = W, s_grassCopyH = H;
+        glGenTextures(1, &s_grassCopyColor);
+        glGenTextures(1, &s_grassCopyDepth);
+        glGenFramebuffers(1, &s_grassCopyFbo);
+        glActiveTexture(GL_TEXTURE0 + kGrassColorUnit);
+        glBindTexture(GL_TEXTURE_2D, s_grassCopyColor);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, W, H, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glGenerateMipmap(GL_TEXTURE_2D);
+        glActiveTexture(GL_TEXTURE0 + kGrassDepthUnit);
+        glBindTexture(GL_TEXTURE_2D, s_grassCopyDepth);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, W, H, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindFramebuffer(GL_FRAMEBUFFER, s_grassCopyFbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_grassCopyColor, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, s_grassCopyDepth, 0);
+        GLenum st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (st != GL_FRAMEBUFFER_COMPLETE) logmsg("grass: the ground's copy is not complete (0x%x)", st);
+        logmsg("grass: the ground's copy made (%dx%d)", W, H);
+    }
+    const GLuint src = efbReadFbo(0, 0, W, H, GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glDisable(GL_SCISSOR_TEST);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, src);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_grassCopyFbo);
+    glBlitFramebuffer(0, 0, W, H, 0, 0, W, H, GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    glActiveTexture(GL_TEXTURE0 + kGrassColorUnit);
+    glBindTexture(GL_TEXTURE_2D, s_grassCopyColor);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glActiveTexture(GL_TEXTURE0 + kGrassDepthUnit);
+    glBindTexture(GL_TEXTURE_2D, s_grassCopyDepth);
+    // the cache's framebuffer, scissor and texture unit are not what GL has now: applyGlState
+    // and the next binds set them again
+    glBindFramebuffer(GL_FRAMEBUFFER, s_efbFbo);
+    g_glc.fbo        = s_efbFbo;
+    g_glc.scissor    = 0;
+    g_glc.activeUnit = -1;
+}
 
 extern "C" unsigned GXPC_GrassBuffer(unsigned buf, const float* data, int blades) {
     if (blades <= 0 || !data) {
@@ -2366,6 +2425,7 @@ extern "C" unsigned GXPC_GrassBuffer(unsigned buf, const float* data, int blades
 extern "C" void GXPC_GrassBegin(const float view[3][4], const float* params, const float* press,
                                 const float* strength, int count) {
     flushBatch();
+    grassCopyGround();
     s_grassSp = grassProgram(&s_grassU);
     s_xmap    = drawXMap();
     s_bclass  = PRIM_TRIS;
