@@ -18,6 +18,8 @@ void port_shadows_main_view(void* camera, float (*view)[4]);
 void GXPC_ShadowFrame(const float view[3][4], const float sun[3], const float focus[3], float strength,
                       float half);
 void GXPC_ShadowNotMain(void);
+// Around Mario's own draw (port_wet_mario_draw): for the log, whether his batches cast.
+void GXPC_ShadowTag(int on);
 
 #ifdef __cplusplus
 }

@@ -17,6 +17,7 @@
 // runs and the game is as it was.
 #include "port_ext.h"
 #include "port_puddles.h"
+#include "port_shadows.h"
 
 #include <Map/Map.hpp>
 #include <Map/MapCollisionData.hpp>
@@ -1282,6 +1283,7 @@ extern "C" void GXPC_SetWetness(float wet, const float* line);
 // view: v = A p + t, so the plane there is A n, d - A n . t, as port_mirror_clip does).
 void port_wet_mario_draw(int begin, float (*view)[4])
 {
+	GXPC_ShadowTag(begin);  // Real Shadows' log: Mario's batches
 	TMario* m = gpMarioOriginal;
 	if (!begin || !port_wet_mario() || s_wetness <= 0.0f || !m || !view) {
 		GXPC_SetWetness(0.0f, 0);

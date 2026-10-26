@@ -111,7 +111,7 @@ uniform vec2 u_efb;
 uniform vec4 u_chan[4];
 uniform vec4 u_uclip;
 uniform vec4 u_wet[2];
-uniform vec4 u_shadow[10];
+uniform vec4 u_shadow[12];
 in vec3 a_pos; in vec3 a_nrm; in vec3 a_bin; in vec3 a_tan;
 in vec4 a_clr0; in vec4 a_clr1;
 in vec2 a_tex0; in vec2 a_tex1; in vec2 a_tex2; in vec2 a_tex3;
@@ -297,10 +297,13 @@ static std::string genVS(const ShaderKey& k) {
     }
     // Shadows: a caster's draw into the sun's shadow map (depthOnly 2): from the sun, not the
     // camera (u_shadow rows 4-7: view space to the map), none of the camera's clipping
+    // (rows 6-8), into its cascade's half of the texture (u_shadow[11].x: 0 the left, 1 the right),
+    // clipped to that half
     if (k.depthOnly == 2)
         s += "  { vec4 sp = vec4(vpos, 1.0);\n"
-             "    gl_Position = vec4(dot(u_shadow[4], sp), dot(u_shadow[5], sp), dot(u_shadow[6], sp), 1.0);\n"
-             "    gl_ClipDistance[0] = 1.0; gl_ClipDistance[1] = 1.0; gl_ClipDistance[2] = 1.0; }\n";
+             "    vec3 c = vec3(dot(u_shadow[6], sp), dot(u_shadow[7], sp), dot(u_shadow[8], sp));\n"
+             "    gl_Position = vec4(c.x * 0.5 + (u_shadow[11].x > 0.5 ? 0.5 : -0.5), c.y, c.z, 1.0);\n"
+             "    gl_ClipDistance[0] = 1.0 - c.x; gl_ClipDistance[1] = 1.0 + c.x; gl_ClipDistance[2] = 1.0; }\n";
     s += "}\n";
     return s;
 }
@@ -310,8 +313,21 @@ static const char* kFsHeader = R"(#version 330 core
 in vec4 v_c0; in vec4 v_c1;
 in vec3 v_wn; in vec3 v_wp; in vec3 v_wl; in vec3 v_wlc;
 uniform vec4 u_wet[2];
-uniform vec4 u_shadow[10];
+uniform vec4 u_shadow[12];
 uniform sampler2DShadow u_shadowMap;
+// Shadows: how lit a point is in a cascade's map (c: its clip space; tile 0 near, 1 far; the two
+// side by side in the texture), 3 by 3 taps (each comparing 4 texels), kept to the cascade's half
+float shadowLit(vec3 c, float tile) {
+  vec2 uv = c.xy * 0.5 + 0.5;
+  float t = u_shadow[9].w;
+  float lit = 0.0;
+  for (int sy = -1; sy <= 1; sy++)
+    for (int sx = -1; sx <= 1; sx++) {
+      vec2 q = clamp(uv + vec2(sx, sy) * t, vec2(t), vec2(1.0 - t));
+      lit += textureLod(u_shadowMap, vec3((q.x + tile) * 0.5, q.y, c.z * 0.5 + 0.5), 0.0);
+    }
+  return lit / 9.0;
+}
 in vec3 v_tc0; in vec3 v_tc1; in vec3 v_tc2; in vec3 v_tc3;
 in vec3 v_tc4; in vec3 v_tc5; in vec3 v_tc6; in vec3 v_tc7;
 uniform sampler2D u_tex[8];
@@ -575,28 +591,29 @@ static std::string genFS(const ShaderKey& k) {
          "      color.rgb = clamp(c + w * (0.3 * sl * lc + 0.08 * ss + 0.06 * fr), 0.0, 1.0);\n"
          "    }\n"
          "  }\n"
-         // Shadows (u_shadow[8].x, 0 off; u_shadow[9].w, 1 for the main camera's view): where the
+         // Shadows (u_shadow[9].x, 0 off; u_shadow[10].w, 1 for the main camera's view): where the
          // sun's light is blocked, the surface darker. The face's own normal (from the position's
          // slopes, whatever the model has), turned to the camera; only faces toward the sun; the
-         // position pushed out along it a little (no shadow of a surface on itself); 3 by 3 taps of
-         // the map, softening the edge; fading out at the map's edge
-         "  if (u_shadow[8].x > 0.0 && u_shadow[9].w > 0.0) {\n"
+         // position pushed out along it a little (no shadow of a surface on itself). The near map
+         // where it reaches, the far one past it, blended between; fading out at the far one's edge
+         "  if (u_shadow[9].x > 0.0 && u_shadow[10].w > 0.0) {\n"
          "    vec3 fn = cross(dFdx(v_wp), dFdy(v_wp));\n"
          "    fn = dot(fn, fn) > 1e-12 ? normalize(fn) : vec3(0.0, 0.0, 1.0);\n"
          "    if (dot(fn, v_wp) > 0.0) fn = -fn;\n"
-         "    float nl = dot(fn, u_shadow[9].xyz);\n"
+         "    float nl = dot(fn, u_shadow[10].xyz);\n"
          "    if (nl > 0.0) {\n"
-         "      vec4 sp = vec4(v_wp + fn * u_shadow[8].z * (1.0 + 2.0 * (1.0 - nl)), 1.0);\n"
-         "      vec3 sc = vec3(dot(u_shadow[0], sp), dot(u_shadow[1], sp), dot(u_shadow[2], sp)) * 0.5 + 0.5;\n"
-         "      float edge = max(abs(sc.x - 0.5), abs(sc.y - 0.5)) * 2.0;\n"
-         "      if (edge < 1.0 && sc.z < 1.0) {\n"
-         "        float lit = 0.0;\n"
-         "        for (int sy = -1; sy <= 1; sy++)\n"
-         "          for (int sx = -1; sx <= 1; sx++)\n"
-         "            lit += textureLod(u_shadowMap, vec3(sc.xy + vec2(sx, sy) * u_shadow[8].w, sc.z), 0.0);\n"
-         "        float shade = (1.0 - lit / 9.0) * (1.0 - smoothstep(0.8, 1.0, edge)) * smoothstep(0.0, 0.2, nl);\n"
-         "        color.rgb *= 1.0 - u_shadow[8].x * shade;\n"
-         "      }\n"
+         "      float lean = 1.0 + 2.0 * (1.0 - nl);\n"
+         "      vec4 p0 = vec4(v_wp + fn * u_shadow[9].y * lean, 1.0);\n"
+         "      vec4 p1 = vec4(v_wp + fn * u_shadow[9].z * lean, 1.0);\n"
+         "      vec3 a = vec3(dot(u_shadow[0], p0), dot(u_shadow[1], p0), dot(u_shadow[2], p0));\n"
+         "      vec3 b = vec3(dot(u_shadow[3], p1), dot(u_shadow[4], p1), dot(u_shadow[5], p1));\n"
+         "      float ea = max(abs(a.x), abs(a.y)), eb = max(abs(b.x), abs(b.y));\n"
+         "      float wn = a.z < 1.0 ? 1.0 - smoothstep(0.8, 0.95, ea) : 0.0;\n"
+         "      float dark = 0.0;\n"
+         "      if (wn > 0.0) dark = wn * (1.0 - shadowLit(a, 0.0));\n"
+         "      if (wn < 1.0 && eb < 1.0 && b.z < 1.0)\n"
+         "        dark += (1.0 - wn) * (1.0 - shadowLit(b, 1.0)) * (1.0 - smoothstep(0.75, 1.0, eb));\n"
+         "      color.rgb *= 1.0 - u_shadow[9].x * dark * smoothstep(0.0, 0.2, nl);\n"
          "    }\n"
          "  }\n";
     if (k.fogType) {

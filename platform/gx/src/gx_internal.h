@@ -103,14 +103,17 @@ struct State {
     // small, tight highlight, as a thin film of water on cloth and skin gives.
     float wet;
     float wetLine[4];
-    // Shadows (GXPC_ShadowFrame, gx_render.cpp): the sun's shadow map. u_shadow: rows 0-3, view
-    // space to the shadow map read this frame (last frame's); rows 4-7, view space to the one drawn
-    // this frame; row 8, (strength, 0, normal bias, a texel); row 9, (the sun's direction in view
-    // space, 0). shadowMain: what is drawn now is the main camera's view (its projection, as
-    // GXPC_ShadowFrame saw it set): it casts into the map and receives the shadows.
-    float shadow[40];
+    // Shadows (GXPC_ShadowFrame, gx_render.cpp): the sun's shadow maps, a near one and a far one
+    // (cascades) side by side in one texture. u_shadow: rows 0-2, view space to the near map read
+    // this frame (last frame's), rows 3-5 to the far one; rows 6-8, view space to the cascade a
+    // caster is drawn into now; row 9, (strength, near normal bias, far normal bias, a texel);
+    // row 10, (the sun's direction in view space, 1 while the main camera's view is drawn); row
+    // 11, (the caster's cascade, 0 near or 1 far, ...). shadowMain: what is drawn now is the main
+    // camera's view (its projection, as GXPC_ShadowFrame saw it set): it casts and receives.
+    // shadowTag: Mario's own draw (GXPC_ShadowTag), for the log.
+    float shadow[48];
     float shadowProj[7];
-    bool shadowArmed, shadowMain;
+    bool shadowArmed, shadowMain, shadowTag;
 };
 
 extern State g;
@@ -359,7 +362,7 @@ struct UniformCache {
     float linewidth[1];
     float uclip[4];
     float wet[8];
-    float shadow[40];
+    float shadow[48];
 };
 struct ShaderProgram {
     unsigned prog;

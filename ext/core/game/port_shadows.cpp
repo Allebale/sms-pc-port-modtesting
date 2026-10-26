@@ -2,14 +2,16 @@
 // direction and where its shadow map is centred (Mario, or what the camera looks at) go to the
 // renderer, which draws the map from what the camera draws and darkens what it shadows.
 //
-// The sun: the stage's (TSunModel, where Sun Glints take it from) while it shows; else, as indoors,
-// a light from high above. Never lower than about 25 degrees over the horizon: at sunset the
-// shadows would run the length of the stage.
+// The sun: the game's own light (the direction its own shadows were cast along: TMBindShadowManager
+// takes it from gpLightManager), so that the shadows fall the way the stage was made for; else the
+// stage's sun (TSunModel); else a light from high above. Never lower than about 25 degrees over the
+// horizon: at sunset the shadows would run the length of the stage.
 #include "port_shadows.h"
 
 #include <Camera/Camera.hpp>
 #include <Camera/SunMgr.hpp>
 #include <Camera/SunModel.hpp>
+#include <MarioUtil/LightUtil.hpp>
 #include <Player/MarioAccess.hpp>
 
 #include <math.h>
@@ -43,9 +45,15 @@ void port_shadows_main_view(void* camera, float (*view)[4])
 		focus[0] = gpCamera->unk148.x, focus[1] = gpCamera->unk148.y, focus[2] = gpCamera->unk148.z;
 	}
 	f32 sun[3] = {0.35f, 1.0f, 0.25f};  // high above, a little to the side
-	if (gpSunModel && gpSunMgr && gpSunMgr->unk14) {
+	int source = 2;                      // 0 the game's light, 1 the stage's sun, 2 high above
+	const Vec* light = gpLightManager ? gpLightManager->getLightPos() : 0;
+	if (light && light->y > 0.0f && light->x * light->x + light->y * light->y + light->z * light->z > 1e-6f) {
+		sun[0] = light->x, sun[1] = light->y, sun[2] = light->z;
+		source = 0;
+	} else if (gpSunModel && gpSunMgr && gpSunMgr->unk14) {
 		const JGeometry::TVec3<f32>& s = gpSunModel->mPosition;
 		sun[0] = s.x - focus[0], sun[1] = s.y - focus[1], sun[2] = s.z - focus[2];
+		source = 1;
 	}
 	f32 l = sqrtf(sun[0] * sun[0] + sun[1] * sun[1] + sun[2] * sun[2]);
 	if (l < 1e-3f) {
@@ -60,14 +68,13 @@ void port_shadows_main_view(void* camera, float (*view)[4])
 			sun[1] = 1.0f;
 	}
 	// the log: when they come on, or the sun's source changes (the stage's, or high above)
-	static int s_toldLevel = -1;
-	static bool s_toldStageSun;
-	const bool stageSun = gpSunModel && gpSunMgr && gpSunMgr->unk14;
-	if (level != s_toldLevel || stageSun != s_toldStageSun) {
-		fprintf(stderr, "[shadows] %s, the sun %s (toward it: %.2f %.2f %.2f)\n", level == 1 ? "soft" : "strong",
-		        stageSun ? "the stage's" : "high above (none in this stage)", sun[0], sun[1], sun[2]);
-		s_toldLevel    = level;
-		s_toldStageSun = stageSun;
+	static int s_toldLevel = -1, s_toldSource = -1;
+	if (level != s_toldLevel || source != s_toldSource) {
+		static const char* const kSource[] = {"the game's light", "the stage's sun", "high above (no light)"};
+		fprintf(stderr, "[shadows] %s, from %s (toward it: %.2f %.2f %.2f)\n", level == 1 ? "soft" : "strong",
+		        kSource[source], sun[0], sun[1], sun[2]);
+		s_toldLevel  = level;
+		s_toldSource = source;
 	}
 	GXPC_ShadowFrame(view, sun, focus, kStrength[level], kHalf);
 }

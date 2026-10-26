@@ -1,0 +1,25 @@
+Reason: Real Shadows (port_shadows.h): while on, TMBindShadowManager draws none of the game's own shadows (the round ones under characters, the trees' and buildings' shadow volumes), which the sun's shadows replace; its requests are still gathered and reset each frame. Off, nothing changes.
+
+--- a/src/MarioUtil/ShadowUtil.cpp
++++ b/src/MarioUtil/ShadowUtil.cpp
+@@ -1,4 +1,7 @@
+ #include <MarioUtil/ShadowUtil.hpp>
++#ifdef TARGET_PC
++#include "port_shadows.h"
++#endif
+ #include <MarioUtil/GDUtil.hpp>
+ #include <MarioUtil/DrawUtil.hpp>
+ #include <MarioUtil/ReinitGX.hpp>
+@@ -491,6 +494,12 @@
+ 	}
+ 
+ 	if (cue & CUE_DRAW) {
++#ifdef TARGET_PC
++		// port: Real Shadows (port_shadows.h) draws every shadow from the
++		// sun: the game's own (round ones under characters, its trees' and
++		// buildings') are left out, so that nothing is shadowed twice
++		if (!port_shadows())
++#endif
+ 		if (mDLSw)
+ 			drawShadowGD(cue, graphics);
+ 		else
