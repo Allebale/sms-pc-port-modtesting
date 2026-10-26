@@ -2339,15 +2339,14 @@ static void resetBatch() {
 
 // ------------------------------------------------------------------ Shadows
 // The sun's shadows (GXPC_ShadowFrame, from the game's main camera as it sets its projection). Depth
-// maps seen from the sun, two boxes round Mario (cascades): a near one, sharp, and a far one, four
-// times as wide, for the distance; side by side in one texture. What the main camera draws
-// (writing depth, not see-through) is drawn into both a second time, from the sun (flushBatch,
-// shadowCast), and the main camera's view reads them: a surface toward the sun that a map has
+// maps seen from the sun, two boxes round Mario (cascades): a near one, sharp, and a far one as
+// wide as Shadow Distance asks (GXPC_ShadowFrame's `reach`), for the distance; side by side in one
+// texture. What the main camera draws (writing depth, not a glow) is drawn into both a second
+// time, from the sun (flushBatch, shadowCast), and the main camera's view reads them: a surface toward the sun that a map has
 // something in front of is darker (gx_shader.cpp), from the near map where it reaches, else the
 // far one. Two textures, one drawn each frame while the other, last frame's, is read: the view's
 // pixels need the whole map before any of them is drawn.
 static const int kShadowSize = 4096;  // each cascade's, square; the texture is two wide
-static const float kShadowHalf[2] = {1.0f, 4.0f};  // times GXPC_ShadowFrame's `half`
 static GLuint s_shadowTex[2], s_shadowFbo[2];
 static int s_shadowWrite = 0;
 static bool s_shadowFilled[2];
@@ -2437,7 +2436,7 @@ extern "C" void GXPC_ShadowTag(int on) {
 }
 
 extern "C" void GXPC_ShadowFrame(const float view[3][4], const float sun[3], const float focus[3], float strength,
-                                 float half) {
+                                 float half, float reach) {
     flushBatch();
     if (strength <= 0.0f || !view || !sun || !focus) {
         g.shadow[36] = 0.0f;
@@ -2449,8 +2448,8 @@ extern "C" void GXPC_ShadowFrame(const float view[3][4], const float sun[3], con
     if (frame != s_shadowFrame) {  // a new frame: last frame's maps are read, the others drawn
         s_shadowFrame = frame;
         s_shadowWrite ^= 1;
-        shadowLightVP(sun, focus, half * kShadowHalf[0], 4000.0f, 8000.0f, s_shadowLightVP[s_shadowWrite][0]);
-        shadowLightVP(sun, focus, half * kShadowHalf[1], 6000.0f, 14000.0f, s_shadowLightVP[s_shadowWrite][1]);
+        shadowLightVP(sun, focus, half, 4000.0f, 8000.0f, s_shadowLightVP[s_shadowWrite][0]);
+        shadowLightVP(sun, focus, reach, 8000.0f, 8000.0f + reach * 1.25f, s_shadowLightVP[s_shadowWrite][1]);
         glBindFramebuffer(GL_FRAMEBUFFER, s_shadowFbo[s_shadowWrite]);
         g_glc.fbo = s_shadowFbo[s_shadowWrite];
         glcCap(GL_SCISSOR_TEST, g_glc.scissor, false);
@@ -2484,8 +2483,8 @@ extern "C" void GXPC_ShadowFrame(const float view[3][4], const float sun[3], con
     }
     memcpy(g.shadow + 24, s_shadowWriteRows[0], 12 * sizeof(float));
     g.shadow[36] = s_shadowFilled[read] ? strength : 0.0f;
-    g.shadow[37] = 1.5f * 2.0f * half * kShadowHalf[0] / float(kShadowSize);  // normal biases: a texel and a half
-    g.shadow[38] = 1.5f * 2.0f * half * kShadowHalf[1] / float(kShadowSize);
+    g.shadow[37] = 1.5f * 2.0f * half / float(kShadowSize);  // normal biases: a texel and a half
+    g.shadow[38] = 1.5f * 2.0f * reach / float(kShadowSize);
     g.shadow[39] = 1.0f / float(kShadowSize);
     for (int r = 0; r < 3; r++) g.shadow[40 + r] = view[r][0] * sun[0] + view[r][1] * sun[1] + view[r][2] * sun[2];
     g.shadow[43] = 0.0f;

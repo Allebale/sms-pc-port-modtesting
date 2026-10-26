@@ -71,7 +71,9 @@ int s_beatMirrors = 0;    // Puddles Beat Mirrors
 int s_footprints = 0;     // Wet Footprints
 int s_wetMario = 0;       // Wet Mario
 int s_shadows = 0;        // Real Shadows: 0 off (the game's own), 1 soft, 2 strong
-int s_shadowsRound = 1;   // Round Shadows Under Characters, with Real Shadows: 1 kept (lighter)
+int s_shadowsRound = 0;   // Round Shadows Under Characters, with Real Shadows: 1 kept (lighter)
+int s_shadowsDistance = 2;  // Shadow Distance: into kShadowDistances
+int s_shadowsOriginal = 0;  // Keep the Original Shadow Direction
 int s_level = 0;          // Reflect the Level: 0 off (as the game has it), 1 the stage itself too
 int s_water;       // Water Reflections: 0 none (as the game has it), 1 in the stage's water and wet ground
 // 0.5x to 5x the game's 1000 units, in steps of 0.25x (250 units)
@@ -238,8 +240,12 @@ void load() {
             // done by isKind
         } else if (sscanf(line, " footprints = %d", &value) == 1) {
             s_footprints = value != 0;
-        } else if (sscanf(line, " roundshadows = %d", &value) == 1) {
+        } else if (sscanf(line, " characterroundshadows = %d", &value) == 1) {
             s_shadowsRound = value != 0;
+        } else if (sscanf(line, " shadowdistance = %d", &value) == 1) {
+            s_shadowsDistance = value < 0 ? 0 : value > 4 ? 4 : value;
+        } else if (sscanf(line, " shadoworiginaldirection = %d", &value) == 1) {
+            s_shadowsOriginal = value != 0;
         } else if (sscanf(line, " shadows = %d", &value) == 1) {
             s_shadows = value < 0 ? 0 : value > 2 ? 2 : value;
         } else if (sscanf(line, " wetmario = %d", &value) == 1) {
@@ -311,8 +317,12 @@ void save() {
     fprintf(f, "wetmario = %d\n", s_wetMario);
     fprintf(f, "# shadows: the sun's shadows of everything: 0 off (the game's own), 1 soft, 2 strong.\n");
     fprintf(f, "shadows = %d\n", s_shadows);
-    fprintf(f, "# roundshadows: with shadows on, 1 the game's round shadows under characters kept (lighter), 0 not.\n");
-    fprintf(f, "roundshadows = %d\n", s_shadowsRound);
+    fprintf(f, "# characterroundshadows: with shadows on, 1 the game's round shadows under characters kept (lighter), 0 not.\n");
+    fprintf(f, "characterroundshadows = %d\n", s_shadowsRound);
+    fprintf(f, "# shadowdistance: how far the shadows reach: 0 short, 1 medium, 2 long, 3 very long, 4 max.\n");
+    fprintf(f, "shadowdistance = %d\n", s_shadowsDistance);
+    fprintf(f, "# shadoworiginaldirection: 1 the shadows fall where the game's own did, 0 from the sun in the sky.\n");
+    fprintf(f, "shadoworiginaldirection = %d\n", s_shadowsOriginal);
     fprintf(f, "# level: 1 the stage itself (ground, buildings, sky) in puddles and water too, 0 not.\n");
     fprintf(f, "level = %d\n", s_level);
     fprintf(f, "# beatmirrors: 1 puddles near Mario take the reflection from a real mirror's area, 0 not.\n");
@@ -348,6 +358,35 @@ int shadowsSet(int i) {
     s_shadows = i;
     save();
     port_log("[shadows] Real Shadows changed: %s\n", kShadowNames[i]);
+    return 1;
+}
+
+const char* const kShadowDistanceNames[] = {"Short", "Medium", "Long", "Very Long", "Max"};
+const float kShadowDistances[] = {4000.0f, 8000.0f, 16000.0f, 24000.0f, 32000.0f};
+int distanceCount5() { return 5; }
+const char* shadowDistanceName(int i) { return kShadowDistanceNames[i < 0 || i > 4 ? 2 : i]; }
+int shadowDistanceGet() {
+    load();
+    return s_shadowsDistance;
+}
+int shadowDistanceSet(int i) {
+    if (i < 0 || i > 4) return 0;
+    load();
+    s_shadowsDistance = i;
+    save();
+    port_log("[shadows] Shadow Distance changed: %s\n", kShadowDistanceNames[i]);
+    return 1;
+}
+int originalGet() {
+    load();
+    return s_shadowsOriginal;
+}
+int originalSet(int i) {
+    if (i < 0 || i > 1) return 0;
+    load();
+    s_shadowsOriginal = i;
+    save();
+    port_log("[shadows] Keep the Original Shadow Direction changed: %s\n", i ? "on" : "off");
     return 1;
 }
 
@@ -700,6 +739,12 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 97, "Round Shadows Under Characters",
      "With Real Shadows, the game's own round shadow under each character too, lighter.", 0, nullptr,
      offOnCount, offOnName, roundGet, roundSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 98, "Shadow Distance",
+     "How far from Mario Real Shadows reach. Farther is a little softer far away.", 0, nullptr,
+     distanceCount5, shadowDistanceName, shadowDistanceGet, shadowDistanceSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 99, "Keep the Original Shadow Direction",
+     "Real Shadows fall exactly where the game's own did. Off, from the sun in the sky.", 0, nullptr,
+     offOnCount, offOnName, originalGet, originalSet},
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 0, "Preset",
      "The original game, or the recommended look. Some apply from the next area.", 1, nullptr, presetCount,
      presetName, presetGet, presetSet},
@@ -802,6 +847,14 @@ int port_shadows(void) {
 int port_shadows_round(void) {
     load();
     return s_shadowsRound;
+}
+float port_shadows_distance(void) {
+    load();
+    return kShadowDistances[s_shadowsDistance < 0 || s_shadowsDistance > 4 ? 2 : s_shadowsDistance];
+}
+int port_shadows_original_direction(void) {
+    load();
+    return s_shadowsOriginal;
 }
 
 // The options as the settings have them (port_puddle_options.cpp asks as it starts, and again

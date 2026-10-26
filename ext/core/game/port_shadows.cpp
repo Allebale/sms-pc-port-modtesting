@@ -2,10 +2,10 @@
 // direction and where its shadow map is centred (Mario, or what the camera looks at) go to the
 // renderer, which draws the map from what the camera draws and darkens what it shadows.
 //
-// The sun: the game's own light (the direction its own shadows were cast along: TMBindShadowManager
-// takes it from gpLightManager), so that the shadows fall the way the stage was made for; else the
-// stage's sun (TSunModel); else a light from high above. Never lower than about 25 degrees over the
-// horizon: at sunset the shadows would run the length of the stage.
+// The sun: the stage's sun in the sky (TSunModel), else the game's light (gpLightManager), else a
+// light from high above; never lower than about 25 degrees over the horizon (at sunset the shadows
+// would run the length of the stage). With Keep the Original Shadow Direction on, exactly the way
+// the game's own shadows fell (TMBindShadowManager's, along its light).
 #include "port_ext.h"
 #include "port_shadows.h"
 
@@ -123,7 +123,7 @@ void port_shadows_main_view(void* camera, float (*view)[4])
 		if (!s_toldOff)
 			fprintf(stderr, "[shadows] off\n");
 		s_toldOff = true;
-		GXPC_ShadowFrame(view, 0, 0, 0.0f, 0.0f);
+		GXPC_ShadowFrame(view, 0, 0, 0.0f, 0.0f, 0.0f);
 		return;
 	}
 	f32 focus[3];
@@ -133,36 +133,50 @@ void port_shadows_main_view(void* camera, float (*view)[4])
 		focus[0] = gpCamera->unk148.x, focus[1] = gpCamera->unk148.y, focus[2] = gpCamera->unk148.z;
 	}
 	f32 sun[3] = {0.35f, 1.0f, 0.25f};  // high above, a little to the side
-	int source = 2;                      // 0 the game's light, 1 the stage's sun, 2 high above
-	const Vec* light = gpLightManager ? gpLightManager->getLightPos() : 0;
-	if (light && light->y > 0.0f && light->x * light->x + light->y * light->y + light->z * light->z > 1e-6f) {
-		sun[0] = light->x, sun[1] = light->y, sun[2] = light->z;
+	int source = 3;  // 0 the game's own shadows' way, 1 the stage's sun, 2 the game's light, 3 high above
+	const bool original = port_shadows_original_direction() != 0;
+	const Vec* light    = gpLightManager ? gpLightManager->getLightPos() : 0;
+	const bool lit = light && light->y > 0.0f && light->x * light->x + light->y * light->y + light->z * light->z > 1e-6f;
+	const bool sky = gpSunModel && gpSunMgr && gpSunMgr->unk14;
+	if (original && lit) {
+		// exactly where the game's own fall: TMBindShadowManager moves a point h above the ground by
+		// h times its light's (normalized) x and z, which is along (x, 1, z)
+		f32 d[3] = {light->x, light->y, light->z};
+		const f32 dl = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+		sun[0] = d[0] / dl, sun[1] = 1.0f, sun[2] = d[2] / dl;
 		source = 0;
-	} else if (gpSunModel && gpSunMgr && gpSunMgr->unk14) {
-		const JGeometry::TVec3<f32>& s = gpSunModel->mPosition;
-		sun[0] = s.x - focus[0], sun[1] = s.y - focus[1], sun[2] = s.z - focus[2];
+	} else if (sky) {
+		const JGeometry::TVec3<f32>& p = gpSunModel->mPosition;
+		sun[0] = p.x - focus[0], sun[1] = p.y - focus[1], sun[2] = p.z - focus[2];
 		source = 1;
+	} else if (lit) {
+		sun[0] = light->x, sun[1] = light->y, sun[2] = light->z;
+		source = 2;
 	}
 	f32 l = sqrtf(sun[0] * sun[0] + sun[1] * sun[1] + sun[2] * sun[2]);
 	if (l < 1e-3f) {
 		sun[0] = 0.0f, sun[1] = 1.0f, sun[2] = 0.0f, l = 1.0f;
 	}
 	sun[0] /= l, sun[1] /= l, sun[2] /= l;
-	if (sun[1] < kLowest) {  // raised to the least height, keeping its way round
+	if (source != 0 && sun[1] < kLowest) {  // raised to the least height, keeping its way round
 		const f32 h = sqrtf(sun[0] * sun[0] + sun[2] * sun[2]);
 		const f32 k = h > 1e-4f ? sqrtf(1.0f - kLowest * kLowest) / h : 0.0f;
 		sun[0] *= k, sun[2] *= k, sun[1] = kLowest;
 		if (h <= 1e-4f)
 			sun[1] = 1.0f;
 	}
-	// the log: when they come on, or the sun's source changes (the stage's, or high above)
+	const f32 reach = port_shadows_distance();
+	// the log: when they come on, or the sun's source or the distance changes
 	static int s_toldLevel = -1, s_toldSource = -1;
-	if (level != s_toldLevel || source != s_toldSource) {
-		static const char* const kSource[] = {"the game's light", "the stage's sun", "high above (no light)"};
-		fprintf(stderr, "[shadows] %s, from %s (toward it: %.2f %.2f %.2f)\n", level == 1 ? "soft" : "strong",
-		        kSource[source], sun[0], sun[1], sun[2]);
+	static f32 s_toldFar;
+	if (level != s_toldLevel || source != s_toldSource || reach != s_toldFar) {
+		static const char* const kSource[] = {"the game's own shadows' direction", "the stage's sun",
+		                                      "the game's light (no sun in the sky)", "high above (no light)"};
+		fprintf(stderr, "[shadows] %s, from %s (toward it: %.2f %.2f %.2f), reaching %.0f\n",
+		        level == 1 ? "soft" : "strong", kSource[source], sun[0], sun[1], sun[2], reach);
 		s_toldLevel  = level;
 		s_toldSource = source;
+		s_toldFar    = reach;
 	}
-	GXPC_ShadowFrame(view, sun, focus, kStrength[level], kHalf);
+	GXPC_ShadowFrame(view, sun, focus, kStrength[level], kHalf, reach);
 }
