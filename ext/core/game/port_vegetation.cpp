@@ -185,6 +185,44 @@ void port_veg_model(J3DModelData* data)
 		fprintf(stderr, "[vegetation] a model's plants:%s\n", line);
 }
 
+void port_veg_model_named(J3DModelData* data, const char* path)
+{
+	if (!data || !path)
+		return;
+	const char* base = strrchr(path, '/');
+	base             = base ? base + 1 : path;
+	if (!plantName(base))
+		return;
+	// the whole model's height (all its shapes), so that its petals, leaves and stem bend as one
+	f32 lo = 1e30f, hi = -1e30f;
+	for (u16 i = 0; i < data->getMaterialNum(); i++) {
+		J3DMaterial* mat = data->getMaterialNodePointer(i);
+		J3DShape* shape  = mat ? mat->getShape() : 0;
+		if (!shape)
+			continue;
+		const ShapeBounds* b = (const ShapeBounds*)shape;
+		lo = b->min.y < lo ? b->min.y : lo;
+		hi = b->max.y > hi ? b->max.y : hi;
+	}
+	if (lo > hi)
+		return;
+	int parts = 0;
+	for (u16 i = 0; i < data->getMaterialNum(); i++) {
+		J3DMaterial* mat = data->getMaterialNodePointer(i);
+		J3DShape* shape  = mat ? mat->getShape() : 0;
+		if (!shape)
+			continue;
+		for (u32 g = 0; g < shape->getMtxGroupNum(); g++) {
+			J3DShapeDraw* draw = shape->getShapeDraw((u16)g);
+			if (draw && draw->getDisplayList())
+				GXPC_SwayRegister(draw->getDisplayList(), draw->getDisplayListSize(), lo, hi);
+		}
+		parts++;
+	}
+	s_registered += parts;
+	fprintf(stderr, "[vegetation] %s: a plant, all %d of its parts (%.0f high)\n", base, parts, hi - lo);
+}
+
 void port_tree_sway(TMapObjTree* tree)
 {
 	const f32 a = amount();

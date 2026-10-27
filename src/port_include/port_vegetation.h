@@ -15,6 +15,9 @@ void port_tree_sway(TMapObjTree* tree);
 // From J3DModelLoaderDataBase::load (zzzzz-ext-32-vegetation-models), each model as it loads: its
 // leafy materials' display lists, for the renderer.
 void port_veg_model(J3DModelData* data);
+// From SMS_MakeSDLModelData (zzzzz-ext-32-vegetation-named), a model made from a file: a plant's
+// (by the file's name) sways whole, rooted at its foot, whatever its materials are called.
+void port_veg_model_named(J3DModelData* data, const char* path);
 extern "C" {
 #endif
 
