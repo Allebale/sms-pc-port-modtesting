@@ -7,8 +7,8 @@
 // The longer he slides, the deeper the stain. Not running, landing or standing on it: no friction.
 // Each cloth takes it as it would (the renderer, gx_shader.cpp, u_gstain, tells them by colour):
 // the denim most, the white gloves show it plainly, the red shirt and cap less, the brown leather
-// shoes least. Stains are stubborn: they fade over three minutes, and water washes them out in a
-// few seconds.
+// shoes least. Stains are stubborn: they fade over the Grass Stain Duration setting's time (three
+// minutes at first, or never by themselves), and water washes them out in a few seconds.
 #include "port_ext.h"
 #include "port_puddles.h"
 #include "port_shadows.h"
@@ -29,7 +29,6 @@ extern "C" void GXPC_SetGrassStains(const float* stains);
 namespace {
 
 const f32 kStrength[] = {0.0f, 0.5f, 0.75f, 1.0f};  // Off, Light, Normal, Strong
-const f32 kFadeSeconds = 180.0f;  // stubborn: gone after three minutes
 const f32 kWashSeconds = 4.0f;    // in water: washed out
 
 f32 s_front, s_back, s_shoes;  // how stained, 0 to 1
@@ -80,7 +79,8 @@ void afterMovement()
 	const f32 moved = dt > 0.0f ? sqrtf(dx * dx + dz * dz) / dt : 0.0f;  // units a second
 	// water washes them out; otherwise they fade, slowly
 	const bool wet = (st & 0x2000) || m->checkFlag(MARIO_FLAG_IN_WATER) || m->checkFlag(MARIO_FLAG_IN_SHALLOW_WATER);
-	const f32 out = dt / (wet ? kWashSeconds : kFadeSeconds);
+	const f32 fadeSeconds = port_grass_stain_seconds();  // Grass Stain Duration (0: only water)
+	const f32 out = wet ? dt / kWashSeconds : fadeSeconds > 0.0f ? dt / fadeSeconds : 0.0f;
 	fade(s_front, out), fade(s_back, out), fade(s_shoes, out);
 	if (wet)
 		return;
