@@ -475,29 +475,43 @@ void noteSpray()
 	}
 }
 
-// Mario's steps on the grass: each 30 units he walks on the ground among blades is a step, and a
-// step presses a smaller circle flat where it lands, or not (Mario Flattens Grass: its chance).
-const int kStepChance[] = {0, 10, 25, 50, 75, 100};  // Off .. Always, percent
-f32 s_stepX = 1e9f, s_stepZ = 1e9f;
-u32 s_stepRandom = 12345u;
+// Mario on the grass (Mario Grass Flattening): 0 only where he lands from a jump or a fall (a
+// wider circle) and along a dive's belly slide; 1 also each step (every 30 units he walks); 2 never.
+// The circles are Grass Flattening's width times 0.55 for a landing, 0.45 for a slide, 0.4 for a step.
+const u32 kStatusTypeMask = 0x1C0, kStatusTypeAir = 0x080;  // MarioStatus.hpp: in the air
+const u32 kSlipFore = 0x840452, kSlipBack = 0x840453;       // a dive's belly slide (and backwards)
+u32 s_marioWas;                                             // his status last tick
+f32 s_slideX = 1e9f, s_slideZ = 1e9f, s_stepX = 1e9f, s_stepZ = 1e9f;
 
-void noteSteps(f32 mx, f32 my, f32 mz)
+void noteMario(f32 mx, f32 my, f32 mz)
 {
-	const int level  = port_grass_step_chance();
-	const int chance = kStepChance[level < 0 || level > 5 ? 5 : level];
-	if (chance <= 0)
+	const int mode  = port_grass_mario();
+	const u32 now   = SMS_GetMarioStatus();
+	const u32 was   = s_marioWas;
+	s_marioWas      = now;
+	if (mode == 2)
 		return;
 	const int tx = (int)floorf(mx / kTile), tz = (int)floorf(mz / kTile);
 	const Tile& t = tileAt(tx, tz);
 	if (!t.used || t.tx != tx || t.tz != tz || !t.count || my < t.minY - 30.0f || my > t.maxY + 20.0f)
-		return;
-	const f32 dx = mx - s_stepX, dz = mz - s_stepZ;
-	if (dx * dx + dz * dz < 30.0f * 30.0f)
-		return;  // not a step yet
-	s_stepX = mx, s_stepZ = mz;
-	s_stepRandom = s_stepRandom * 1664525u + 1013904223u;
-	if ((int)((s_stepRandom >> 8) % 100u) < chance)
-		flatStamp(mx, mz, s_sprayRadius * 0.4f);
+		return;  // not on the ground among blades
+	const bool air = (now & kStatusTypeMask) == kStatusTypeAir;
+	if (!air && (was & kStatusTypeMask) == kStatusTypeAir)  // landed: from a jump, a fall, a dive
+		flatStamp(mx, mz, s_sprayRadius * 0.55f);
+	if (now == kSlipFore || now == kSlipBack) {  // sliding on his belly: along the way
+		const f32 dx = mx - s_slideX, dz = mz - s_slideZ;
+		if (dx * dx + dz * dz > 20.0f * 20.0f) {
+			flatStamp(mx, mz, s_sprayRadius * 0.45f);
+			s_slideX = mx, s_slideZ = mz;
+		}
+	}
+	if (mode == 1 && !air) {  // every step
+		const f32 dx = mx - s_stepX, dz = mz - s_stepZ;
+		if (dx * dx + dz * dz > 30.0f * 30.0f) {
+			flatStamp(mx, mz, s_sprayRadius * 0.4f);
+			s_stepX = mx, s_stepZ = mz;
+		}
+	}
 }
 
 // The renderer takes 64: Mario, his way, the puddles (the flattened grass is the map's).
@@ -555,7 +569,7 @@ void afterMovement()
 	const f32 mx = gpMarioPos->x, my = gpMarioPos->y, mz = gpMarioPos->z;
 	flatFollow(mx, mz);
 	noteSpray();
-	noteSteps(mx, my, mz);
+	noteMario(mx, my, mz);
 	flatTick();
 	// Mario's way, a point each time he has moved 14 units
 	const TrailPoint* lastPoint = s_trailCount ? &s_trail[(s_trailNext + kTrail - 1) % kTrail] : 0;
