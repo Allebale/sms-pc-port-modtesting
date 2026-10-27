@@ -81,6 +81,7 @@ int s_fireLights = 0;     // Fire Lights
 int s_fireReach = 2;      // Fire Light Intensity: into kFireReaches
 int s_vegetation = 0;     // Moving Vegetation: 0 off, 1 gentle, 2 breezy, 3 windy
 int s_sandy = 0;          // Sandy Mario: 0 off, 1 light, 2 normal, 3 heavy
+int s_grassStains = 0;    // Grass Stains: 0 off, 1 light, 2 normal, 3 strong
 int s_godRays = 0;        // God Rays: 0 off, then 1 faintest .. 4 light (kSunNames)
 int s_grassCutHeight = 2, s_grassWildHeight = 2;  // into kGrassHeights
 int s_shadows = 0;        // Real Shadows: 0 off (the game's own), 1 soft, 2 strong
@@ -259,6 +260,8 @@ void load() {
             s_grassWildHeight = value < 0 ? 0 : value > 5 ? 5 : value;
         } else if (sscanf(line, " sandymario = %d", &value) == 1) {
             s_sandy = value < 0 ? 0 : value > 3 ? 3 : value;
+        } else if (sscanf(line, " grassstains = %d", &value) == 1) {
+            s_grassStains = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " godraylevel = %d", &value) == 1) {
             s_godRays = value < 0 ? 0 : value > 4 ? 4 : value;
         } else if (sscanf(line, " vegetation = %d", &value) == 1) {
@@ -380,6 +383,8 @@ void save() {
     fprintf(f, "godraylevel = %d\n", s_godRays);
     fprintf(f, "# sandymario: sand sticks to Mario where he touches it, falling away over 20 seconds: 0 off, 1 light, 2 normal, 3 heavy.\n");
     fprintf(f, "sandymario = %d\n", s_sandy);
+    fprintf(f, "# grassstains: diving, sliding or falling on grass stains Mario's clothes: 0 off, 1 light, 2 normal, 3 strong.\n");
+    fprintf(f, "grassstains = %d\n", s_grassStains);
     fprintf(f, "# grasscutheight, grasswildheight: 0 50%% (wild only), 1 75%%, 2 100%%, 3 150%%, 4 200%%, 5 300%%.\n");
     fprintf(f, "grasscutheight = %d\n", s_grassCutHeight);
     fprintf(f, "grasswildheight = %d\n", s_grassWildHeight);
@@ -518,6 +523,22 @@ int sunSet(int i) {
     s_godRays = i;
     save();
     port_log("[sun] God Rays changed: %s\n", kSunNames[i]);
+    return 1;
+}
+
+const char* const kStainNames[] = {"Off", "Light", "Normal", "Strong"};
+int stainsCount() { return 4; }
+const char* stainsName(int i) { return kStainNames[i < 0 || i > 3 ? 0 : i]; }
+int stainsGet() {
+    load();
+    return s_grassStains;
+}
+int stainsSet(int i) {
+    if (i < 0 || i > 3) return 0;
+    load();
+    s_grassStains = i;
+    save();
+    port_log("[stains] Grass Stains changed: %s\n", kStainNames[i]);
     return 1;
 }
 
@@ -1037,6 +1058,9 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 111, "Sandy Mario",
      "Sand sticks to Mario where he touches it (shoes, a belly slide, a fall) and falls away over 20 seconds.",
      0, nullptr, sandyCount, sandyName, sandyGet, sandySet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 112, "Grass Stains",
+     "Diving, sliding or falling on grass stains Mario's clothes green. Denim most, leather least.",
+     0, nullptr, stainsCount, stainsName, stainsGet, stainsSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 107, "Moving Vegetation",
      "Palms, bushes and flowers sway in the wind and bend away from Mario and FLUDD's water.", 0,
      nullptr, vegetationCount, vegetationName, vegetationGet, vegetationSet},
@@ -1169,6 +1193,11 @@ float port_wet_mario_shine(void) {
     static const float kShine[] = {0.0f, 0.5f, 1.0f, 2.2f};
     load();
     return kShine[s_wetShine < 0 || s_wetShine > 3 ? 2 : s_wetShine];
+}
+// Grass Stains (ext/core/game/port_grass_stains.cpp): 0 off, 1 light, 2 normal, 3 strong.
+int port_grass_stains(void) {
+    load();
+    return s_grassStains;
 }
 // Sandy Mario (ext/core/game/port_sandy.cpp): 0 off, 1 light, 2 normal, 3 heavy.
 int port_sandy_mario(void) {

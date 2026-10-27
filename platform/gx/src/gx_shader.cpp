@@ -355,6 +355,16 @@ in vec4 v_c0; in vec4 v_c1;
 // sand's height, and how much of his feet's, front's and back's is left; [2] the way he faces, his
 // back's height
 uniform vec4 u_sand[3];
+// Grass Stains (GXPC_SetGrassStains): [0] the plane at Mario's feet (up, view space); [1] his
+// front's, back's and shoes' stains, 1 while he stands; [2] the way he faces
+uniform vec4 u_gstain[3];
+float gsHash(vec3 c) { return fract(sin(dot(c, vec3(12.9898, 78.233, 37.719))) * 43758.55); }
+float gsNoise(vec3 q) {
+  vec3 c = floor(q), f = fract(q);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(gsHash(c), gsHash(c + vec3(1, 0, 0)), f.x), mix(gsHash(c + vec3(0, 1, 0)), gsHash(c + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(gsHash(c + vec3(0, 0, 1)), gsHash(c + vec3(1, 0, 1)), f.x), mix(gsHash(c + vec3(0, 1, 1)), gsHash(c + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
 in vec3 v_wn; in vec3 v_wp; in vec3 v_wl; in vec3 v_wlc; in vec3 v_mp;
 uniform vec4 u_wet[2];
 uniform vec4 u_shadow[12];
@@ -670,6 +680,40 @@ static std::string genFS(const ShaderKey& k) {
          "      color.rgb = mix(color.rgb, sandy, clamp(cover * 0.9, 0.0, 0.9));\n"
          "    }\n"
          "  }\n"
+         // Grass Stains (u_gstain[1].xyz, 0 none): where his clothes rubbed along grass, green
+         // streaks (along his length, as he slid; by the point in his model, so they stay on
+         // him). Each cloth by its colour, as it takes a stain: blue denim most; white gloves
+         // plainly (not his eyes, nor his cap's badge, above them); red shirt less, red cap above
+         // it less still; brown leather shoes least; not his skin, hair or buttons. A stain is
+         // chlorophyll: it soaks in and darkens toward olive green, more on light cloth
+         "  if (u_gstain[1].x + u_gstain[1].y + u_gstain[1].z > 0.0) {\n"
+         "    float h = dot(u_gstain[0].xyz, v_wp) + u_gstain[0].w;\n"
+         "    float fwd = dot(normalize(v_wn), u_gstain[2].xyz);\n"
+         "    bool up = u_gstain[1].w > 0.5;\n"
+         "    vec3 cc = color.rgb;\n"
+         "    float mx = max(cc.r, max(cc.g, cc.b)), mn = min(cc.r, min(cc.g, cc.b));\n"
+         "    float sat = mx > 0.0 ? (mx - mn) / mx : 0.0;\n"
+         "    float gr = cc.g / max(cc.r, 1e-4), br = cc.b / max(cc.r, 1e-4);\n"
+         "    float front = u_gstain[1].x * smoothstep(-0.15, 0.35, fwd);\n"
+         "    float back = u_gstain[1].y * smoothstep(-0.15, 0.35, -fwd);\n"
+         "    float a = 0.0;\n"
+         "    if (mx > 0.04) {\n"
+         "      if (cc.b > cc.r * 1.15 && cc.b >= cc.g * 0.95)\n"
+         "        a = max(front, back);\n"                                            // denim overalls
+         "      else if (sat < 0.22 && mx > 0.35 && up && h < 115.0)\n"
+         "        a = 0.85 * max(u_gstain[1].x, back * 0.6);\n"                       // white gloves: in front of him as he dives
+         "      else if (cc.r >= cc.g && gr < 0.4 && br < 0.5)\n"
+         "        a = (up && h > 125.0 ? 0.3 : 0.55) * max(front, back);\n"           // red: his cap, his shirt
+         "      else if (cc.r >= cc.g && gr < 0.7 && br < 0.45 && up && h < 40.0)\n"
+         "        a = 0.4 * max(max(front, back), u_gstain[1].z);\n"                  // brown leather shoes
+         "    }\n"
+         "    if (a > 0.0) {\n"
+         "      float n = gsNoise(v_mp * vec3(0.35, 0.06, 0.35)) * 0.65 + gsNoise(v_mp * 0.8) * 0.35;\n"
+         "      float cover = clamp(a * smoothstep(0.3, 0.7, n + a * 0.35), 0.0, 1.0);\n"
+         "      vec3 stained = cc * vec3(0.6, 0.8, 0.3) + vec3(0.015, 0.05, 0.0);\n"
+         "      color.rgb = mix(cc, stained, cover * 0.85);\n"
+         "    }\n"
+         "  }\n"
          // Shadows (u_shadow[9].x, 0 off; u_shadow[10].w, 1 for the main camera's view): where the
          // sun's light is blocked, the surface darker. The face's own normal (from the position's
          // slopes, whatever the model has), turned to the camera; only faces toward the sun; the
@@ -794,6 +838,7 @@ static void setupProgram(GLuint p, ShaderProgram& sp, bool aside = false) {
     sp.uPlight = glGetUniformLocation(p, "u_plight");
     sp.uSway = glGetUniformLocation(p, "u_sway");
     sp.uSand = glGetUniformLocation(p, "u_sand");
+    sp.uGStain = glGetUniformLocation(p, "u_gstain");
     GLint shadowMap = glGetUniformLocation(p, "u_shadowMap");
     if (shadowMap >= 0) glUniform1i(shadowMap, kShadowUnit);
     GLint loc = glGetUniformLocation(p, "u_tex");

@@ -33,9 +33,13 @@ void GXPC_SunFrame(const float* sunView, float rays, const float* color);
 // Sandy Mario (ext/core/game/port_sandy.cpp; the setting in platform/misc/port_puddle_settings.cpp:
 // 0 off, 1 light, 2 normal, 3 heavy): around Mario's own draw (port_wet_mario_draw), the sand on him.
 int port_sandy_mario(void);
+// Grass Stains (ext/core/game/port_grass_stains.cpp; the setting: 0 off, 1 light, 2 normal,
+// 3 strong): around Mario's own draw, the grass stains on his clothes.
+int port_grass_stains(void);
 #ifdef __cplusplus
 }
 void port_sandy_mario_draw(int begin, float (*view)[4]);
+void port_grass_stains_draw(int begin, float (*view)[4]);
 extern "C" {
 #endif
 
