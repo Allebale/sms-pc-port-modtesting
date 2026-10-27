@@ -1082,7 +1082,7 @@ const PortSetting kPuddleSettings[] = {
      "Sand sticks to Mario where he touches it (shoes, a belly slide, a fall) and falls away over 20 seconds.",
      0, nullptr, sandyCount, sandyName, sandyGet, sandySet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 112, "Grass Stains",
-     "Diving, sliding or falling on grass stains Mario's clothes green. Denim most, leather least.",
+     "Diving, sliding or falling on grass stains Mario's overalls and shirt green.",
      0, nullptr, stainsCount, stainsName, stainsGet, stainsSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 113, "Grass Stain Duration",
      "How long grass stains take to fade away. Water always washes them out in a few seconds.",

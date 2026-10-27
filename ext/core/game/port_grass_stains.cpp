@@ -1,13 +1,12 @@
 // Grass Stains (the pause menu's Settings, Graphics; off is the original): where Mario's clothes
-// rub along grass, they take green stains, as clothes do: only where there is friction.
+// rub along grass, they take green stains, as clothes do: only where there is friction, and only
+// on his overalls and his shirt (his cap and shoes never touch it; his gloves only by their palms).
 //   - a belly slide (after a dive) on grass: his front (the overalls' knees and bib, his shirt's
-//     front, his gloves, the toes of his shoes, a little on his cap);
+//     front;
 //   - sliding on his seat, or falling on his back, on grass: his back;
-//   - skidding to a stop on grass: his shoes.
 // The longer he slides, the deeper the stain. Not running, landing or standing on it: no friction.
 // Each cloth takes it as it would (the renderer, gx_shader.cpp, u_gstain, tells them by colour):
-// the denim most, the white gloves show it plainly, the red shirt and cap less, the brown leather
-// shoes least. Stains are stubborn: they fade over the Grass Stain Duration setting's time (three
+// the denim most, the red shirt about half as much. Stains are stubborn: they fade over the Grass Stain Duration setting's time (three
 // minutes at first, or never by themselves), and water washes them out in a few seconds.
 #include "port_ext.h"
 #include "port_puddles.h"
@@ -31,7 +30,7 @@ namespace {
 const f32 kStrength[] = {0.0f, 0.5f, 0.75f, 1.0f};  // Off, Light, Normal, Strong
 const f32 kWashSeconds = 4.0f;    // in water: washed out
 
-f32 s_front, s_back, s_shoes;  // how stained, 0 to 1
+f32 s_front, s_back;  // how stained, 0 to 1
 s32 s_lastMs;
 u32 s_was;
 f32 s_lastX, s_lastZ;
@@ -42,7 +41,6 @@ const u32 kTypeMask = 0x1C0, kTypeAir = 0x080;  // MarioStatus.hpp: in the air
 bool bellySlide(u32 s) { return s == 0x800456 || s == 0x84045D; }
 bool seat(u32 s) { return s == 0x50 || s == 0x840452 || s == 0x840453 || s == 0x4808459; }
 bool onBack(u32 s) { return s == 0x20460 || s == 0x20462 || s == 0x20464 || s == 0x208B0 || s == 0x208B3; }
-bool skid(u32 s) { return s == 0x4000445 || s == 0x443; }
 
 void rub(f32& stain, f32 amount)
 {
@@ -68,7 +66,7 @@ void afterMovement()
 	if (dt < 0.0f || dt > 0.25f)
 		dt = 0.0f;  // a pause, a load: not time rubbing
 	if (level <= 0 || !m) {
-		s_front = s_back = s_shoes = 0.0f;
+		s_front = s_back = 0.0f;
 		return;
 	}
 	const u32 st  = m->mStatus;
@@ -81,7 +79,7 @@ void afterMovement()
 	const bool wet = (st & 0x2000) || m->checkFlag(MARIO_FLAG_IN_WATER) || m->checkFlag(MARIO_FLAG_IN_SHALLOW_WATER);
 	const f32 fadeSeconds = port_grass_stain_seconds();  // Grass Stain Duration (0: only water)
 	const f32 out = wet ? dt / kWashSeconds : fadeSeconds > 0.0f ? dt / fadeSeconds : 0.0f;
-	fade(s_front, out), fade(s_back, out), fade(s_shoes, out);
+	fade(s_front, out), fade(s_back, out);
 	if (wet)
 		return;
 	if ((st & kTypeMask) == kTypeAir)
@@ -96,11 +94,8 @@ void afterMovement()
 	const bool hit  = st != was;
 	if (bellySlide(st)) {
 		rub(s_front, (hit ? 0.25f : 0.0f) + dt * (0.15f + 0.6f * speed));
-		rub(s_shoes, dt * 0.15f);  // his toes drag
 	} else if (seat(st) || onBack(st)) {
 		rub(s_back, (hit ? 0.2f : 0.0f) + dt * (0.15f + 0.5f * speed));
-	} else if (skid(st)) {
-		rub(s_shoes, dt * (0.1f + 0.3f * speed));
 	} else
 		return;
 	static bool s_told;
@@ -132,7 +127,7 @@ struct Register {
 } // namespace
 
 // Around Mario's own draw (port_wet_mario_draw): the stains on him, in the camera's view.
-// u_gstain: [0] the plane at his feet (up, in the view); [1] his front's, back's and shoes'
+// u_gstain: [0] the plane at his feet (up, in the view); [1] his front's and back's
 // stains, 1 while he stands (0 lying down: then his height above his feet says nothing); [2] the
 // way he faces (in the view).
 void port_grass_stains_draw(int begin, float (*view)[4])
@@ -144,7 +139,7 @@ void port_grass_stains_draw(int begin, float (*view)[4])
 		return;
 	}
 	const f32 k = kStrength[level > 3 ? 3 : level];
-	if ((s_front + s_back + s_shoes) * k <= 0.0f) {
+	if ((s_front + s_back) * k <= 0.0f) {
 		GXPC_SetGrassStains(0);
 		return;
 	}
@@ -152,7 +147,7 @@ void port_grass_stains_draw(int begin, float (*view)[4])
 	for (int r = 0; r < 3; r++)
 		u[r] = view[r][1];  // up
 	u[3] = -m->mPosition.y - (u[0] * view[0][3] + u[1] * view[1][3] + u[2] * view[2][3]);
-	u[4] = s_front * k, u[5] = s_back * k, u[6] = s_shoes * k;
+	u[4] = s_front * k, u[5] = s_back * k, u[6] = 0.0f;
 	const u32 st = m->mStatus;
 	u[7] = bellySlide(st) || seat(st) || onBack(st) ? 0.0f : 1.0f;
 	const f32 a  = (f32)m->mFaceAngle.y * (6.2831853f / 65536.0f);

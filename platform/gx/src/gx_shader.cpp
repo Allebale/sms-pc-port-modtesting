@@ -680,34 +680,28 @@ static std::string genFS(const ShaderKey& k) {
          "      color.rgb = mix(color.rgb, sandy, clamp(cover * 0.9, 0.0, 0.9));\n"
          "    }\n"
          "  }\n"
-         // Grass Stains (u_gstain[1].xyz, 0 none): where his clothes rubbed along grass, green
+         // Grass Stains (u_gstain[1].xy, 0 none): where his clothes rubbed along grass, green
          // streaks (along his length, as he slid; by the point in his model, so they stay on
-         // him). Each cloth by its colour, as it takes a stain: blue denim most; white gloves
-         // plainly (not his eyes, nor his cap's badge, above them); red shirt less, red cap above
-         // it less still; brown leather shoes least; not his skin, hair or buttons. A stain is
-         // chlorophyll: it soaks in and darkens toward olive green, more on light cloth
-         "  if (u_gstain[1].x + u_gstain[1].y + u_gstain[1].z > 0.0) {\n"
+         // him). Only his overalls and his shirt, told by their colour: blue denim most, the red
+         // shirt about half (not his cap, above it while he stands; lying down, the red is left
+         // alone, as his cap could not be told from it). A stain is chlorophyll: it soaks in and
+         // darkens toward olive green
+         "  if (u_gstain[1].x + u_gstain[1].y > 0.0) {\n"
          "    float h = dot(u_gstain[0].xyz, v_wp) + u_gstain[0].w;\n"
          "    float fwd = dot(normalize(v_wn), u_gstain[2].xyz);\n"
          "    bool up = u_gstain[1].w > 0.5;\n"
          "    vec3 cc = color.rgb;\n"
-         "    float mx = max(cc.r, max(cc.g, cc.b)), mn = min(cc.r, min(cc.g, cc.b));\n"
-         "    float sat = mx > 0.0 ? (mx - mn) / mx : 0.0;\n"
+         "    float mx = max(cc.r, max(cc.g, cc.b));\n"
          "    float gr = cc.g / max(cc.r, 1e-4), br = cc.b / max(cc.r, 1e-4);\n"
-         "    float front = u_gstain[1].x * smoothstep(-0.15, 0.35, fwd);\n"
-         "    float back = u_gstain[1].y * smoothstep(-0.15, 0.35, -fwd);\n"
+         "    float rubbed = max(u_gstain[1].x * smoothstep(-0.15, 0.35, fwd), u_gstain[1].y * smoothstep(-0.15, 0.35, -fwd));\n"
          "    float a = 0.0;\n"
          "    if (mx > 0.04) {\n"
          "      if (cc.b > cc.r * 1.15 && cc.b >= cc.g * 0.95)\n"
-         "        a = max(front, back);\n"                                            // denim overalls
-         "      else if (sat < 0.22 && mx > 0.35 && up && h < 115.0)\n"
-         "        a = 0.85 * max(u_gstain[1].x, back * 0.6);\n"                       // white gloves: in front of him as he dives
-         "      else if (cc.r >= cc.g && gr < 0.4 && br < 0.5)\n"
-         "        a = (up && h > 125.0 ? 0.3 : 0.55) * max(front, back);\n"           // red: his cap, his shirt
-         "      else if (cc.r >= cc.g && gr < 0.7 && br < 0.45 && up && h < 40.0)\n"
-         "        a = 0.4 * max(max(front, back), u_gstain[1].z);\n"                  // brown leather shoes
+         "        a = rubbed;\n"                                         // denim overalls
+         "      else if (up && h < 120.0 && cc.r >= cc.g && gr < 0.4 && br < 0.5)\n"
+         "        a = 0.55 * rubbed;\n"                                  // his red shirt
          "    }\n"
-         "    if (a > 0.0) {\n"
+"    if (a > 0.0) {\n"
          "      float n = gsNoise(v_mp * vec3(0.35, 0.06, 0.35)) * 0.65 + gsNoise(v_mp * 0.8) * 0.35;\n"
          "      float cover = clamp(a * smoothstep(0.3, 0.7, n + a * 0.35), 0.0, 1.0);\n"
          "      vec3 stained = cc * vec3(0.6, 0.8, 0.3) + vec3(0.015, 0.05, 0.0);\n"
