@@ -716,6 +716,7 @@ unsigned bindTextureMap(int map, float* outW, float* outH) {
             lh = lh > 1 ? lh / 2 : 1;
         }
     }
+    const bool fresh = !e.tex;
     if (!e.tex) {
         glGenTextures(1, &e.tex);
         upload = true;
@@ -745,6 +746,15 @@ unsigned bindTextureMap(int map, float* outW, float* outH) {
         e.tlutHash = th;
         e.checkedGen = s_gen;
         e.bytes = total;
+    }
+    // New data for a texture that was drawn with already: into a new texture, the old one let go
+    // (the driver frees it once the frames still drawing with it are done). Written over in
+    // place, the driver would wait for those frames first: a stutter, the longer the busier the
+    // GPU is (the game's animated and copied textures change while being drawn)
+    if (upload && !fresh) {
+        glcForgetTexture(e.tex);
+        glDeleteTextures(1, &e.tex);
+        glGenTextures(1, &e.tex);
     }
     glcBindTexture(map, e.tex);
     // the pack names' _m: mipmap filtering with a maximum LOD above 0
