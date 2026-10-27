@@ -572,7 +572,10 @@ static std::string genFS(const ShaderKey& k) {
         }
         if (!(c0 == 7 && c1 == 7 && op <= 1)) s += "  if (!(" + e + ")) discard;\n";
     }
-    s += "  vec4 color = vec4(outc) / 255.0;\n"
+    s += "  vec4 color = vec4(outc) / 255.0;\n";
+    // Shadows: a blended draw's see-through parts (water's surface) cast no shadow into the sun's map
+    if (k.depthOnly == 2) s += "  if (u_shadow[11].y > 0.5 && color.a < 0.9) discard;\n";
+    s += ""
          // Wet Mario (u_wet[0].x, 0 dry; below the waterline u_wet[1], softly over 12 units): soaked
          // cloth and skin are darker (55%) and their colours deeper, as wet things are (less light is
          // scattered back white), with a thin film of water on them: a small, tight highlight from
@@ -597,7 +600,7 @@ static std::string genFS(const ShaderKey& k) {
          // slopes, whatever the model has), turned to the camera; only faces toward the sun; the
          // position pushed out along it a little (no shadow of a surface on itself). The near map
          // where it reaches, the far one past it, blended between; fading out at the far one's edge
-         "  if (u_shadow[9].x > 0.0 && u_shadow[10].w > 0.0) {\n"
+         "  if (u_shadow[9].x > 0.0 && u_shadow[10].w > 0.0 && !(u_shadow[11].y > 0.5 && color.a < 0.9)) {\n"
          "    vec3 fn = cross(dFdx(v_wp), dFdy(v_wp));\n"
          "    fn = dot(fn, fn) > 1e-12 ? normalize(fn) : vec3(0.0, 0.0, 1.0);\n"
          "    if (dot(fn, v_wp) > 0.0) fn = -fn;\n"
