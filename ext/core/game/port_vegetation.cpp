@@ -65,7 +65,7 @@ bool plantName(const char* name)
 		if (strstr(low, kNot[i]))
 			return false;
 	static const char* const kYes[] = {"leaf", "leav", "palm", "yashi", "happa", "kusa", "hana", "flower", "bush",
-	                                   "shrub", "tree", "plant", "fern", "ivy", "tuta", "vine", "potgrass", "frond"};
+	                                   "shrub", "tree", "plant", "fern", "ivy", "tuta", "vine", "potgrass", "frond", "flo_", "_flo"};
 	for (unsigned i = 0; i < sizeof kYes / sizeof kYes[0]; i++)
 		if (strstr(low, kYes[i]))
 			return true;

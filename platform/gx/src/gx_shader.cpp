@@ -136,18 +136,21 @@ vec3 lightA(int l) { return R3(608 + l * 16 + 4); }
 vec3 lightK(int l) { return R3(608 + l * 16 + 7); }
 vec3 lightPos(int l) { return R3(608 + l * 16 + 10); }
 vec3 lightDir(int l) { return R3(608 + l * 16 + 13); }
-// A plant's point moved (vp: in the view; mp: in its model). How much: by how far up the plant it
-// is (the model's own height, when the plant is a model of its own; a stage's leaves, all alike),
-// squared, so that it stays rooted. The wind leans it its way in gusts that roll across the
+// A plant's point moved (vp: in the view; mp, mn: its position and normal in its model). How much:
+// by how far up the plant it is (the model's own height, when the plant is a model of its own),
+// squared, so that it stays rooted; a stage's plants (part of the level's own mesh, no height of
+// their own) all alike, but not where the surface lies flat facing up (the ground the plants'
+// material also covers). The wind leans it its way in gusts that roll across the
 // stage, its leaves flutter, and Mario and FLUDD's water push it aside (and a little down).
-vec3 sway(vec3 vp, vec3 mp) {
+vec3 sway(vec3 vp, vec3 mp, vec3 mn) {
   vec3 up = u_sway[0].xyz, wind = u_sway[1].xyz;
   float t = u_sway[1].w;
   float h = u_sway[2].y - u_sway[2].x;
   bool own = h > 1.0 && h < 1500.0;
   float w = own ? clamp((mp.y - u_sway[2].x) / h, 0.0, 1.0) : 1.0;
   w *= w;
-  float amp = u_sway[2].z * (own ? clamp(h * 0.04, 3.0, 18.0) : 5.0);
+  if (!own && dot(mn, mn) > 0.01) w *= 1.0 - smoothstep(0.7, 0.92, abs(normalize(mn).y));
+  float amp = u_sway[2].z * (own ? clamp(h * 0.04, 3.0, 18.0) : 10.0);
   float ph = dot(mp.xz, vec2(0.0021, 0.0017));
   float gust = 0.55 + 0.3 * sin(t * 1.3 + ph) + 0.15 * sin(t * 2.9 + ph * 2.3);
   float fl = sin(t * 7.0 + dot(mp, vec3(0.13, 0.11, 0.17))) * u_sway[2].w;
@@ -210,7 +213,7 @@ static std::string genVS(const ShaderKey& k) {
          "  int pm = int(a_mtx.x & 255u);\n"
          "  vec4 p = vec4(a_pos, 1.0);\n"
          "  vec3 vpos = vec3(dot(R4(pm * 4), p), dot(R4(pm * 4 + 4), p), dot(R4(pm * 4 + 8), p));\n"
-         "  if (u_sway[0].w > 0.5) vpos = sway(vpos, a_pos);\n"
+         "  if (u_sway[0].w > 0.5) vpos = sway(vpos, a_pos, a_nrm);\n"
          "  int nm = 256 + pm * 3;\n"
          "  vec3 N = vec3(dot(R3(nm), a_nrm), dot(R3(nm + 3), a_nrm), dot(R3(nm + 6), a_nrm));\n"
          "  N = dot(N, N) > 0.0 ? normalize(N) : vec3(0.0, 0.0, 1.0);\n"
