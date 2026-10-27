@@ -1,0 +1,25 @@
+Reason: Moving Vegetation (port_vegetation.h, the pause menu's Settings, Graphics): each tick, before a palm tree's fronds move (TMapObjTree::perform), the wind and FLUDD's water push on them (port_tree_sway, ext/core/game/port_vegetation.cpp), and they are kept moving. Off, nothing changes.
+
+--- a/src/MoveBG/MapObjTree.cpp
++++ b/src/MoveBG/MapObjTree.cpp
+@@ -28,6 +28,7 @@
+ #include <MSound/MSoundBGM.hpp>
+ #ifdef TARGET_PC
+ #include <sms_modhook.h>
++#include "port_vegetation.h"
+ #endif
+ 
+ // .sdata order follows marioUS.MAP.
+@@ -110,6 +111,12 @@
+ 
+ void TMapObjTree::perform(u32 cue, JDrama::TGraphics* graphics)
+ {
++#ifdef TARGET_PC
++	// port: Moving Vegetation (port_vegetation.h): the wind and FLUDD's
++	// water push on the fronds before they move (they are kept moving)
++	if (cue & CUE_MOVE)
++		port_tree_sway(this);
++#endif
+ 	if (!mFreezeLeaves && (cue & CUE_MOVE)) {
+ 		int count = 0;
+ 		for (int i = 0; i < mLeafNum; ++i)

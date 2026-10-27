@@ -615,6 +615,12 @@ void GXSetProjectionv(f32* ptr) {
         flushBatch();
         g.shadowMain = main;
     }
+    // Moving Vegetation: plants sway while the view their wind was taken into is drawn
+    const bool swaying = g.swayArmed && memcmp(ptr, g.swayProj, sizeof g.swayProj) == 0;
+    if (swaying != g.swayActive) {
+        flushBatch();
+        g.swayActive = swaying;
+    }
     // Fire Lights: lit while the view they were set for is drawn
     const bool lit = g.plightArmed && memcmp(ptr, g.plightProj, sizeof g.plightProj) == 0;
     if (lit != g.plightActive) {

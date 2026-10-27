@@ -75,6 +75,7 @@ int s_grassDistance = 2;  // Grass Distance: into kGrassDistances
 int s_grassThin = 0;      // Thinned Far Away
 int s_fireLights = 0;     // Fire Lights
 int s_fireReach = 2;      // Fire Light Intensity: into kFireReaches
+int s_vegetation = 0;     // Moving Vegetation: 0 off, 1 gentle, 2 breezy, 3 windy
 int s_grassCutHeight = 2, s_grassWildHeight = 2;  // into kGrassHeights
 int s_shadows = 0;        // Real Shadows: 0 off (the game's own), 1 soft, 2 strong
 int s_shadowsRound = 0;   // Round Shadows Under Characters, with Real Shadows: 1 kept (lighter)
@@ -250,6 +251,8 @@ void load() {
             s_grassCutHeight = value < 1 ? 1 : value > 5 ? 5 : value;  // no 50 percent for cut grass
         } else if (sscanf(line, " grasswildheight = %d", &value) == 1) {
             s_grassWildHeight = value < 0 ? 0 : value > 5 ? 5 : value;
+        } else if (sscanf(line, " vegetation = %d", &value) == 1) {
+            s_vegetation = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " firelightreach = %d", &value) == 1) {
             s_fireReach = value < 0 ? 0 : value > 4 ? 4 : value;
         } else if (sscanf(line, " firelights = %d", &value) == 1) {
@@ -345,6 +348,8 @@ void save() {
     fprintf(f, "firelights = %d\n", s_fireLights);
     fprintf(f, "# firelightreach: how far a fire's light goes: 0 very short, 1 short, 2 normal, 3 far, 4 very far.\n");
     fprintf(f, "firelightreach = %d\n", s_fireReach);
+    fprintf(f, "# vegetation: plants sway, bend from Mario and FLUDD's water: 0 off, 1 gentle, 2 breezy, 3 windy.\n");
+    fprintf(f, "vegetation = %d\n", s_vegetation);
     fprintf(f, "# grasscutheight, grasswildheight: 0 50%% (wild only), 1 75%%, 2 100%%, 3 150%%, 4 200%%, 5 300%%.\n");
     fprintf(f, "grasscutheight = %d\n", s_grassCutHeight);
     fprintf(f, "grasswildheight = %d\n", s_grassWildHeight);
@@ -451,6 +456,22 @@ int fireReachSet(int i) {
     s_fireReach = i;
     save();
     port_log("[lights] Fire Light Intensity changed: %s\n", kFireReachNames[i]);
+    return 1;
+}
+
+const char* const kVegetationNames[] = {"Off", "Gentle", "Breezy", "Windy"};
+int vegetationCount() { return 4; }
+const char* vegetationName(int i) { return kVegetationNames[i < 0 || i > 3 ? 0 : i]; }
+int vegetationGet() {
+    load();
+    return s_vegetation;
+}
+int vegetationSet(int i) {
+    if (i < 0 || i > 3) return 0;
+    load();
+    s_vegetation = i;
+    save();
+    port_log("[vegetation] Moving Vegetation changed: %s\n", kVegetationNames[i]);
     return 1;
 }
 
@@ -889,6 +910,9 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 107, "Fire Light Intensity",
      "How far a fire's light reaches round it, with Fire Lights on.", 0, nullptr, fireReachCount,
      fireReachName, fireReachGet, fireReachSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 105, "Moving Vegetation",
+     "Palms, bushes and flowers sway in the wind and bend away from Mario and FLUDD's water.", 0,
+     nullptr, vegetationCount, vegetationName, vegetationGet, vegetationSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 96, "Real Shadows",
      "The sun's shadows of everything, the level and characters too. Off is the original.", 0,
      nullptr, shadowsCount, shadowsName, shadowsGet, shadowsSet},
@@ -1004,6 +1028,11 @@ float port_grass_height(int wild) {
     load();
     const int i = wild ? s_grassWildHeight : s_grassCutHeight;
     return kGrassHeights[i < 0 || i > 5 ? 2 : i];
+}
+// Moving Vegetation (ext/core/game/port_vegetation.cpp): 0 off, 1 gentle, 2 breezy, 3 windy.
+int port_vegetation(void) {
+    load();
+    return s_vegetation;
 }
 // Fire Light Intensity: how far a fire's light reaches, times the normal reach.
 float port_fire_light_reach(void) {

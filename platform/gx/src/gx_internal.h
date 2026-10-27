@@ -115,6 +115,15 @@ struct State {
     float shadowProj[7];
     bool shadowArmed, shadowMain, shadowTag;
     bool shadowNoReceive;  // GXPC_ShadowReceive(0): what is drawn now takes no sun shadow
+    // Moving Vegetation (GXPC_SwayFrame, GXPC_SwayRegister; gx_render.cpp): the wind and what
+    // pushes plants aside, in the world (set each tick) and in the view they were last taken
+    // into (u_sway: up, wind and time, the plant's shape, six pushers, their count); a plant's
+    // display list drawn sways while its view's projection is the one in use
+    bool swayOn, swayArmed, swayActive, swayDraw;
+    float swayWorld[32];   // wind x y z, time; amount, flutter, push strength, pusher count; 6 x (x y z r)
+    float sway[44];
+    float swayProj[7];
+    float swayShape[2];    // the plant's model-space lowest and highest y
     // Fire Lights (GXPC_SetLights, GXPC_LightsView, gx_render.cpp): up to 8 point lights, in the
     // world (position, radius; colour, strength) and in the view they were last set for (u_plight:
     // 16 vec4s, then (count, ...)); lit while what is drawn is that view's (its projection).
@@ -387,12 +396,13 @@ struct UniformCache {
     float wet[8];
     float shadow[48];
     float plight[68];
+    float sway[44];
 };
 struct ShaderProgram {
     unsigned prog;
     int id;  // creation order; SMS_GX_DUMP_SHADERS=dir writes dir/prog<id>.vs/.fs
     int uTevReg, uKonst, uTexScale, uAlphaRef, uFog, uFogColor, uIndMtx, uTexSize, uEfb,
-        uProj, uViewport, uAmbMat, uDstAlpha, uLineWidth, uUserClip, uWet, uShadow, uPlight;
+        uProj, uViewport, uAmbMat, uDstAlpha, uLineWidth, uUserClip, uWet, uShadow, uPlight, uSway;
     mutable UniformCache uc;
 };
 bool shaderHasEarlyFragmentTests();
@@ -408,6 +418,9 @@ const int kGrassColorUnit = 11, kGrassDepthUnit = 12;
 // GXSetLineWidth wide (a geometry shader)
 // depthOnly: 0 the draw, 1 its depth only (the ordered depth pass), 2 into the sun's shadow map
 const ShaderProgram* shaderForCurrentState(int depthOnly = 0, bool lines = false);
+// Moving Vegetation: whether a display list is a plant's (registered as its model loaded), and its
+// model-space height (gx_render.cpp, from callDisplayList).
+bool swayLookup(const void* list, uint32_t size, float* minY, float* maxY);
 // The texture unit the sun's shadow map is bound on (gx_render.cpp), past the game's eight.
 const int kShadowUnit = 10;
 void shaderPrepareStage(int stage);  // while a stage loads: its programs (the warm-up)

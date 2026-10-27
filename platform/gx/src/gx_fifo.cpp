@@ -1239,7 +1239,25 @@ static void dlReplayState(const DlEntry& e) {
     }
 }
 
+static void callDisplayListInner(const uint8_t* data, uint32_t size);
+// Moving Vegetation: a plant's display list (gx_render.cpp's register) is drawn on its own, with
+// the sway on (its batch flushed before and after, so that nothing else sways with it).
 void callDisplayList(const uint8_t* data, uint32_t size) {
+    float minY, maxY;
+    if (g.swayOn && data && !s_dlRec && swayLookup(data, size, &minY, &maxY)) {
+        flushBatch();
+        g.swayDraw     = true;
+        g.swayShape[0] = minY;
+        g.swayShape[1] = maxY;
+        callDisplayListInner(data, size);
+        flushBatch();
+        g.swayDraw = false;
+        return;
+    }
+    callDisplayListInner(data, size);
+}
+
+static void callDisplayListInner(const uint8_t* data, uint32_t size) {
     if (!data || !dlCacheEnabled() || !rendererReady() || s_dlRec) {
         runCommands(data, size);
         return;

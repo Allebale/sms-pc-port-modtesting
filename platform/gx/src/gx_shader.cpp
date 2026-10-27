@@ -112,6 +112,10 @@ uniform vec4 u_chan[4];
 uniform vec4 u_uclip;
 uniform vec4 u_wet[2];
 uniform vec4 u_shadow[12];
+// Moving Vegetation (gx_render.cpp, swayView): [0] up, on; [1] wind, time; [2] the plant's lowest
+// and highest y (model space), amount, flutter; [3..8] pushers (view, radius); [10] their count,
+// push strength
+uniform vec4 u_sway[11];
 in vec3 a_pos; in vec3 a_nrm; in vec3 a_bin; in vec3 a_tan;
 in vec4 a_clr0; in vec4 a_clr1;
 in vec2 a_tex0; in vec2 a_tex1; in vec2 a_tex2; in vec2 a_tex3;
@@ -132,6 +136,38 @@ vec3 lightA(int l) { return R3(608 + l * 16 + 4); }
 vec3 lightK(int l) { return R3(608 + l * 16 + 7); }
 vec3 lightPos(int l) { return R3(608 + l * 16 + 10); }
 vec3 lightDir(int l) { return R3(608 + l * 16 + 13); }
+// A plant's point moved (vp: in the view; mp: in its model). How much: by how far up the plant it
+// is (the model's own height, when the plant is a model of its own; a stage's leaves, all alike),
+// squared, so that it stays rooted. The wind leans it its way in gusts that roll across the
+// stage, its leaves flutter, and Mario and FLUDD's water push it aside (and a little down).
+vec3 sway(vec3 vp, vec3 mp) {
+  vec3 up = u_sway[0].xyz, wind = u_sway[1].xyz;
+  float t = u_sway[1].w;
+  float h = u_sway[2].y - u_sway[2].x;
+  bool own = h > 1.0 && h < 1500.0;
+  float w = own ? clamp((mp.y - u_sway[2].x) / h, 0.0, 1.0) : 1.0;
+  w *= w;
+  float amp = u_sway[2].z * (own ? clamp(h * 0.04, 3.0, 18.0) : 5.0);
+  float ph = dot(mp.xz, vec2(0.0021, 0.0017));
+  float gust = 0.55 + 0.3 * sin(t * 1.3 + ph) + 0.15 * sin(t * 2.9 + ph * 2.3);
+  float fl = sin(t * 7.0 + dot(mp, vec3(0.13, 0.11, 0.17))) * u_sway[2].w;
+  vec3 side = cross(up, wind);
+  vp += (wind * gust + side * (fl * 0.5) + up * (fl * 0.3)) * (amp * w);
+  int n = int(u_sway[10].x);
+  for (int i = 0; i < 6; i++) {
+    if (i >= n) break;
+    vec4 q = u_sway[3 + i];
+    vec3 d = vp - q.xyz;
+    float dv = dot(d, up);
+    vec3 dh = d - up * dv;
+    float l = length(dh);
+    if (l < q.w && l > 0.01 && abs(dv) < q.w * 1.5) {
+      float k = 1.0 - l / q.w;
+      vp += (dh / l * 0.6 - up * 0.25) * (k * k * q.w * u_sway[10].y * max(w, 0.15));
+    }
+  }
+  return vp;
+}
 )";
 
 // Attenuation divides by k0 + k1*d + k2*d^2.  A light loaded with all-zero
@@ -174,6 +210,7 @@ static std::string genVS(const ShaderKey& k) {
          "  int pm = int(a_mtx.x & 255u);\n"
          "  vec4 p = vec4(a_pos, 1.0);\n"
          "  vec3 vpos = vec3(dot(R4(pm * 4), p), dot(R4(pm * 4 + 4), p), dot(R4(pm * 4 + 8), p));\n"
+         "  if (u_sway[0].w > 0.5) vpos = sway(vpos, a_pos);\n"
          "  int nm = 256 + pm * 3;\n"
          "  vec3 N = vec3(dot(R3(nm), a_nrm), dot(R3(nm + 3), a_nrm), dot(R3(nm + 6), a_nrm));\n"
          "  N = dot(N, N) > 0.0 ? normalize(N) : vec3(0.0, 0.0, 1.0);\n"
@@ -715,6 +752,7 @@ static void setupProgram(GLuint p, ShaderProgram& sp, bool aside = false) {
     GLint units[8] = {0, 1, 2, 3, 4, 5, 6, 7};
     sp.uShadow = glGetUniformLocation(p, "u_shadow");
     sp.uPlight = glGetUniformLocation(p, "u_plight");
+    sp.uSway = glGetUniformLocation(p, "u_sway");
     GLint shadowMap = glGetUniformLocation(p, "u_shadowMap");
     if (shadowMap >= 0) glUniform1i(shadowMap, kShadowUnit);
     GLint loc = glGetUniformLocation(p, "u_tex");

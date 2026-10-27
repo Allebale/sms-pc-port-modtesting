@@ -1965,6 +1965,12 @@ static void uploadUniforms(const ShaderProgram* sp, float texW[8], float texH[8]
         }
     }
     UNI(uPlight, plight, plight, glUniform4fv(sp->uPlight, 17, plight));
+    float sway[44];
+    memcpy(sway, g.sway, sizeof sway);
+    sway[3] = g.swayDraw && g.swayActive ? 1.0f : 0.0f;
+    sway[8] = g.swayShape[0];
+    sway[9] = g.swayShape[1];
+    UNI(uSway, sway, sway, glUniform4fv(sp->uSway, 11, sway));
 #undef UNI
     uc.init = true;
 }
@@ -2539,8 +2545,88 @@ extern "C" void GXPC_SetLights(const float* lights, int count) {
     if (count) memcpy(g.plightWorld, lights, size_t(count) * 8 * sizeof(float));
 }
 
+// ------------------------------------------------------------------ Moving Vegetation
+// Plants that sway (ext/core/game/port_vegetation.cpp): the display lists of the models' leafy
+// materials, registered as each model loads (each checked by its size and first bytes, so that a
+// list freed with its stage and another put in its place is not taken for it); the wind and what
+// pushes them aside, set each tick in the world and taken into each view as its camera sets its
+// projection (with the Fire Lights, GXPC_LightsView). The vertex shader moves them (gx_shader.cpp).
+#include <unordered_map>
+struct SwayList {
+    uint32_t size, check;
+    float minY, maxY;
+};
+static std::unordered_map<const void*, SwayList> s_swayLists;
+static uint32_t swayCheck(const uint8_t* p, uint32_t size) {
+    uint32_t h = 2166136261u;
+    for (uint32_t i = 0; i < size && i < 64; i++) h = (h ^ p[i]) * 16777619u;
+    return h;
+}
+extern "C" void GXPC_SwayRegister(const void* list, unsigned size, float minY, float maxY) {
+    if (!list || !size) return;
+    SwayList& l = s_swayLists[list];
+    l.size  = size;
+    l.check = swayCheck(static_cast<const uint8_t*>(list), size);
+    l.minY  = minY;
+    l.maxY  = maxY;
+}
+bool swayLookup(const void* list, uint32_t size, float* minY, float* maxY) {
+    if (s_swayLists.empty()) return false;
+    auto it = s_swayLists.find(list);
+    if (it == s_swayLists.end()) return false;
+    if (it->second.size != size || it->second.check != swayCheck(static_cast<const uint8_t*>(list), size)) {
+        s_swayLists.erase(it);  // another list where a freed one was
+        return false;
+    }
+    *minY = it->second.minY;
+    *maxY = it->second.maxY;
+    return true;
+}
+// world: wind x y z (a unit direction), time in seconds; amount, flutter, push strength; then
+// `count` pushers (x y z, radius), at most six. amount 0: off.
+extern "C" void GXPC_SwayFrame(const float* world, const float* pushers, int count) {
+    count = count < 0 ? 0 : count > 6 ? 6 : count;
+    g.swayOn = world && world[4] > 0.0f;
+    if (!g.swayOn) {
+        g.swayArmed = g.swayActive = false;
+        return;
+    }
+    memcpy(g.swayWorld, world, 8 * sizeof(float));
+    g.swayWorld[7] = float(count);
+    if (count) memcpy(g.swayWorld + 8, pushers, size_t(count) * 4 * sizeof(float));
+}
+// u_sway: [0] up (view), on; [1] wind (view), time; [2] the plant's lowest and highest y, amount,
+// flutter; [3..8] pushers (view, radius); [9] unused; [10] count, push strength
+static void swayView(const float view[3][4]) {
+    if (!view || !g.swayOn) {
+        g.swayArmed = g.swayActive = false;
+        return;
+    }
+    float* u = g.sway;
+    memset(u, 0, sizeof g.sway);
+    for (int r = 0; r < 3; r++) {
+        u[r]     = view[r][1];  // up: the world's y
+        u[4 + r] = view[r][0] * g.swayWorld[0] + view[r][1] * g.swayWorld[1] + view[r][2] * g.swayWorld[2];
+    }
+    u[7]  = g.swayWorld[3];
+    u[10] = g.swayWorld[4];
+    u[11] = g.swayWorld[5];
+    const int n = int(g.swayWorld[7]);
+    for (int i = 0; i < n; i++) {
+        const float* w = g.swayWorld + 8 + i * 4;
+        for (int r = 0; r < 3; r++)
+            u[12 + i * 4 + r] = view[r][0] * w[0] + view[r][1] * w[1] + view[r][2] * w[2] + view[r][3];
+        u[12 + i * 4 + 3] = w[3];
+    }
+    u[40] = float(n);
+    u[41] = g.swayWorld[6];
+    memcpy(g.swayProj, g.projection, sizeof g.swayProj);
+    g.swayArmed = g.swayActive = true;
+}
+
 extern "C" void GXPC_LightsView(const float view[3][4]) {
     flushBatch();
+    swayView(view);  // Moving Vegetation's wind, seen from the same camera
     if (!view || !g.plightCount) {
         g.plightArmed = g.plightActive = false;
         return;
