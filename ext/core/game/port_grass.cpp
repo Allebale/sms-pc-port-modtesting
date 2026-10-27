@@ -342,10 +342,15 @@ Press s_press[kMostPress];
 int s_pressCount;
 
 // FLUDD's spray: where its drops came down into the grass (a drop is gone as it lands on grass,
-// leaving no puddle), each spot pressing the blades flat for about seven seconds; a spot sprayed
+// leaving no puddle), each spot pressing the blades flat for a while (Grass Flattening); a spot sprayed
 // again is pressed again (each drop near one already there renews it, so the spots stay few).
 const int kMostSpray = 160;
-const s32 kSprayMs   = 7000;  // lying flat for most of it, then rising again
+// Grass Flattening (the setting): how wide each spot presses, and how long it lies flat (then
+// rises again): Low, Medium, High, Very High, Insane.
+const f32 kSprayRadius[] = {45.0f, 70.0f, 95.0f, 140.0f, 220.0f};
+const s32 kSprayLife[]   = {3000, 5000, 7000, 11000, 18000};
+f32 s_sprayRadius = 95.0f;
+s32 s_sprayMs     = 7000;
 TrailPoint s_spray[kMostSpray];
 int s_sprayCount;
 
@@ -354,6 +359,10 @@ void noteSpray()
 	TModelWaterManager* water = gpModelWaterManager;
 	const int count           = water ? water->getParticleCount() : 0;
 	const s32 now             = nowMs();
+	const int level           = port_grass_flatten();
+	s_sprayRadius             = kSprayRadius[level < 0 || level > 4 ? 2 : level];
+	s_sprayMs                 = kSprayLife[level < 0 || level > 4 ? 2 : level];
+	const f32 merge           = s_sprayRadius * 0.47f;  // a drop this near a spot renews it
 	for (int i = 0; i < count; i++) {
 		const JGeometry::TVec3<f32>& p = water->mParticlePositionSOA[i];
 		const int tx = (int)floorf(p.x / kTile), tz = (int)floorf(p.z / kTile);
@@ -365,7 +374,7 @@ void noteSpray()
 		int slot = -1;
 		for (int k = 0; k < s_sprayCount && slot < 0; k++) {
 			const f32 dx = s_spray[k].x - p.x, dz = s_spray[k].z - p.z;
-			if (dx * dx + dz * dz < 45.0f * 45.0f && fabsf(s_spray[k].y - y) < 60.0f)
+			if (dx * dx + dz * dz < merge * merge && fabsf(s_spray[k].y - y) < 60.0f)
 				slot = k;  // near one already there: renewed
 		}
 		if (slot < 0) {
@@ -390,14 +399,14 @@ void gatherPress(f32 mx, f32 my, f32 mz)
 	Press& m = s_press[s_pressCount++];
 	m.x = mx, m.y = my, m.z = mz, m.r = 36.0f, m.strength = 1.0f;
 	// the spray's spots, newest first (by half-second bands)
-	for (int band = 0; band < kSprayMs / 500 && s_pressCount < 56; band++)
+	for (int band = 0; band < s_sprayMs / 500 && s_pressCount < 56; band++)
 		for (int k = 0; k < s_sprayCount && s_pressCount < 56; k++) {
 			const s32 age = now - s_spray[k].at;
 			if (age < band * 500 || age >= (band + 1) * 500)
 				continue;
 			Press& q = s_press[s_pressCount++];
-			q.x = s_spray[k].x, q.y = s_spray[k].y, q.z = s_spray[k].z, q.r = 95.0f;
-			const f32 left = 1.0f - (f32)age / kSprayMs;
+			q.x = s_spray[k].x, q.y = s_spray[k].y, q.z = s_spray[k].z, q.r = s_sprayRadius;
+			const f32 left = 1.0f - (f32)age / s_sprayMs;
 			q.strength     = left < 0.25f ? left / 0.25f : 1.0f;  // flat, then rising again
 		}
 	for (int i = 0; i < s_trailCount && s_pressCount < kMostPress; i++) {
