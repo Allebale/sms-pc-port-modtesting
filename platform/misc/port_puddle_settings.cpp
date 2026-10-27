@@ -78,7 +78,7 @@ int s_grassMario = 0;     // Mario Grass Flattening: 0 dives and landings, 1 alw
 int s_fireLights = 0;     // Fire Lights
 int s_fireReach = 2;      // Fire Light Intensity: into kFireReaches
 int s_vegetation = 0;     // Moving Vegetation: 0 off, 1 gentle, 2 breezy, 3 windy
-int s_godRays = 0;        // God Rays: 0 off, 1 subtle, 2 normal, 3 strong
+int s_godRays = 0;        // God Rays: 0 off, then 1 faintest .. 8 strongest (kSunNames)
 int s_grassCutHeight = 2, s_grassWildHeight = 2;  // into kGrassHeights
 int s_shadows = 0;        // Real Shadows: 0 off (the game's own), 1 soft, 2 strong
 int s_shadowsRound = 0;   // Round Shadows Under Characters, with Real Shadows: 1 kept (lighter)
@@ -254,8 +254,8 @@ void load() {
             s_grassCutHeight = value < 1 ? 1 : value > 5 ? 5 : value;  // no 50 percent for cut grass
         } else if (sscanf(line, " grasswildheight = %d", &value) == 1) {
             s_grassWildHeight = value < 0 ? 0 : value > 5 ? 5 : value;
-        } else if (sscanf(line, " godrays = %d", &value) == 1) {
-            s_godRays = value < 0 ? 0 : value > 3 ? 3 : value;
+        } else if (sscanf(line, " godraylevel = %d", &value) == 1) {
+            s_godRays = value < 0 ? 0 : value > 8 ? 8 : value;
         } else if (sscanf(line, " vegetation = %d", &value) == 1) {
             s_vegetation = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " firelightreach = %d", &value) == 1) {
@@ -363,8 +363,8 @@ void save() {
     fprintf(f, "firelightreach = %d\n", s_fireReach);
     fprintf(f, "# vegetation: plants sway, bend from Mario and FLUDD's water: 0 off, 1 gentle, 2 breezy, 3 windy.\n");
     fprintf(f, "vegetation = %d\n", s_vegetation);
-    fprintf(f, "# godrays: the sun's beams through leaves, round buildings and between clouds: 0 off, 1 subtle, 2 normal, 3 strong.\n");
-    fprintf(f, "godrays = %d\n", s_godRays);
+    fprintf(f, "# godraylevel: the sun's beams through leaves, round buildings and between clouds: 0 off, 1 very faint, 2 faint, 3 subtle, 4 light, 5 normal, 6 bright, 7 strong, 8 very strong.\n");
+    fprintf(f, "godraylevel = %d\n", s_godRays);
     fprintf(f, "# grasscutheight, grasswildheight: 0 50%% (wild only), 1 75%%, 2 100%%, 3 150%%, 4 200%%, 5 300%%.\n");
     fprintf(f, "grasscutheight = %d\n", s_grassCutHeight);
     fprintf(f, "grasswildheight = %d\n", s_grassWildHeight);
@@ -490,15 +490,15 @@ int vegetationSet(int i) {
     return 1;
 }
 
-const char* const kSunNames[] = {"Off", "Subtle", "Normal", "Strong"};
-int sunCount() { return 4; }
-const char* sunName(int i) { return kSunNames[i < 0 || i > 3 ? 0 : i]; }
+const char* const kSunNames[] = {"Off", "Very Faint", "Faint", "Subtle", "Light", "Normal", "Bright", "Strong", "Very Strong"};
+int sunCount() { return 9; }
+const char* sunName(int i) { return kSunNames[i < 0 || i > 8 ? 0 : i]; }
 int sunGet() {
     load();
     return s_godRays;
 }
 int sunSet(int i) {
-    if (i < 0 || i > 3) return 0;
+    if (i < 0 || i > 8) return 0;
     load();
     s_godRays = i;
     save();
@@ -1101,7 +1101,7 @@ float port_grass_height(int wild) {
     const int i = wild ? s_grassWildHeight : s_grassCutHeight;
     return kGrassHeights[i < 0 || i > 5 ? 2 : i];
 }
-// God Rays (the renderer's, from port_shadows_main_view): 0 off .. 3 strong.
+// God Rays (the renderer's, from port_shadows_main_view): 0 off, 1 very faint .. 8 very strong.
 int port_god_rays(void) {
     load();
     return s_godRays;

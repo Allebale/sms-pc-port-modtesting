@@ -26,7 +26,7 @@ void port_shadows_main_view(void* camera, float (*view)[4]);
 // projection was just set (the main camera's, from port_shadows_main_view; a mirror's, from
 // port_mirror_clip), lit in what it draws.
 void port_lights_view(float (*view)[4]);
-// God Rays (platform/misc/port_puddle_settings.cpp): 0 off, 1 subtle, 2 normal, 3 strong; and the
+// God Rays (platform/misc/port_puddle_settings.cpp): 0 off, 1 very faint .. 8 very strong; and the
 // renderer's: the sun in the main camera's view this frame (null: none), their strength, its colour.
 int port_god_rays(void);
 void GXPC_SunFrame(const float* sunView, float rays, const float* color);
