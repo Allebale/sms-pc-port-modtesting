@@ -352,7 +352,7 @@ void save() {
     fprintf(f, "grassthin = %d\n", s_grassThin);
     fprintf(f, "# grassflatten: how wide and long FLUDD's spray and Mario flatten the grass: 0 low, 1 medium, 2 high, 3 very high, 4 insane.\n");
     fprintf(f, "grassflatten = %d\n", s_grassFlatten);
-    fprintf(f, "# grassmario: Mario flattens grass: 0 where he dives or lands from a jump or fall, 1 always (his steps too), 2 never.\n");
+    fprintf(f, "# grassmario: Mario flattens grass: 0 where he lands, dives, slides or skids, 1 always (his steps too), 2 never.\n");
     fprintf(f, "grassmario = %d\n", s_grassMario);
     fprintf(f, "# firelights: 1 fires light up what is around them (and in reflections), 0 not.\n");
     fprintf(f, "firelights = %d\n", s_fireLights);
@@ -514,7 +514,7 @@ int grassFlattenSet(int i) {
     return 1;
 }
 
-const char* const kGrassMarioNames[] = {"Dives and Landings", "Always", "Never"};
+const char* const kGrassMarioNames[] = {"Landings and Slides", "Always", "Never"};
 int grassMarioCount() { return 3; }
 const char* grassMarioName(int i) { return kGrassMarioNames[i < 0 || i > 2 ? 0 : i]; }
 int grassMarioGet() {
@@ -950,7 +950,7 @@ const PortSetting kPuddleSettings[] = {
      "How wide and how long FLUDD's spray, and Mario, press the grass flat.", 0, nullptr,
      grassFlattenCount, grassFlattenName, grassFlattenGet, grassFlattenSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 106, "Mario Grass Flattening",
-     "Where Mario presses the grass flat: when he dives or lands in it, always, or never.", 0, nullptr,
+     "Where Mario presses the grass flat: landing, diving and sliding in it, always, or never.", 0, nullptr,
      grassMarioCount, grassMarioName, grassMarioGet, grassMarioSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 108, "Fire Lights",
      "Fires light up the ground and walls around them, in reflections too.", 0, nullptr, offOnCount,

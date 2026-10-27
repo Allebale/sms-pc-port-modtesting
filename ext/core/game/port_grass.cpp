@@ -475,43 +475,63 @@ void noteSpray()
 	}
 }
 
-// Mario on the grass (Mario Grass Flattening): 0 only where he lands from a jump or a fall (a
-// wider circle) and along a dive's belly slide; 1 also each step (every 30 units he walks); 2 never.
-// The circles are Grass Flattening's width times 0.55 for a landing, 0.45 for a slide, 0.4 for a step.
+// Mario on the grass (Mario Grass Flattening): 0 where he lands from a jump, a fall or a dive,
+// and where he slides (his belly after a dive or on wet ground, his seat down a slope, crouched) or
+// skids (braking, turning round); 1 also each step (every 30 units he walks); 2 never. The circles,
+// times Grass Flattening's width: a belly slide 0.75 every 12 units (the widest, so it shows), a
+// landing 0.55, another slide 0.45 every 20, a skid 0.4 every 25, a step 0.4 every 30.
 const u32 kStatusTypeMask = 0x1C0, kStatusTypeAir = 0x080;  // MarioStatus.hpp: in the air
-const u32 kSlipFore = 0x840452, kSlipBack = 0x840453;       // a dive's belly slide (and backwards)
-u32 s_marioWas;                                             // his status last tick
+bool bellySlide(u32 s) { return s == 0x800456 || s == 0x84045D; }  // a dive's belly slide; on oil/wet
+bool slide(u32 s)
+{
+	return s == 0x50 || s == 0x840452 || s == 0x840453 || s == 0x4808459 || s == 0x44C || s == 0x4045E;
+}  // down a slope (forwards, backwards), crouched, at speed, down a wet slope
+bool skid(u32 s) { return s == 0x4000445 || s == 0x443; }  // braking; turning round
+u32 s_marioWas;  // his status last tick
 f32 s_slideX = 1e9f, s_slideZ = 1e9f, s_stepX = 1e9f, s_stepZ = 1e9f;
+
+// a circle every `every` units along his way
+void along(f32 mx, f32 mz, f32* lastX, f32* lastZ, f32 every, f32 width)
+{
+	const f32 dx = mx - *lastX, dz = mz - *lastZ;
+	if (dx * dx + dz * dz < every * every)
+		return;
+	// a slide covers the whole way since the last circle (one each half circle's width)
+	const f32 len = sqrtf(dx * dx + dz * dz), r = s_sprayRadius * width;
+	const int n = len < 1e6f ? (int)(len / (r * 0.5f)) : 0;
+	for (int k = 1; k <= n && k < 16; k++)
+		flatStamp(*lastX + dx * (f32)k / (f32)(n + 1), *lastZ + dz * (f32)k / (f32)(n + 1), r);
+	flatStamp(mx, mz, r);
+	*lastX = mx, *lastZ = mz;
+}
 
 void noteMario(f32 mx, f32 my, f32 mz)
 {
-	const int mode  = port_grass_mario();
-	const u32 now   = SMS_GetMarioStatus();
-	const u32 was   = s_marioWas;
-	s_marioWas      = now;
+	const int mode = port_grass_mario();
+	const u32 now  = SMS_GetMarioStatus();
+	const u32 was  = s_marioWas;
+	s_marioWas     = now;
 	if (mode == 2)
 		return;
 	const int tx = (int)floorf(mx / kTile), tz = (int)floorf(mz / kTile);
 	const Tile& t = tileAt(tx, tz);
-	if (!t.used || t.tx != tx || t.tz != tz || !t.count || my < t.minY - 30.0f || my > t.maxY + 20.0f)
+	if (!t.used || t.tx != tx || t.tz != tz || !t.count || my < t.minY - 30.0f || my > t.maxY + 20.0f) {
+		s_slideX = s_stepX = 1e9f;  // off the grass: the next slide or step starts afresh
 		return;  // not on the ground among blades
+	}
 	const bool air = (now & kStatusTypeMask) == kStatusTypeAir;
 	if (!air && (was & kStatusTypeMask) == kStatusTypeAir)  // landed: from a jump, a fall, a dive
 		flatStamp(mx, mz, s_sprayRadius * 0.55f);
-	if (now == kSlipFore || now == kSlipBack) {  // sliding on his belly: along the way
-		const f32 dx = mx - s_slideX, dz = mz - s_slideZ;
-		if (dx * dx + dz * dz > 20.0f * 20.0f) {
-			flatStamp(mx, mz, s_sprayRadius * 0.45f);
-			s_slideX = mx, s_slideZ = mz;
-		}
-	}
-	if (mode == 1 && !air) {  // every step
-		const f32 dx = mx - s_stepX, dz = mz - s_stepZ;
-		if (dx * dx + dz * dz > 30.0f * 30.0f) {
-			flatStamp(mx, mz, s_sprayRadius * 0.4f);
-			s_stepX = mx, s_stepZ = mz;
-		}
-	}
+	if (bellySlide(now))
+		along(mx, mz, &s_slideX, &s_slideZ, 12.0f, 0.75f);
+	else if (slide(now))
+		along(mx, mz, &s_slideX, &s_slideZ, 20.0f, 0.45f);
+	else if (skid(now))
+		along(mx, mz, &s_slideX, &s_slideZ, 25.0f, 0.4f);
+	else
+		s_slideX = 1e9f;  // not sliding: the next slide starts where it starts
+	if (mode == 1 && !air)  // every step
+		along(mx, mz, &s_stepX, &s_stepZ, 30.0f, 0.4f);
 }
 
 // The renderer takes 64: Mario, his way, the puddles (the flattened grass is the map's).
