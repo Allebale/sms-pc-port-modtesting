@@ -2791,8 +2791,8 @@ void sunApply() {
     glBindSampler(kSunUnitB, 0);
     glBindVertexArray(s_sunVao);
     // view distance from the depth (gx_shader.cpp's mapping); the sky: farther than half the far plane
-    const float far = fabsf(-vz0 * B / (16777215.0f + vz0 * A - vz1));
-    const float lin[4] = {-vz0 * B, 16777215.0f, vz0 * A - vz1, far * 0.5f};
+    const float farthest = fabsf(-vz0 * B / (16777215.0f + vz0 * A - vz1));  // (not "far": a Windows macro)
+    const float lin[4] = {-vz0 * B, 16777215.0f, vz0 * A - vz1, farthest * 0.5f};
     const float aspect = float(W) / float(H);
 
     if (s_sunRays > 0.0f) {
@@ -2845,7 +2845,7 @@ void sunApply() {
     if (!s_told) {
         s_told = true;
         logmsg("sun: God Rays and Lens Flare on the scene as the 3D view ends (the sun at %.2f, %.2f; the sky from %.0f units)",
-               sx, sy, far * 0.5f);
+               sx, sy, farthest * 0.5f);
     }
 }
 
