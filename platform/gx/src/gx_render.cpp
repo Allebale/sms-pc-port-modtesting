@@ -1924,6 +1924,7 @@ static void uploadUniforms(const ShaderProgram* sp, float texW[8], float texH[8]
     UNI(uWet, wet, wet, glUniform4fv(sp->uWet, 2, wet));
     float shadow[48];
     memcpy(shadow, g.shadow, sizeof shadow);
+    static const float kMarioSelfShadowSkip = 45.0f;  // units toward the sun (his cap to his chin)
     // received only in the main camera's view, and not on see-through surfaces that write no depth
     // (water, glass): the shadow falls through them onto what is under them (else it shows twice,
     // on the water's surface and on the sand below)
@@ -1935,6 +1936,9 @@ static void uploadUniforms(const ShaderProgram* sp, float texW[8], float texH[8]
     shadow[43] = g.shadowMain && !seeThrough && !warped && !g.shadowNoReceive ? 1.0f : 0.0f;
     // blended: what is drawn see-through (its alpha under 0.9: water) neither receives nor casts
     shadow[45] = (scm & 1) ? 1.0f : 0.0f;
+    // Mario's own draw: looked up from a little toward the sun, so that he takes no shadow of
+    // himself (his cap's on his nose) but still the world's (a tree's, a building's) on him
+    shadow[46] = g.shadowTag ? kMarioSelfShadowSkip : 0.0f;
     UNI(uShadow, shadow, shadow, glUniform4fv(sp->uShadow, 12, shadow));
     float plight[68];
     memcpy(plight, g.plight, sizeof plight);

@@ -674,7 +674,8 @@ static std::string genFS(const ShaderKey& k) {
          // sun's light is blocked, the surface darker. The face's own normal (from the position's
          // slopes, whatever the model has), turned to the camera; only faces toward the sun; the
          // position pushed out along it a little (no shadow of a surface on itself). The near map
-         // where it reaches, the far one past it, blended between; fading out at the far one's edge
+         // where it reaches, the far one past it, blended between; fading out at the far one's edge.
+         // Mario's own draw (u_shadow[11].z) looked up from that far toward the sun: none of himself
          "  if (u_shadow[9].x > 0.0 && u_shadow[10].w > 0.0 && !(u_shadow[11].y > 0.5 && color.a < 0.9)) {\n"
          "    vec3 fn = cross(dFdx(v_wp), dFdy(v_wp));\n"
          "    fn = dot(fn, fn) > 1e-12 ? normalize(fn) : vec3(0.0, 0.0, 1.0);\n"
@@ -682,8 +683,9 @@ static std::string genFS(const ShaderKey& k) {
          "    float nl = dot(fn, u_shadow[10].xyz);\n"
          "    if (nl > 0.0) {\n"
          "      float lean = 1.0 + 2.0 * (1.0 - nl);\n"
-         "      vec4 p0 = vec4(v_wp + fn * u_shadow[9].y * lean, 1.0);\n"
-         "      vec4 p1 = vec4(v_wp + fn * u_shadow[9].z * lean, 1.0);\n"
+         "      vec3 sp0 = v_wp + u_shadow[10].xyz * u_shadow[11].z;\n"
+         "      vec4 p0 = vec4(sp0 + fn * u_shadow[9].y * lean, 1.0);\n"
+         "      vec4 p1 = vec4(sp0 + fn * u_shadow[9].z * lean, 1.0);\n"
          "      vec3 a = vec3(dot(u_shadow[0], p0), dot(u_shadow[1], p0), dot(u_shadow[2], p0));\n"
          "      vec3 b = vec3(dot(u_shadow[3], p1), dot(u_shadow[4], p1), dot(u_shadow[5], p1));\n"
          "      float ea = max(abs(a.x), abs(a.y)), eb = max(abs(b.x), abs(b.y));\n"
