@@ -620,7 +620,8 @@ static std::string genFS(const ShaderKey& k) {
     // Shadows: a blended draw's see-through parts (water's surface) cast no shadow into the sun's map
     if (k.depthOnly == 2) s += "  if (u_shadow[11].y > 0.5 && color.a < 0.9) discard;\n";
     s += ""
-         // Wet Mario (u_wet[0].x, 0 dry; below the waterline u_wet[1], softly over 12 units): soaked
+         // Wet Mario (u_wet[0].x, 0 dry; below the waterline u_wet[1], softly over 12 units; how dark
+         // u_wet[0].y, how shiny u_wet[0].z, 1 each as it was): soaked
          // cloth and skin are darker (55%) and their colours deeper, as wet things are (less light is
          // scattered back white), with a thin film of water on them: a small, tight highlight from
          // its lights and from the sky above, and a little more at grazing angles (Fresnel)
@@ -629,14 +630,15 @@ static std::string genFS(const ShaderKey& k) {
          "    if (w > 0.0) {\n"
          "      vec3 N = normalize(v_wn), V = normalize(-v_wp);\n"
          "      float lum = dot(color.rgb, vec3(0.299, 0.587, 0.114));\n"
-         "      vec3 c = max(mix(vec3(lum), color.rgb, 1.0 + 0.3 * w), vec3(0.0)) * (1.0 - 0.55 * w);\n"
+         "      float d = w * u_wet[0].y;\n"
+         "      vec3 c = max(mix(vec3(lum), color.rgb, 1.0 + 0.3 * d), vec3(0.0)) * (1.0 - min(0.55 * d, 0.9));\n"
          "      vec3 up = dot(u_wet[1].xyz, u_wet[1].xyz) > 1e-8 ? normalize(u_wet[1].xyz) : vec3(0.0, 1.0, 0.0);\n"
          "      vec3 L = dot(v_wl, v_wl) > 1e-8 ? normalize(v_wl) : up;\n"
          "      float sl = pow(max(dot(N, normalize(L + V)), 0.0), 60.0);\n"
          "      float ss = pow(max(dot(N, normalize(up + V)), 0.0), 40.0);\n"
          "      float fr = pow(1.0 - max(dot(N, V), 0.0), 5.0);\n"
          "      vec3 lc = dot(v_wlc, v_wlc) > 0.0 ? v_wlc : vec3(1.0);\n"
-         "      color.rgb = clamp(c + w * (0.3 * sl * lc + 0.08 * ss + 0.06 * fr), 0.0, 1.0);\n"
+         "      color.rgb = clamp(c + w * u_wet[0].z * (0.3 * sl * lc + 0.08 * ss + 0.06 * fr), 0.0, 1.0);\n"
          "    }\n"
          "  }\n"
          // Sandy Mario (u_sand[1].yzw, 0 none): where his body touched sand, a patchy, grainy coat of

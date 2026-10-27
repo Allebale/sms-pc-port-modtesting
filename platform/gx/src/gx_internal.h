@@ -103,6 +103,7 @@ struct State {
     // small, tight highlight, as a thin film of water on cloth and skin gives.
     float wet;
     float wetLine[4];
+    float wetLook[2];  // GXPC_SetWetLook: how dark, how shiny (1: as it was)
     // Shadows (GXPC_ShadowFrame, gx_render.cpp): the sun's shadow maps, a near one and a far one
     // (cascades) side by side in one texture. u_shadow: rows 0-2, view space to the near map read
     // this frame (last frame's), rows 3-5 to the far one; rows 6-8, view space to the cascade a

@@ -1920,7 +1920,7 @@ static void uploadUniforms(const ShaderProgram* sp, float texW[8], float texH[8]
     float uclip[4] = {0.0f, 0.0f, 0.0f, 1.0f};
     if (g.userClipOn) memcpy(uclip, g.userClip, sizeof uclip);
     UNI(uUserClip, uclip, uclip, glUniform4fv(sp->uUserClip, 1, uclip));
-    float wet[8] = {g.wet, 0.0f, 0.0f, 0.0f, g.wetLine[0], g.wetLine[1], g.wetLine[2], g.wetLine[3]};
+    float wet[8] = {g.wet, g.wetLook[0], g.wetLook[1], 0.0f, g.wetLine[0], g.wetLine[1], g.wetLine[2], g.wetLine[3]};
     UNI(uWet, wet, wet, glUniform4fv(sp->uWet, 2, wet));
     float shadow[48];
     memcpy(shadow, g.shadow, sizeof shadow);

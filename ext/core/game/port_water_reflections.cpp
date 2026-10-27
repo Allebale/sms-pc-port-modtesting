@@ -1289,6 +1289,7 @@ void updateWetness()
 } // namespace
 
 extern "C" void GXPC_SetWetness(float wet, const float* line);
+extern "C" void GXPC_SetWetLook(float darkness, float shine);
 
 // The waterline, a plane at world height y (normal up), is taken into the camera's view (world to
 // view: v = A p + t, so the plane there is A n, d - A n . t, as port_mirror_clip does).
@@ -1301,6 +1302,7 @@ void port_wet_mario_draw(int begin, float (*view)[4])
 		GXPC_SetWetness(0.0f, 0);
 		return;
 	}
+	GXPC_SetWetLook(port_wet_mario_darkness(), port_wet_mario_shine());
 	if (s_wetHeight >= kAllOfHim) {
 		GXPC_SetWetness(s_wetness, 0);  // all of him
 		return;

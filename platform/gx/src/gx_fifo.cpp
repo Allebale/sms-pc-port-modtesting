@@ -197,6 +197,7 @@ void resetState() {
     bool be[16];
     memcpy(be, g.arrayBigEndian, sizeof(be));
     memset(&g, 0, sizeof(g));
+    g.wetLook[0] = g.wetLook[1] = 1.0f;  // Wet Mario's look: as it was
     for (int i = 0; i < 16; i++) g.arrayBigEndian[i] = s_defaultArrayBE;
     g_arrayGen++;
     g.bpMask = 0xFFFFFF;

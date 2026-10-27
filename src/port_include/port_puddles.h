@@ -113,6 +113,9 @@ int port_wet_footprints(void);
 // Wet Mario: 1 when water leaves Mario wet: darker, his colours deeper, with a small highlight, up
 // to where the water reached (all of him after swimming), drying over about 45 seconds.
 int port_wet_mario(void);
+// Wet Mario's look, from the menu: how dark, how shiny (1 each: as it was).
+float port_wet_mario_darkness(void);
+float port_wet_mario_shine(void);
 // Around Mario's own draw (TMario::perform, zzzzz-ext-25-wet-mario): his wetness for the renderer,
 // begin 1 before (view: the camera's, world to view), 0 after.
 void port_wet_mario_draw(int begin, float (*view)[4]);

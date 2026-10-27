@@ -593,6 +593,16 @@ extern "C" void GXPC_SetWetness(float wet, const float* line) {
     memcpy(g.wetLine, line, sizeof g.wetLine);
 }
 
+// Wet Mario's look (the menu's): how much darker (1 as it was) and how shiny (0 none, 1 as it was).
+extern "C" void GXPC_SetWetLook(float darkness, float shine) {
+    if (!(darkness >= 0.0f && darkness < 4.0f)) darkness = 1.0f;
+    if (!(shine >= 0.0f && shine < 4.0f)) shine = 1.0f;
+    if (darkness == g.wetLook[0] && shine == g.wetLook[1]) return;
+    flushBatch();
+    g.wetLook[0] = darkness;
+    g.wetLook[1] = shine;
+}
+
 void GXSetProjection(f32 mtx[4][4], GXProjectionType type) {
     float p[7];
     p[0] = float(type);

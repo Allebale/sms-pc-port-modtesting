@@ -69,7 +69,9 @@ int s_ripples = 0; // Water Ripples: 0 off, 1 gentle, 2 strong
 int s_puddleRipples = 0; // Puddle Ripples: 0 off, 1 gentle, 2 strong
 int s_beatMirrors = 0;    // Puddles Beat Mirrors
 int s_footprints = 0;     // Wet Footprints
-int s_wetMario = 0;       // Wet Mario
+int s_wetMario = 0;       // Wet Mario: on or off (the reflection option, the presets')
+int s_wetDark = 2;        // Wet Mario's darkness, while on: 1 light, 2 normal, 3 heavy
+int s_wetShine = 2;       // Wet Mario Shine: 0 off, 1 light, 2 normal, 3 strong
 int s_grass = 0;          // 3D Grass: 0 off, 1 by location, 2 always cut, 3 always wild
 int s_grassDistance = 2;  // Grass Distance: into kGrassDistances
 int s_grassThin = 0;      // Thinned Far Away
@@ -286,6 +288,10 @@ void load() {
         } else if (sscanf(line, " wetmario = %d", &value) == 1) {
             s_wetMario  = value != 0;
             sawWetMario = true;
+        } else if (sscanf(line, " wetmariodarkness = %d", &value) == 1) {
+            s_wetDark = value < 1 ? 1 : value > 3 ? 3 : value;
+        } else if (sscanf(line, " wetmarioshine = %d", &value) == 1) {
+            s_wetShine = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " level = %d", &value) == 1) {
             s_level = value != 0;
         } else if (sscanf(line, " beatmirrors = %d", &value) == 1) {
@@ -350,6 +356,10 @@ void save() {
     fprintf(f, "footprints = %d\n", s_footprints);
     fprintf(f, "# wetmario: 1 water leaves Mario wet up to where it reached, dripping, drying over 45 seconds, 0 not.\n");
     fprintf(f, "wetmario = %d\n", s_wetMario);
+    fprintf(f, "# wetmariodarkness: how much darker wet Mario is: 1 light, 2 normal, 3 heavy.\n");
+    fprintf(f, "wetmariodarkness = %d\n", s_wetDark);
+    fprintf(f, "# wetmarioshine: how much wet Mario shines: 0 off, 1 light, 2 normal, 3 strong.\n");
+    fprintf(f, "wetmarioshine = %d\n", s_wetShine);
     fprintf(f, "# grassblades: blades of grass on the grass: 0 off, 1 by location, 2 always cut, 3 always wild.\n");
     fprintf(f, "grassblades = %d\n", s_grass);
     fprintf(f, "# grassdistance: how far the blades go: 0 low, 1 medium, 2 high, 3 very high, 4 max.\n");
@@ -741,16 +751,37 @@ int footprintsSet(int i) {
     port_log("[puddles] Wet Footprints changed: %s\n", i ? "on" : "off");
     return 1;
 }
+// Wet Mario: Off, or on and how dark (the on and off is the reflection option, the darkness the
+// menu's own)
+const char* const kWetDarkNames[] = {"Off", "Light", "Normal", "Heavy"};
+int wetMarioCount() { return 4; }
+const char* wetMarioName(int i) { return kWetDarkNames[i < 0 || i > 3 ? 0 : i]; }
 int wetMarioGet() {
     load();
-    return s_wetMario;
+    return s_wetMario ? s_wetDark : 0;
 }
 int wetMarioSet(int i) {
-    if (i < 0 || i > 1) return 0;
+    if (i < 0 || i > 3) return 0;
     load();
-    s_wetMario = i;
+    s_wetMario = i != 0;
+    if (i) s_wetDark = i;
     save();
-    port_log("[puddles] Wet Mario changed: %s\n", i ? "on" : "off");
+    port_log("[puddles] Wet Mario changed: %s\n", kWetDarkNames[i]);
+    return 1;
+}
+const char* const kWetShineNames[] = {"Off", "Light", "Normal", "Strong"};
+int wetShineCount() { return 4; }
+const char* wetShineName(int i) { return kWetShineNames[i < 0 || i > 3 ? 0 : i]; }
+int wetShineGet() {
+    load();
+    return s_wetShine;
+}
+int wetShineSet(int i) {
+    if (i < 0 || i > 3) return 0;
+    load();
+    s_wetShine = i;
+    save();
+    port_log("[puddles] Wet Mario Shine changed: %s\n", kWetShineNames[i]);
     return 1;
 }
 int levelGet() {
@@ -1046,8 +1077,11 @@ const PortSetting kPuddleSettings[] = {
      "After a puddle, Mario's steps leave damp prints that dry away.", 0, nullptr, offOnCount, offOnName,
      footprintsGet, footprintsSet},
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 18, "Wet Mario",
-     "Water leaves Mario wet up to where it reached, darker and dripping as he dries.", 0, nullptr,
-     offOnCount, offOnName, wetMarioGet, wetMarioSet},
+     "Water leaves Mario wet up to where it reached, dripping as he dries. How much darker he gets.", 0, nullptr,
+     wetMarioCount, wetMarioName, wetMarioGet, wetMarioSet},
+    {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 19, "Wet Mario Shine",
+     "How much wet Mario shines, with Wet Mario on.", 0, nullptr, wetShineCount, wetShineName,
+     wetShineGet, wetShineSet},
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 5, "Reflect the Level",
      "Buildings, trees and the sky in puddles and water too. From the next area.", 1, nullptr, offOnCount,
      offOnName, levelGet, levelSet},
@@ -1124,6 +1158,17 @@ float port_grass_height(int wild) {
     load();
     const int i = wild ? s_grassWildHeight : s_grassCutHeight;
     return kGrassHeights[i < 0 || i > 5 ? 2 : i];
+}
+// Wet Mario's look (ext/core/game/port_water_reflections.cpp): how dark, how shiny (1 as it was).
+float port_wet_mario_darkness(void) {
+    static const float kDark[] = {1.0f, 0.5f, 1.0f, 1.6f};
+    load();
+    return kDark[s_wetDark < 0 || s_wetDark > 3 ? 2 : s_wetDark];
+}
+float port_wet_mario_shine(void) {
+    static const float kShine[] = {0.0f, 0.5f, 1.0f, 2.2f};
+    load();
+    return kShine[s_wetShine < 0 || s_wetShine > 3 ? 2 : s_wetShine];
 }
 // Sandy Mario (ext/core/game/port_sandy.cpp): 0 off, 1 light, 2 normal, 3 heavy.
 int port_sandy_mario(void) {
