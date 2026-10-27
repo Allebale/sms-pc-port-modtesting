@@ -74,6 +74,7 @@ int s_grass = 0;          // 3D Grass: 0 off, 1 by location, 2 always cut, 3 alw
 int s_grassDistance = 2;  // Grass Distance: into kGrassDistances
 int s_grassThin = 0;      // Thinned Far Away
 int s_grassFlatten = 2;   // Grass Flattening: 0 low .. 4 insane
+int s_grassSteps = 5;     // Mario Flattens Grass: 0 off .. 5 always
 int s_fireLights = 0;     // Fire Lights
 int s_fireReach = 2;      // Fire Light Intensity: into kFireReaches
 int s_vegetation = 0;     // Moving Vegetation: 0 off, 1 gentle, 2 breezy, 3 windy
@@ -258,6 +259,8 @@ void load() {
             s_fireReach = value < 0 ? 0 : value > 4 ? 4 : value;
         } else if (sscanf(line, " firelights = %d", &value) == 1) {
             s_fireLights = value != 0;
+        } else if (sscanf(line, " grasssteps = %d", &value) == 1) {
+            s_grassSteps = value < 0 ? 0 : value > 5 ? 5 : value;
         } else if (sscanf(line, " grassflatten = %d", &value) == 1) {
             s_grassFlatten = value < 0 ? 0 : value > 4 ? 4 : value;
         } else if (sscanf(line, " grassthin = %d", &value) == 1) {
@@ -349,6 +352,8 @@ void save() {
     fprintf(f, "grassthin = %d\n", s_grassThin);
     fprintf(f, "# grassflatten: how wide and long FLUDD's spray and Mario's steps flatten the grass: 0 low, 1 medium, 2 high, 3 very high, 4 insane.\n");
     fprintf(f, "grassflatten = %d\n", s_grassFlatten);
+    fprintf(f, "# grasssteps: the chance Mario's steps press grass flat: 0 off, 1 10%%, 2 25%%, 3 50%%, 4 75%%, 5 always.\n");
+    fprintf(f, "grasssteps = %d\n", s_grassSteps);
     fprintf(f, "# firelights: 1 fires light up what is around them (and in reflections), 0 not.\n");
     fprintf(f, "firelights = %d\n", s_fireLights);
     fprintf(f, "# firelightreach: how far a fire's light goes: 0 very short, 1 short, 2 normal, 3 far, 4 very far.\n");
@@ -506,6 +511,22 @@ int grassFlattenSet(int i) {
     s_grassFlatten = i;
     save();
     port_log("[grass] Grass Flattening changed: %s\n", kGrassFlattenNames[i]);
+    return 1;
+}
+
+const char* const kGrassStepNames[] = {"Off", "10 percent", "25 percent", "50 percent", "75 percent", "Always"};
+int grassStepsCount() { return 6; }
+const char* grassStepsName(int i) { return kGrassStepNames[i < 0 || i > 5 ? 5 : i]; }
+int grassStepsGet() {
+    load();
+    return s_grassSteps;
+}
+int grassStepsSet(int i) {
+    if (i < 0 || i > 5) return 0;
+    load();
+    s_grassSteps = i;
+    save();
+    port_log("[grass] Mario Flattens Grass changed: %s\n", kGrassStepNames[i]);
     return 1;
 }
 
@@ -928,13 +949,16 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 105, "Grass Flattening",
      "How wide and how long FLUDD's spray and Mario's steps press the grass flat.", 0, nullptr,
      grassFlattenCount, grassFlattenName, grassFlattenGet, grassFlattenSet},
-    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 107, "Fire Lights",
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 106, "Mario Flattens Grass",
+     "The chance each of Mario's steps on the grass presses it flat.", 0, nullptr, grassStepsCount,
+     grassStepsName, grassStepsGet, grassStepsSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 108, "Fire Lights",
      "Fires light up the ground and walls around them, in reflections too.", 0, nullptr, offOnCount,
      offOnName, fireLightsGet, fireLightsSet},
-    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 108, "Fire Light Intensity",
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 109, "Fire Light Intensity",
      "How far a fire's light reaches round it, with Fire Lights on.", 0, nullptr, fireReachCount,
      fireReachName, fireReachGet, fireReachSet},
-    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 106, "Moving Vegetation",
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 107, "Moving Vegetation",
      "Palms, bushes and flowers sway in the wind and bend away from Mario and FLUDD's water.", 0,
      nullptr, vegetationCount, vegetationName, vegetationGet, vegetationSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 96, "Real Shadows",
@@ -1067,6 +1091,10 @@ float port_fire_light_reach(void) {
 int port_fire_lights(void) {
     load();
     return s_fireLights;
+}
+int port_grass_step_chance(void) {
+    load();
+    return s_grassSteps;
 }
 int port_grass_flatten(void) {
     load();

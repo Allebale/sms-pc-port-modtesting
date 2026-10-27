@@ -475,14 +475,29 @@ void noteSpray()
 	}
 }
 
-// Mario's steps on the grass: a smaller circle flat where he walks (on the ground among blades)
+// Mario's steps on the grass: each 30 units he walks on the ground among blades is a step, and a
+// step presses a smaller circle flat where it lands, or not (Mario Flattens Grass: its chance).
+const int kStepChance[] = {0, 10, 25, 50, 75, 100};  // Off .. Always, percent
+f32 s_stepX = 1e9f, s_stepZ = 1e9f;
+u32 s_stepRandom = 12345u;
+
 void noteSteps(f32 mx, f32 my, f32 mz)
 {
+	const int level  = port_grass_step_chance();
+	const int chance = kStepChance[level < 0 || level > 5 ? 5 : level];
+	if (chance <= 0)
+		return;
 	const int tx = (int)floorf(mx / kTile), tz = (int)floorf(mz / kTile);
 	const Tile& t = tileAt(tx, tz);
 	if (!t.used || t.tx != tx || t.tz != tz || !t.count || my < t.minY - 30.0f || my > t.maxY + 20.0f)
 		return;
-	flatStamp(mx, mz, s_sprayRadius * 0.4f);
+	const f32 dx = mx - s_stepX, dz = mz - s_stepZ;
+	if (dx * dx + dz * dz < 30.0f * 30.0f)
+		return;  // not a step yet
+	s_stepX = mx, s_stepZ = mz;
+	s_stepRandom = s_stepRandom * 1664525u + 1013904223u;
+	if ((int)((s_stepRandom >> 8) % 100u) < chance)
+		flatStamp(mx, mz, s_sprayRadius * 0.4f);
 }
 
 // The renderer takes 64: Mario, his way, the puddles (the flattened grass is the map's).
