@@ -703,8 +703,8 @@ static std::string genFS(const ShaderKey& k) {
          "    }\n"
 "    if (a > 0.0) {\n"
          // scattered: streaks along his length, broken into blotches with clean cloth between
-         // them, and specks round them; dirty: the green mixed with ground-in earth (browner in
-         // places), darker where it is rubbed in deepest
+         // them, and specks round them; dirty: bright grass green, some ground-in earth (browner in
+         // places), a little darker where it is rubbed in deepest
          "      float streak = gsNoise(v_mp * vec3(0.3, 0.045, 0.3));\n"
          "      float patches = gsNoise(v_mp * 0.09 + vec3(7.1, 3.3, 1.9));\n"
          "      float fine = gsNoise(v_mp * 0.9 + vec3(2.7, 9.1, 4.4));\n"
@@ -716,9 +716,9 @@ static std::string genFS(const ShaderKey& k) {
          "      cover = clamp(cover * (0.7 + 0.6 * fine), 0.0, 1.0);\n"
          "      float dirt = smoothstep(0.3, 0.7, gsNoise(v_mp * 0.25 + vec3(3.9, 6.2, 0.7)));\n"
          "      float lum = dot(cc, vec3(0.299, 0.587, 0.114));\n"
-         "      vec3 green = cc * vec3(0.55, 0.8, 0.28) + vec3(0.03, 0.07, 0.0);\n"
+         "      vec3 green = cc * vec3(0.11, 0.16, 0.056) + vec3(0.288, 0.576, 0.112) * clamp(lum * 2.2 + 0.2, 0.6, 1.15);\n"
          "      vec3 earth = lum * 0.5 * vec3(1.0, 0.8, 0.5) + vec3(0.07, 0.05, 0.025);\n"
-         "      vec3 stained = mix(green, earth, dirt * 0.6) * (1.0 - 0.25 * smoothstep(0.65, 0.9, n));\n"
+         "      vec3 stained = mix(green, earth, dirt * 0.35) * (1.0 - 0.15 * smoothstep(0.65, 0.9, n));\n"
          "      color.rgb = mix(cc, stained, cover * 0.9);\n"
          "    }\n"
          "  }\n"
