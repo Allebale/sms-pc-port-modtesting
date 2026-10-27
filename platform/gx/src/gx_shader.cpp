@@ -262,7 +262,7 @@ static std::string genVS(const ShaderKey& k) {
                 for (int l = 0; l < 8; l++)
                     if (mask & (1u << l)) {
                         emitLight(s, ctrl, comp, "lsum", l);
-                        if (c == 0 && part == 0) {  // Wet Mario: this light, for his highlight
+                        if (c == 0 && part == 0 && k.depthOnly == 3) {  // Wet Mario: this light, for his highlight
                             snprintf(buf, sizeof buf,
                                      "    if (u_wet[0].x > 0.0) { vec3 lc = lightColor(%d).rgb;\n"
                                      "      wdir += normalize(lightPos(%d) - vpos) * dot(lc, vec3(0.3333));\n"
@@ -627,9 +627,12 @@ static std::string genFS(const ShaderKey& k) {
         if (!(c0 == 7 && c1 == 7 && op <= 1)) s += "  if (!(" + e + ")) discard;\n";
     }
     s += "  vec4 color = vec4(outc) / 255.0;\n";
-    // Shadows: a blended draw's see-through parts (water's surface) cast no shadow into the sun's map
-    if (k.depthOnly == 2) s += "  if (u_shadow[11].y > 0.5 && color.a < 0.9) discard;\n";
-    s += ""
+    // Shadows: a blended draw's see-through parts (water's surface) cast no shadow into the sun's
+    // map; a caster needs nothing more (its colour is not kept), so its program stays small
+    if (k.depthOnly == 2) return s + "  if (u_shadow[11].y > 0.5 && color.a < 0.9) discard;\n  o_color = color;\n}\n";
+    // Mario's own draw only (depthOnly 3: GXPC_ShadowTag): Wet Mario, Sandy Mario, Grass Stains.
+    // Every other program goes without them: smaller, quicker to compile (fewer stutters)
+    std::string mario = ""
          // Wet Mario (u_wet[0].x, 0 dry; below the waterline u_wet[1], softly over 12 units; how dark
          // u_wet[0].y, how shiny u_wet[0].z, 1 each as it was): soaked
          // cloth and skin are darker (55%) and their colours deeper, as wet things are (less light is
@@ -722,6 +725,9 @@ static std::string genFS(const ShaderKey& k) {
          "      color.rgb = mix(cc, stained, cover * 0.9);\n"
          "    }\n"
          "  }\n"
+         "";
+    if (k.depthOnly == 3) s += mario;
+    s += ""
          // Shadows (u_shadow[9].x, 0 off; u_shadow[10].w, 1 for the main camera's view): where the
          // sun's light is blocked, the surface darker. The face's own normal (from the position's
          // slopes, whatever the model has), turned to the camera; only faces toward the sun; the
@@ -1381,6 +1387,7 @@ const ShaderProgram* shaderForCurrentState(int depthOnly, bool lines) {
     ShaderKey& k = key.k;
     buildKey(k);
     k.depthOnly = uint32_t(depthOnly);
+    if (depthOnly == 0 && g.shadowTag) k.depthOnly = 3;  // Mario's own draw: his wet, sand, stains
     if (depthOnly == 2) k.earlyZ = 0;  // a shadow caster: its alpha test discards before depth
     key.indScale[0] = k.numInd ? g.bp[BP_RAS1_SS0] : 0;
     key.indScale[1] = k.numInd ? g.bp[BP_RAS1_SS0 + 1] : 0;
