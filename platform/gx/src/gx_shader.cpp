@@ -139,9 +139,8 @@ vec3 lightDir(int l) { return R3(608 + l * 16 + 13); }
 // A plant's point moved (vp: in the view; mp, mn: its position and normal in its model). How much:
 // by how far up the plant it is (the model's own height, when the plant is a model of its own),
 // squared, so that it stays rooted; a stage's plants (part of the level's own mesh, no height of
-// their own) all alike, but, on a large one whose size is known, not where the surface lies flat
-// facing up (the ground its material also covers); a plant part of unknown size (Sirena's sunflower
-// beds, their heads facing up) moves whole. The wind leans it its way in gusts that roll across the
+// their own) all alike, but not where the surface lies flat facing up (the ground the plants'
+// material also covers). The wind leans it its way in gusts that roll across the
 // stage, its leaves flutter, and Mario and FLUDD's water push it aside (and a little down).
 vec3 sway(vec3 vp, vec3 mp, vec3 mn) {
   vec3 up = u_sway[0].xyz, wind = u_sway[1].xyz;
@@ -150,7 +149,7 @@ vec3 sway(vec3 vp, vec3 mp, vec3 mn) {
   bool own = h > 1.0 && h < 1500.0;
   float w = own ? clamp((mp.y - u_sway[2].x) / h, 0.0, 1.0) : 1.0;
   w *= w;
-  if (!own && h > 1.0 && dot(mn, mn) > 0.01) w *= 1.0 - smoothstep(0.7, 0.92, abs(normalize(mn).y));
+  if (!own && dot(mn, mn) > 0.01) w *= 1.0 - smoothstep(0.7, 0.92, abs(normalize(mn).y));
   float amp = u_sway[2].z * (own ? clamp(h * 0.04, 3.0, 18.0) : 10.0);
   float ph = dot(mp.xz, vec2(0.0021, 0.0017));
   float gust = 0.55 + 0.3 * sin(t * 1.3 + ph) + 0.15 * sin(t * 2.9 + ph * 2.3);
@@ -1357,6 +1356,8 @@ uniform vec4 u_gtile;      // x: presses reach this tile; y: segments (1 or 2)
 uniform vec4 u_uclip;      // the port's clip plane (a puddle's surface while its reflection is drawn)
 uniform sampler2D u_gcolor; // the ground drawn so far: its colour (with mipmaps)...
 uniform sampler2D u_gdepth; // ...and its depth
+uniform sampler2D u_gflat;  // the flattened grass round Mario (r: how flat; g, b: which way)...
+uniform vec4 u_gflatArea;   // ...its corner (x, z, the world's), whether there is one, 1 / its span
 in vec4 a_blade;
 in vec4 a_blade2;
 out vec3 v_col;
@@ -1457,6 +1458,20 @@ void main() {
       down += amt * h * 0.55;
     }
   }
+  // the flattened grass (FLUDD's spray, Mario's steps: port_grass.cpp's map)
+  if (u_gflatArea.z > 0.5) {
+    vec2 fuv = (bp.xz - u_gflatArea.xy) * u_gflatArea.w;
+    if (all(greaterThan(fuv, vec2(0.0))) && all(lessThan(fuv, vec2(1.0)))) {
+      vec4 f = textureLod(u_gflat, fuv, 0.0);
+      if (f.r > 0.004) {
+        vec2 dir = f.gb * 2.0 - 1.0;
+        float dl = length(dir);
+        dir = dl > 0.05 ? dir / dl : vec2(cos(ph), sin(ph));
+        tip += dir * (f.r * h * 0.9);
+        down += f.r * h * 0.55;
+      }
+    }
+  }
   down = min(down, h * 0.8);
   // the vertex: which side, how high
   ivec2 vtx = u_gtile.y > 1.5 ? kV2[gl_VertexID % 9] : kV1[gl_VertexID % 3];
@@ -1547,6 +1562,9 @@ const ShaderProgram* grassProgram(GrassUniforms* u) {
             s_grassUniforms.press = glGetUniformLocation(p, "u_gp");
             s_grassUniforms.strength = glGetUniformLocation(p, "u_gs");
             s_grassUniforms.tile = glGetUniformLocation(p, "u_gtile");
+            s_grassUniforms.flatArea = glGetUniformLocation(p, "u_gflatArea");
+            GLint gf = glGetUniformLocation(p, "u_gflat");
+            if (gf >= 0) glUniform1i(gf, kGrassFlatUnit);
             GLint gc = glGetUniformLocation(p, "u_gcolor"), gd = glGetUniformLocation(p, "u_gdepth");
             if (gc >= 0) glUniform1i(gc, kGrassColorUnit);
             if (gd >= 0) glUniform1i(gd, kGrassDepthUnit);

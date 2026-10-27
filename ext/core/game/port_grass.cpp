@@ -27,6 +27,8 @@ extern "C" void GXPC_GrassBegin(const float view[3][4], const float* params, con
                                 const float* strength, int count);
 extern "C" void GXPC_GrassDraw(unsigned buf, int blades, int segments, int pressed);
 extern "C" void GXPC_GrassEnd(void);
+// The flattened grass (rgba: size by size cells, x0/z0 the first's corner, span across; null: none).
+extern "C" void GXPC_GrassFlatMap(const unsigned char* rgba, int size, float x0, float z0, float span);
 
 #include <Camera/Camera.hpp>
 #include <Map/Map.hpp>
@@ -341,74 +343,155 @@ const int kMostPress = 160;
 Press s_press[kMostPress];
 int s_pressCount;
 
-// FLUDD's spray: where its drops came down into the grass (a drop is gone as it lands on grass,
-// leaving no puddle), each spot pressing the blades flat for a while (Grass Flattening); a spot sprayed
-// again is pressed again (each drop near one already there renews it, so the spots stay few).
-const int kMostSpray = 160;
-// Grass Flattening (the setting): how wide each spot presses, and how long it lies flat (then
-// rises again): Low, Medium, High, Very High, Insane.
-const f32 kSprayRadius[] = {45.0f, 70.0f, 95.0f, 140.0f, 220.0f};
+// ------------------------------------------------------------------ the flattened grass
+// Where FLUDD's spray came down into the grass, and where Mario stepped on it, the blades lie flat
+// for a while (Grass Flattening: how wide and how long), then rise again: a map round Mario
+// (256 by 256 cells of 12 units, about 3000 units across, following him), each cell how flat and
+// which way, stamped as drops land and Mario walks, fading each tick, and given to the renderer
+// (GXPC_GrassFlatMap), whose blades read it. No limit on how much is flat.
+const f32 kSprayRadius[] = {45.0f, 70.0f, 95.0f, 140.0f, 220.0f};  // Low .. Insane
 const s32 kSprayLife[]   = {3000, 5000, 7000, 11000, 18000};
+const int kFlat          = 256;
+const f32 kFlatCell      = 12.0f;
+f32 s_flat[kFlat * kFlat];               // how flat: 1 just pressed, 0 standing
+f32 s_flatDir[kFlat * kFlat][2];         // which way it lies (x, z)
+u8 s_flatMap[kFlat * kFlat * 4];
+int s_flatX0, s_flatZ0;                  // the map's first cell, in cells across the world
+bool s_flatUsed, s_flatShown;
+s32 s_flatAt;
 f32 s_sprayRadius = 95.0f;
 s32 s_sprayMs     = 7000;
-TrailPoint s_spray[kMostSpray];
-int s_sprayCount;
 
+void flatClear()
+{
+	memset(s_flat, 0, sizeof s_flat);
+	s_flatUsed = false;
+}
+
+// The map's middle near Mario: moved by whole cells when he is a quarter of it away.
+void flatFollow(f32 mx, f32 mz)
+{
+	const int cx = (int)floorf(mx / kFlatCell) - kFlat / 2, cz = (int)floorf(mz / kFlatCell) - kFlat / 2;
+	const int dx = cx - s_flatX0, dz = cz - s_flatZ0;
+	if (abs(dx) < kFlat / 4 && abs(dz) < kFlat / 4)
+		return;
+	if (abs(dx) >= kFlat || abs(dz) >= kFlat || !s_flatUsed) {
+		flatClear();
+	} else {
+		static f32 s_tmp[kFlat * kFlat];
+		static f32 s_tmpDir[kFlat * kFlat][2];
+		memset(s_tmp, 0, sizeof s_tmp);
+		for (int z = 0; z < kFlat; z++)
+			for (int x = 0; x < kFlat; x++) {
+				const int ox = x + dx, oz = z + dz;
+				if (ox < 0 || oz < 0 || ox >= kFlat || oz >= kFlat)
+					continue;
+				s_tmp[z * kFlat + x]       = s_flat[oz * kFlat + ox];
+				s_tmpDir[z * kFlat + x][0] = s_flatDir[oz * kFlat + ox][0];
+				s_tmpDir[z * kFlat + x][1] = s_flatDir[oz * kFlat + ox][1];
+			}
+		memcpy(s_flat, s_tmp, sizeof s_flat);
+		memcpy(s_flatDir, s_tmpDir, sizeof s_flatDir);
+	}
+	s_flatX0 = cx, s_flatZ0 = cz;
+}
+
+// A circle pressed flat round (x, z), each blade away from its middle.
+void flatStamp(f32 x, f32 z, f32 r)
+{
+	const f32 fx = x / kFlatCell - (f32)s_flatX0, fz = z / kFlatCell - (f32)s_flatZ0;
+	const f32 rc = r / kFlatCell;
+	const int x0 = (int)floorf(fx - rc), x1 = (int)ceilf(fx + rc);
+	const int z0 = (int)floorf(fz - rc), z1 = (int)ceilf(fz + rc);
+	for (int cz = z0 < 0 ? 0 : z0; cz <= z1 && cz < kFlat; cz++)
+		for (int cx = x0 < 0 ? 0 : x0; cx <= x1 && cx < kFlat; cx++) {
+			const f32 ddx = (f32)cx + 0.5f - fx, ddz = (f32)cz + 0.5f - fz;
+			const f32 d = sqrtf(ddx * ddx + ddz * ddz);
+			if (d >= rc)
+				continue;
+			const f32 a = d < rc * 0.7f ? 1.0f : (rc - d) / (rc * 0.3f);
+			f32& f = s_flat[cz * kFlat + cx];
+			if (a <= f)
+				continue;
+			f = a;
+			s_flatDir[cz * kFlat + cx][0] = d > 0.01f ? ddx / d : 0.0f;
+			s_flatDir[cz * kFlat + cx][1] = d > 0.01f ? ddz / d : 0.0f;
+			s_flatUsed = true;
+		}
+}
+
+// Each tick: fading (flat for three quarters of its life, then rising over the last quarter),
+// and to the renderer while any of it is flat.
+void flatTick()
+{
+	const s32 now = nowMs();
+	const s32 dt  = s_flatAt ? now - s_flatAt : 0;
+	s_flatAt      = now;
+	if (!s_flatUsed) {
+		if (s_flatShown) {
+			GXPC_GrassFlatMap(0, 0, 0.0f, 0.0f, 0.0f);
+			s_flatShown = false;
+		}
+		return;
+	}
+	const f32 fade = dt > 0 ? (f32)dt / (f32)s_sprayMs : 0.0f;
+	bool any       = false;
+	for (int i = 0; i < kFlat * kFlat; i++) {
+		f32& f = s_flat[i];
+		if (f <= 0.0f) {
+			s_flatMap[i * 4] = 0;
+			continue;
+		}
+		f -= fade;
+		if (f < 0.0f)
+			f = 0.0f;
+		any            = any || f > 0.0f;
+		const f32 show = f * 4.0f > 1.0f ? 1.0f : f * 4.0f;
+		s_flatMap[i * 4]     = (u8)(show * 255.0f + 0.5f);
+		s_flatMap[i * 4 + 1] = (u8)((s_flatDir[i][0] * 0.5f + 0.5f) * 255.0f + 0.5f);
+		s_flatMap[i * 4 + 2] = (u8)((s_flatDir[i][1] * 0.5f + 0.5f) * 255.0f + 0.5f);
+		s_flatMap[i * 4 + 3] = 255;
+	}
+	s_flatUsed = any;
+	GXPC_GrassFlatMap(s_flatMap, kFlat, (f32)s_flatX0 * kFlatCell, (f32)s_flatZ0 * kFlatCell, kFlat * kFlatCell);
+	s_flatShown = true;
+}
+
+// FLUDD's spray: each drop coming down into the grass (from 250 units above it), a circle flat
 void noteSpray()
 {
 	TModelWaterManager* water = gpModelWaterManager;
 	const int count           = water ? water->getParticleCount() : 0;
-	const s32 now             = nowMs();
 	const int level           = port_grass_flatten();
 	s_sprayRadius             = kSprayRadius[level < 0 || level > 4 ? 2 : level];
 	s_sprayMs                 = kSprayLife[level < 0 || level > 4 ? 2 : level];
-	const f32 merge           = s_sprayRadius * 0.47f;  // a drop this near a spot renews it
 	for (int i = 0; i < count; i++) {
 		const JGeometry::TVec3<f32>& p = water->mParticlePositionSOA[i];
 		const int tx = (int)floorf(p.x / kTile), tz = (int)floorf(p.z / kTile);
 		const Tile& t = tileAt(tx, tz);
 		if (!t.used || t.tx != tx || t.tz != tz || !t.count || p.y < t.minY - 30.0f || p.y > t.maxY + 250.0f)
 			continue;  // not down in grass, nor coming down on it
-		// where it comes down: on the grass
-		const f32 y = p.y > t.maxY ? t.maxY : p.y < t.minY ? t.minY : p.y;
-		int slot = -1;
-		for (int k = 0; k < s_sprayCount && slot < 0; k++) {
-			const f32 dx = s_spray[k].x - p.x, dz = s_spray[k].z - p.z;
-			if (dx * dx + dz * dz < merge * merge && fabsf(s_spray[k].y - y) < 60.0f)
-				slot = k;  // near one already there: renewed
-		}
-		if (slot < 0) {
-			if (s_sprayCount < kMostSpray)
-				slot = s_sprayCount++;
-			else {  // the oldest goes
-				slot = 0;
-				for (int k = 1; k < kMostSpray; k++)
-					if (s_spray[k].at < s_spray[slot].at)
-						slot = k;
-			}
-		}
-		s_spray[slot].x = p.x, s_spray[slot].y = y, s_spray[slot].z = p.z, s_spray[slot].at = now;
+		flatStamp(p.x, p.z, s_sprayRadius * 0.55f);
 	}
 }
 
-// The renderer takes 64: Mario, then the spray's spots (newest first), his way, the puddles.
+// Mario's steps on the grass: a smaller circle flat where he walks (on the ground among blades)
+void noteSteps(f32 mx, f32 my, f32 mz)
+{
+	const int tx = (int)floorf(mx / kTile), tz = (int)floorf(mz / kTile);
+	const Tile& t = tileAt(tx, tz);
+	if (!t.used || t.tx != tx || t.tz != tz || !t.count || my < t.minY - 30.0f || my > t.maxY + 20.0f)
+		return;
+	flatStamp(mx, mz, s_sprayRadius * 0.4f);
+}
+
+// The renderer takes 64: Mario, his way, the puddles (the flattened grass is the map's).
 void gatherPress(f32 mx, f32 my, f32 mz)
 {
 	s_pressCount = 0;
 	const s32 now = nowMs();
 	Press& m = s_press[s_pressCount++];
 	m.x = mx, m.y = my, m.z = mz, m.r = 36.0f, m.strength = 1.0f;
-	// the spray's spots, newest first (by half-second bands)
-	for (int band = 0; band < s_sprayMs / 500 && s_pressCount < 56; band++)
-		for (int k = 0; k < s_sprayCount && s_pressCount < 56; k++) {
-			const s32 age = now - s_spray[k].at;
-			if (age < band * 500 || age >= (band + 1) * 500)
-				continue;
-			Press& q = s_press[s_pressCount++];
-			q.x = s_spray[k].x, q.y = s_spray[k].y, q.z = s_spray[k].z, q.r = s_sprayRadius;
-			const f32 left = 1.0f - (f32)age / s_sprayMs;
-			q.strength     = left < 0.25f ? left / 0.25f : 1.0f;  // flat, then rising again
-		}
 	for (int i = 0; i < s_trailCount && s_pressCount < kMostPress; i++) {
 		const TrailPoint& p = s_trail[i];
 		const s32 age       = now - p.at;
@@ -445,7 +528,7 @@ void afterMovement()
 		s_styleSetting = port_grass();
 		s_styleArea    = area;
 		s_trailCount = s_trailNext = 0;
-		s_sprayCount = 0;
+		flatClear();
 		if (want)
 			fprintf(stderr, "[grass] %s: %s grass\n",
 			        world >= 0 && world < 10 ? kWorldNames[world] : "this stage", want->name);
@@ -454,8 +537,11 @@ void afterMovement()
 	}
 	if (!s_style || !gpMarioPos)
 		return;
-	noteSpray();
 	const f32 mx = gpMarioPos->x, my = gpMarioPos->y, mz = gpMarioPos->z;
+	flatFollow(mx, mz);
+	noteSpray();
+	noteSteps(mx, my, mz);
+	flatTick();
 	// Mario's way, a point each time he has moved 14 units
 	const TrailPoint* lastPoint = s_trailCount ? &s_trail[(s_trailNext + kTrail - 1) % kTrail] : 0;
 	const f32 ldx = lastPoint ? mx - lastPoint->x : 1e9f, ldz = lastPoint ? mz - lastPoint->z : 0.0f;

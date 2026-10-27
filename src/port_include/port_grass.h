@@ -18,7 +18,7 @@ float port_grass_distance(void);
 int port_grass_thin(void);
 // Cut Grass Height and Wild Grass Height: times the kind's own (wild: 1; cut and tended: 0).
 float port_grass_height(int wild);
-// Grass Flattening: how wide and how long FLUDD's spray presses the blades flat: 0 low, 1 medium,
+// Grass Flattening: how wide and how long FLUDD's spray and Mario's steps press the blades flat: 0 low, 1 medium,
 // 2 high, 3 very high, 4 insane.
 int port_grass_flatten(void);
 // From port_draw_footprints (TModelWaterManager::perform, as the stage's ground is drawn): the

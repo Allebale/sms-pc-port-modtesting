@@ -2406,6 +2406,9 @@ static const ShaderProgram* s_grassSp;
 // grow only where it is green. Colour with its mipmaps (the smallest, the picture's average, for
 // a blade whose ground is hidden), and depth (to tell when it is).
 static GLuint s_grassCopyFbo, s_grassCopyColor, s_grassCopyDepth;
+static GLuint s_grassFlatTex;          // the flattened grass's map (GXPC_GrassFlatMap)
+static int s_grassFlatSize;
+static float s_grassFlatArea[4];
 static int s_grassCopyW, s_grassCopyH;
 static GLuint efbReadFbo(int x0, int y0, int x1, int y1, GLbitfield bits);
 
@@ -2508,6 +2511,12 @@ extern "C" void GXPC_GrassBegin(const float view[3][4], const float* params, con
     if (s_grassU.params >= 0) glUniform4fv(s_grassU.params, 6, g6);
     if (s_grassU.press >= 0) glUniform4fv(s_grassU.press, 64, pr);
     if (s_grassU.strength >= 0) glUniform4fv(s_grassU.strength, 16, st);
+    if (s_grassU.flatArea >= 0) glUniform4fv(s_grassU.flatArea, 1, s_grassFlatArea);
+    if (s_grassFlatTex) {
+        glActiveTexture(GL_TEXTURE0 + kGrassFlatUnit);
+        glBindTexture(GL_TEXTURE_2D, s_grassFlatTex);
+        g_glc.activeUnit = -1;
+    }
     if (!s_grassVao) {
         glGenVertexArrays(1, &s_grassVao);
         glcBindVertexArray(s_grassVao);
@@ -2533,6 +2542,35 @@ extern "C" void GXPC_GrassDraw(unsigned buf, int blades, int segments, int press
 }
 
 extern "C" void GXPC_GrassEnd(void) { s_grassSp = nullptr; }
+
+// The flattened grass (ext/core/game/port_grass.cpp): a map round Mario, how flat each cell is and
+// which way it lies, read by the blades (u_gflat, on kGrassFlatUnit). rgba null: none.
+extern "C" void GXPC_GrassFlatMap(const unsigned char* rgba, int size, float x0, float z0, float span) {
+    if (!rgba || size <= 0 || span <= 0.0f) {
+        s_grassFlatArea[2] = 0.0f;
+        return;
+    }
+    glActiveTexture(GL_TEXTURE0 + kGrassFlatUnit);
+    if (!s_grassFlatTex || size != s_grassFlatSize) {
+        if (!s_grassFlatTex) glGenTextures(1, &s_grassFlatTex);
+        glBindTexture(GL_TEXTURE_2D, s_grassFlatTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, size, size, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        s_grassFlatSize = size;
+        logmsg("grass: the flattened grass's map made (%dx%d)", size, size);
+    }
+    glBindTexture(GL_TEXTURE_2D, s_grassFlatTex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, size, size, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    g_glc.activeUnit = -1;
+    s_grassFlatArea[0] = x0;
+    s_grassFlatArea[1] = z0;
+    s_grassFlatArea[2] = 1.0f;
+    s_grassFlatArea[3] = 1.0f / span;
+}
 
 // ------------------------------------------------------------------ Fire Lights
 // Point lights (ext/core/game/port_lights.cpp: the fires burning near Mario): set in the world

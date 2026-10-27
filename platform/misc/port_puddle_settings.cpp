@@ -347,7 +347,7 @@ void save() {
     fprintf(f, "grassdistance = %d\n", s_grassDistance);
     fprintf(f, "# grassthin: 1 fewer, wider blades far from Mario (faster), 0 every blade all the way.\n");
     fprintf(f, "grassthin = %d\n", s_grassThin);
-    fprintf(f, "# grassflatten: how wide and long FLUDD's spray flattens the grass: 0 low, 1 medium, 2 high, 3 very high, 4 insane.\n");
+    fprintf(f, "# grassflatten: how wide and long FLUDD's spray and Mario's steps flatten the grass: 0 low, 1 medium, 2 high, 3 very high, 4 insane.\n");
     fprintf(f, "grassflatten = %d\n", s_grassFlatten);
     fprintf(f, "# firelights: 1 fires light up what is around them (and in reflections), 0 not.\n");
     fprintf(f, "firelights = %d\n", s_fireLights);
@@ -926,7 +926,7 @@ const PortSetting kPuddleSettings[] = {
      "How tall the wild grass grows (hills, villages, beaches).", 0, nullptr, grassHeightCount<1>,
      grassHeightName<1>, grassHeightGet<1>, grassHeightSet<1>},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 105, "Grass Flattening",
-     "How wide and how long FLUDD's spray presses the grass flat, from Low to Insane.", 0, nullptr,
+     "How wide and how long FLUDD's spray and Mario's steps press the grass flat.", 0, nullptr,
      grassFlattenCount, grassFlattenName, grassFlattenGet, grassFlattenSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 107, "Fire Lights",
      "Fires light up the ground and walls around them, in reflections too.", 0, nullptr, offOnCount,
