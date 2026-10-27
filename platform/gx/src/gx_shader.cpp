@@ -702,10 +702,24 @@ static std::string genFS(const ShaderKey& k) {
          "        a = 0.55 * rubbed;\n"                                  // his red shirt
          "    }\n"
 "    if (a > 0.0) {\n"
-         "      float n = gsNoise(v_mp * vec3(0.35, 0.06, 0.35)) * 0.65 + gsNoise(v_mp * 0.8) * 0.35;\n"
-         "      float cover = clamp(a * smoothstep(0.3, 0.7, n + a * 0.35), 0.0, 1.0);\n"
-         "      vec3 stained = cc * vec3(0.6, 0.8, 0.3) + vec3(0.015, 0.05, 0.0);\n"
-         "      color.rgb = mix(cc, stained, cover * 0.85);\n"
+         // scattered: streaks along his length, broken into blotches with clean cloth between
+         // them, and specks round them; dirty: the green mixed with ground-in earth (browner in
+         // places), darker where it is rubbed in deepest
+         "      float streak = gsNoise(v_mp * vec3(0.3, 0.045, 0.3));\n"
+         "      float patches = gsNoise(v_mp * 0.09 + vec3(7.1, 3.3, 1.9));\n"
+         "      float fine = gsNoise(v_mp * 0.9 + vec3(2.7, 9.1, 4.4));\n"
+         "      float speck = gsNoise(v_mp * 2.2 + vec3(5.5, 1.2, 8.8));\n"
+         "      float n = streak * 0.6 + fine * 0.4;\n"
+         "      float blot = smoothstep(0.45 - 0.15 * a, 0.62 - 0.15 * a, patches);\n"
+         "      float cover = a * smoothstep(0.45, 0.6, n) * blot;\n"
+         "      cover = max(cover, a * 0.9 * smoothstep(0.78, 0.84, speck) * smoothstep(0.35, 0.5, patches));\n"
+         "      cover = clamp(cover * (0.7 + 0.6 * fine), 0.0, 1.0);\n"
+         "      float dirt = smoothstep(0.3, 0.7, gsNoise(v_mp * 0.25 + vec3(3.9, 6.2, 0.7)));\n"
+         "      float lum = dot(cc, vec3(0.299, 0.587, 0.114));\n"
+         "      vec3 green = cc * vec3(0.55, 0.8, 0.28) + vec3(0.03, 0.07, 0.0);\n"
+         "      vec3 earth = lum * 0.5 * vec3(1.0, 0.8, 0.5) + vec3(0.07, 0.05, 0.025);\n"
+         "      vec3 stained = mix(green, earth, dirt * 0.6) * (1.0 - 0.25 * smoothstep(0.65, 0.9, n));\n"
+         "      color.rgb = mix(cc, stained, cover * 0.9);\n"
          "    }\n"
          "  }\n"
          // Shadows (u_shadow[9].x, 0 off; u_shadow[10].w, 1 for the main camera's view): where the
