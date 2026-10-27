@@ -2390,6 +2390,8 @@ static const ShaderProgram* s_grassSp;
 // grow only where it is green. Colour with its mipmaps (the smallest, the picture's average, for
 // a blade whose ground is hidden), and depth (to tell when it is).
 static GLuint s_grassCopyFbo, s_grassCopyColor, s_grassCopyDepth;
+static uint32_t s_grassCopyFrame = ~0u;  // the frame the ground's copy was last made (Ambient Occlusion)
+extern "C" uint32_t GXPC_FrameCount(void);
 static int s_grassCopyW, s_grassCopyH;
 static GLuint efbReadFbo(int x0, int y0, int x1, int y1, GLbitfield bits);
 
@@ -2432,6 +2434,7 @@ static void grassCopyGround() {
     glBindFramebuffer(GL_READ_FRAMEBUFFER, src);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_grassCopyFbo);
     glBlitFramebuffer(0, 0, W, H, 0, 0, W, H, GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    s_grassCopyFrame = GXPC_FrameCount();
     glActiveTexture(GL_TEXTURE0 + kGrassColorUnit);
     glBindTexture(GL_TEXTURE_2D, s_grassCopyColor);
     glGenerateMipmap(GL_TEXTURE_2D);
@@ -2536,15 +2539,28 @@ uniform sampler2D u_depth;
 uniform vec4 u_lin;  // view z = x / (depth * y + z)
 uniform vec4 u_f;    // x, y: the projection's scale (y signed: the EFB's rows run down); z, w: a texel
 uniform vec4 u_ao;   // fine strength, large strength, fade start, fade end (units from the camera)
+uniform sampler2D u_ground;  // 3D Grass: the depth before the blades (u_g.x 1 while it is this frame's)
+uniform vec4 u_g;
 in vec2 v_uv;
 out vec4 o_color;
 float viewZ(float d) { return u_lin.x / (d * u_lin.y + u_lin.z); }
+// The depth with the grass's blades left out: where something is in front of the ground as it was
+// before the blades by less than a blade's reach (along the view), the ground's (blades neither
+// shade nor are shaded on their own: noise; the grass takes the ground's shade)
+float sceneDepth(vec2 uv) {
+  float d = textureLod(u_depth, uv, 0.0).r;
+  if (u_g.x > 0.5) {
+    float g = textureLod(u_ground, uv, 0.0).r;
+    if (g > d && viewZ(d) - viewZ(g) < u_g.y) d = g;
+  }
+  return d;
+}
 vec3 posAt(vec2 uv, float d) {
   float z = viewZ(d);
   vec2 n = uv * 2.0 - 1.0;
   return vec3(n.x * -z / u_f.x, n.y * -z / u_f.y, z);
 }
-vec3 posUV(vec2 uv) { return posAt(uv, textureLod(u_depth, uv, 0.0).r); }
+vec3 posUV(vec2 uv) { return posAt(uv, sceneDepth(uv)); }
 vec2 toUV(vec3 p) { return vec2(p.x * u_f.x, p.y * u_f.y) / -p.z * 0.5 + 0.5; }
 const vec3 K[8] = vec3[8](
   vec3( 0.36,  0.00, 0.21), vec3(-0.17,  0.38, 0.27), vec3(-0.30, -0.36, 0.33),
@@ -2557,15 +2573,16 @@ float occlusion(vec3 P, vec3 N, vec3 T, vec3 B, float R) {
     if (s.z > -1.0) continue;
     vec2 uv = toUV(s);
     if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) continue;
-    float d = textureLod(u_depth, uv, 0.0).r;
+    float d = sceneDepth(uv);
     if (d >= 0.999999) continue;
     float sz = viewZ(d);
-    if (sz >= s.z + R * 0.04) sum += smoothstep(0.0, 1.0, R / abs(P.z - sz));
+    // a margin growing with distance (the depth's steps grow), so that no surface shades itself
+    if (sz >= s.z + R * 0.04 - P.z * 0.004) sum += smoothstep(0.0, 1.0, R / abs(P.z - sz));
   }
   return sum / 8.0;
 }
 void main() {
-  float d = textureLod(u_depth, v_uv, 0.0).r;
+  float d = sceneDepth(v_uv);
   if (d >= 0.999999) { o_color = vec4(1.0); return; }
   vec3 P = posAt(v_uv, d);
   float dist = -P.z;
@@ -2598,21 +2615,39 @@ void main() {
 static const char* kAoApplyFs = R"(#version 330 core
 uniform sampler2D u_depth;
 uniform sampler2D u_occ;
+uniform sampler2D u_ground;
 uniform vec4 u_lin;
-uniform vec4 u_half;  // x, y: a half-size texel
+uniform vec4 u_half;  // x, y: a half-size texel; z, w: a full-size one
+uniform vec4 u_g;
 in vec2 v_uv;
 out vec4 o_color;
 float viewZ(float d) { return u_lin.x / (d * u_lin.y + u_lin.z); }
+float sceneZ(vec2 uv) {
+  float d = textureLod(u_depth, uv, 0.0).r;
+  if (u_g.x > 0.5) {
+    float g = textureLod(u_ground, uv, 0.0).r;
+    if (g > d && viewZ(d) - viewZ(g) < u_g.y) d = g;
+  }
+  return d >= 0.999999 ? 1e9 : viewZ(d);
+}
 void main() {
-  float d0 = textureLod(u_depth, v_uv, 0.0).r;
-  if (d0 >= 0.999999) { o_color = vec4(1.0); return; }
-  float z0 = viewZ(d0);
+  float z0 = sceneZ(v_uv);
+  if (z0 > 1e8) { o_color = vec4(1.0); return; }
+  // the surface's slope across the screen (the side nearer in depth, so as not to cross an edge):
+  // the samples are weighed by how far each is from that plane, not from the centre's depth, so
+  // that surfaces seen at a slant (walls along the view) are averaged as smoothly as any other
+  float zr = sceneZ(v_uv + vec2(u_half.z, 0.0)) - z0, zl = z0 - sceneZ(v_uv - vec2(u_half.z, 0.0));
+  float zu = sceneZ(v_uv + vec2(0.0, u_half.w)) - z0, zd = z0 - sceneZ(v_uv - vec2(0.0, u_half.w));
+  float gx = abs(zr) < abs(zl) ? zr : zl, gy = abs(zu) < abs(zd) ? zu : zd;
   float sum = 0.0, wsum = 0.0;
   for (int y = -2; y < 2; y++)
     for (int x = -2; x < 2; x++) {
-      vec2 uv = v_uv + (vec2(x, y) + 0.5) * u_half.xy;
-      float z = viewZ(textureLod(u_depth, uv, 0.0).r);
-      float w = 1.0 / (1.0 + abs(z - z0) / (abs(z0) * 0.03 + 2.0));
+      vec2 o = vec2(x, y) + 0.5;
+      vec2 uv = v_uv + o * u_half.xy;
+      vec2 px = o * u_half.xy / u_half.zw;  // in full-size pixels
+      float z = sceneZ(uv);
+      float off = abs(z - (z0 + gx * px.x + gy * px.y));
+      float w = 1.0 / (1.0 + off / (abs(z0) * 0.01 + 2.0));
       w *= w;
       sum += textureLod(u_occ, uv, 0.0).r * w;
       wsum += w;
@@ -2622,7 +2657,8 @@ void main() {
 }
 )";
 static GLuint s_aoTraceProg, s_aoApplyProg, s_aoVao;
-static GLint s_aoTLin, s_aoTF, s_aoTAo, s_aoALin, s_aoAHalf;
+static GLint s_aoTLin, s_aoTF, s_aoTAo, s_aoTG, s_aoALin, s_aoAHalf, s_aoAG;
+
 static GLuint s_aoDepthTex, s_aoDepthFbo, s_aoTex, s_aoFbo;
 static int s_aoW, s_aoH;
 static const int kAoDepthUnit = 13, kAoOccUnit = 14;
@@ -2656,12 +2692,16 @@ void aoApply() {
         s_aoTLin = glGetUniformLocation(s_aoTraceProg, "u_lin");
         s_aoTF   = glGetUniformLocation(s_aoTraceProg, "u_f");
         s_aoTAo  = glGetUniformLocation(s_aoTraceProg, "u_ao");
+        s_aoTG   = glGetUniformLocation(s_aoTraceProg, "u_g");
+        glUniform1i(glGetUniformLocation(s_aoTraceProg, "u_ground"), kGrassDepthUnit);
         glUseProgram(s_aoApplyProg);
         glUniform1i(glGetUniformLocation(s_aoApplyProg, "u_flip"), 0);
         glUniform1i(glGetUniformLocation(s_aoApplyProg, "u_depth"), kAoDepthUnit);
         glUniform1i(glGetUniformLocation(s_aoApplyProg, "u_occ"), kAoOccUnit);
         s_aoALin  = glGetUniformLocation(s_aoApplyProg, "u_lin");
         s_aoAHalf = glGetUniformLocation(s_aoApplyProg, "u_half");
+        s_aoAG    = glGetUniformLocation(s_aoApplyProg, "u_g");
+        glUniform1i(glGetUniformLocation(s_aoApplyProg, "u_ground"), kGrassDepthUnit);
         glGenVertexArrays(1, &s_aoVao);
         g_glc.prog = ~0u;
     }
@@ -2725,6 +2765,12 @@ void aoApply() {
     glActiveTexture(GL_TEXTURE0 + kAoOccUnit);
     glBindTexture(GL_TEXTURE_2D, s_aoTex);
     glBindSampler(kAoOccUnit, 0);
+    // 3D Grass's ground (the depth before the blades), when made this frame at this size
+    const bool grass = s_grassCopyFrame == GXPC_FrameCount() && s_grassCopyW == W && s_grassCopyH == H;
+    glActiveTexture(GL_TEXTURE0 + kGrassDepthUnit);
+    glBindTexture(GL_TEXTURE_2D, s_grassCopyDepth);
+    glBindSampler(kGrassDepthUnit, 0);
+    const float gu[4] = {grass ? 1.0f : 0.0f, 400.0f, 0.0f, 0.0f};
     glBindVertexArray(s_aoVao);
     // view z from the depth: d * 16777215 = vz1 - vz0 * A - vz0 * B / z (gx_shader.cpp's mapping)
     const float lin[4] = {-vz0 * B, 16777215.0f, vz0 * A - vz1, 0.0f};
@@ -2743,6 +2789,7 @@ void aoApply() {
     glUniform4fv(s_aoTLin, 1, lin);
     glUniform4fv(s_aoTF, 1, f);
     glUniform4fv(s_aoTAo, 1, ao);
+    glUniform4fv(s_aoTG, 1, gu);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
     // 3. averaged and multiplied onto the scene (its alpha kept)
@@ -2753,8 +2800,9 @@ void aoApply() {
     glBlendFuncSeparate(GL_ZERO, GL_SRC_COLOR, GL_ZERO, GL_ONE);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
     glUseProgram(s_aoApplyProg);
-    const float half[4] = {1.0f / hw, 1.0f / hh, 0.0f, 0.0f};
+    const float half[4] = {1.0f / hw, 1.0f / hh, 1.0f / float(W), 1.0f / float(H)};
     glUniform4fv(s_aoALin, 1, lin);
+    glUniform4fv(s_aoAG, 1, gu);
     glUniform4fv(s_aoAHalf, 1, half);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     s_drawGen++;
