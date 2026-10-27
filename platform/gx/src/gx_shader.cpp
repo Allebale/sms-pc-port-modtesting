@@ -139,8 +139,9 @@ vec3 lightDir(int l) { return R3(608 + l * 16 + 13); }
 // A plant's point moved (vp: in the view; mp, mn: its position and normal in its model). How much:
 // by how far up the plant it is (the model's own height, when the plant is a model of its own),
 // squared, so that it stays rooted; a stage's plants (part of the level's own mesh, no height of
-// their own) all alike, but not where the surface lies flat facing up (the ground the plants'
-// material also covers). The wind leans it its way in gusts that roll across the
+// their own) all alike, but, on a large one whose size is known, not where the surface lies flat
+// facing up (the ground its material also covers); a plant part of unknown size (Sirena's sunflower
+// beds, their heads facing up) moves whole. The wind leans it its way in gusts that roll across the
 // stage, its leaves flutter, and Mario and FLUDD's water push it aside (and a little down).
 vec3 sway(vec3 vp, vec3 mp, vec3 mn) {
   vec3 up = u_sway[0].xyz, wind = u_sway[1].xyz;
@@ -149,7 +150,7 @@ vec3 sway(vec3 vp, vec3 mp, vec3 mn) {
   bool own = h > 1.0 && h < 1500.0;
   float w = own ? clamp((mp.y - u_sway[2].x) / h, 0.0, 1.0) : 1.0;
   w *= w;
-  if (!own && dot(mn, mn) > 0.01) w *= 1.0 - smoothstep(0.7, 0.92, abs(normalize(mn).y));
+  if (!own && h > 1.0 && dot(mn, mn) > 0.01) w *= 1.0 - smoothstep(0.7, 0.92, abs(normalize(mn).y));
   float amp = u_sway[2].z * (own ? clamp(h * 0.04, 3.0, 18.0) : 10.0);
   float ph = dot(mp.xz, vec2(0.0021, 0.0017));
   float gust = 0.55 + 0.3 * sin(t * 1.3 + ph) + 0.15 * sin(t * 2.9 + ph * 2.3);
