@@ -1471,19 +1471,42 @@ vec4 place(vec3 p) {
   s_gx = vec2(clip.z + clip.w, -clip.z);
   return o;
 }
+// What the camera drew, in the copy (its viewport, a pixel and a half in): lower left, upper right.
+vec4 drawnRect() {
+  vec2 mid = (u_vp[1].xy - 342.0) / u_efb.xy, hs = abs(u_vp[0].xy) / u_efb.xy;
+  vec2 in1 = 1.5 / u_efb.xy;
+  vec2 lo = max(mid - hs + in1, vec2(0.0)), hi = min(mid + hs - in1, vec2(1.0));
+  return vec4(lo, hi);
+}
 // The ground's colour at a point on it, if it shows there (nothing drawn in front of it): w 1.
 vec4 groundAt(vec3 p, vec3 eye) {
   vec4 c = place(p + vec3(0.0, 1.5, 0.0));
   if (c.w <= 0.0) return vec4(0.0);
   vec3 n = c.xyz / c.w;
   vec2 uv = n.xy * 0.5 + 0.5;
-  if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec4(0.0);
+  // within what the camera drew (its viewport): the copy's rows and columns past it are not the
+  // picture (a blade standing just below the bottom edge, its tip showing, would take their colour)
+  vec4 r = drawnRect();
+  if (any(lessThan(uv, r.xy)) || any(greaterThan(uv, r.zw))) return vec4(0.0);
   // in front of the ground by more than 20 units: something else is there
   vec3 toEye = eye - p;
   vec4 f = place(p + toEye * (20.0 / max(length(toEye), 1.0)));
   float front = f.z / f.w * 0.5 + 0.5;
   if (textureLod(u_gdepth, uv, 0.0).r < front) return vec4(0.0);
   return vec4(textureLod(u_gcolor, uv, 0.0).rgb, 1.0);
+}
+// A point just past the edge of the picture (a blade near the camera, below the bottom edge): the
+// colour at the edge nearest it, if that is grass's green (else none): w 0.5.
+vec4 groundNear(vec3 p) {
+  vec4 c = place(p + vec3(0.0, 1.5, 0.0));
+  if (c.w <= 0.0) return vec4(0.0);
+  vec2 uv = c.xy / c.w * 0.5 + 0.5;
+  vec4 r = drawnRect();
+  vec2 e = clamp(uv, r.xy, r.zw);
+  if (length(uv - e) > 0.25) return vec4(0.0);
+  vec3 col = textureLod(u_gcolor, e, 0.0).rgb;
+  if (col.g / max(max(col.r, col.b), 0.02) < 1.1) return vec4(0.0);
+  return vec4(col, 0.5);
 }
 void main() {
   vec3 bp = a_blade.xyz;
@@ -1502,11 +1525,12 @@ void main() {
   if (ground.w == 0.0) ground = groundAt(bp + vec3(28.0, 0.0, 0.0), eye);
   if (ground.w == 0.0) ground = groundAt(bp + vec3(-20.0, 0.0, 20.0), eye);
   if (ground.w == 0.0) ground = groundAt(bp + vec3(-20.0, 0.0, -20.0), eye);
-  if (ground.w > 0.0) {
+  if (ground.w == 0.0) ground = groundNear(bp);  // past the picture's edge: the edge's green
+  if (ground.w > 0.75) {
     // grows only where the ground is green (bare earth and paths stay bare)
     float green = ground.g / max(max(ground.r, ground.b), 0.02);
     h *= smoothstep(0.9, 1.1, green);
-  } else {
+  } else if (ground.w == 0.0) {
     // hidden all round: the kind's own colour, as bright as the picture is
     vec3 avg = textureLod(u_gcolor, vec2(0.5), 20.0).rgb;
     float lum = dot(avg, vec3(0.3, 0.59, 0.11));
