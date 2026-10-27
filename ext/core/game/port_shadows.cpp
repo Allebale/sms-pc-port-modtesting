@@ -117,6 +117,23 @@ void port_shadows_main_view(void* camera, float (*view)[4])
 	if (camera != (void*)gpCamera || !view)
 		return;
 	port_lights_view(view);  // Fire Lights, seen from the main camera
+	// Bounce Light: Mario's middle (80 units up) and the world's up, in this view
+	{
+		static const f32 kBounce[] = {0.0f, 0.25f, 0.45f, 0.7f, 1.0f};
+		const int level            = port_bounce_light();
+		const f32 b                = kBounce[level < 0 || level > 4 ? 0 : level];
+		if (b > 0.0f && gpMarioPos) {
+			const f32 p[3] = {gpMarioPos->x, gpMarioPos->y + 80.0f, gpMarioPos->z};
+			f32 m[3], up[3];
+			for (int k = 0; k < 3; k++) {
+				m[k]  = view[k][0] * p[0] + view[k][1] * p[1] + view[k][2] * p[2] + view[k][3];
+				up[k] = view[k][1];
+			}
+			GXPC_BounceFrame(m, up, b);
+		} else {
+			GXPC_BounceFrame(0, 0, 0.0f);
+		}
+	}
 	// God Rays: the stage's sun (where its model is, while it shows), in this view
 	{
 		static const f32 kRays[] = {0.0f, 0.15f, 0.3f, 0.45f, 0.6f};
