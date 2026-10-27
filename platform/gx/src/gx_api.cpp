@@ -609,13 +609,6 @@ void GXSetProjectionv(f32* ptr) {
         g.sunArmed = false;
         sunApply();
     }
-    // Bounce Light: the colours round Mario, taken from the same scene (before God Rays' are added
-    // would be better, but this follows them: both as it ends)
-    if (g.bounceArmed && ptr[0] != 0.0f && memcmp(g.projection, g.bounceProj, sizeof g.bounceProj) == 0) {
-        flushBatch();
-        g.bounceArmed = false;
-        bounceApply();
-    }
     g.userClipOn = false;  // the port's clip plane is for the camera it was set for
     traceNoteProjection(ptr);
     memcpy(g.projection, ptr, sizeof(g.projection));
@@ -634,12 +627,6 @@ void GXSetProjectionv(f32* ptr) {
     if (swaying != g.swayActive) {
         flushBatch();
         g.swayActive = swaying;
-    }
-    // Bounce Light: characters tinted while the main camera's view is drawn
-    const bool inView = g.bounceOn && memcmp(ptr, g.bounceProj, sizeof g.bounceProj) == 0;
-    if (inView != g.bounceInView) {
-        flushBatch();
-        g.bounceInView = inView;
     }
     // Fire Lights: lit while the view they were set for is drawn
     const bool lit = g.plightArmed && memcmp(ptr, g.plightProj, sizeof g.plightProj) == 0;

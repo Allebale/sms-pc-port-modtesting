@@ -118,12 +118,6 @@ struct State {
     // God Rays (gx_render.cpp sunApply): armed for the main camera's projection each frame
     float sunProj[7];
     bool sunArmed;
-    // Bounce Light (gx_render.cpp GXPC_BounceFrame, bounceApply): Mario's middle (view), strength,
-    // up (view), reach; on while the main camera's projection is in use; its colours taken as the
-    // main camera's 3D scene ends
-    float bounce[8];
-    float bounceProj[7];
-    bool bounceOn, bounceInView, bounceArmed;
     // Moving Vegetation (GXPC_SwayFrame, GXPC_SwayRegister; gx_render.cpp): the wind and what
     // pushes plants aside, in the world (set each tick) and in the view they were last taken
     // into (u_sway: up, wind and time, the plant's shape, six pushers, their count); a plant's
@@ -406,13 +400,12 @@ struct UniformCache {
     float shadow[48];
     float plight[68];
     float sway[44];
-    float bounce[8];
 };
 struct ShaderProgram {
     unsigned prog;
     int id;  // creation order; SMS_GX_DUMP_SHADERS=dir writes dir/prog<id>.vs/.fs
     int uTevReg, uKonst, uTexScale, uAlphaRef, uFog, uFogColor, uIndMtx, uTexSize, uEfb,
-        uProj, uViewport, uAmbMat, uDstAlpha, uLineWidth, uUserClip, uWet, uShadow, uPlight, uSway, uBounce;
+        uProj, uViewport, uAmbMat, uDstAlpha, uLineWidth, uUserClip, uWet, uShadow, uPlight, uSway;
     mutable UniformCache uc;
 };
 bool shaderHasEarlyFragmentTests();
@@ -430,9 +423,6 @@ const int kGrassColorUnit = 11, kGrassDepthUnit = 12, kGrassFlatUnit = 13;
 const ShaderProgram* shaderForCurrentState(int depthOnly = 0, bool lines = false);
 // God Rays: onto the main camera's scene, as it ends (gx_render.cpp, from GXSetProjectionv).
 void sunApply();
-// Bounce Light: the colours round Mario, as the main camera's scene ends (gx_render.cpp).
-void bounceApply();
-const int kBounceUnit = 9;  // its colours, read by every game draw's vertex shader
 // Moving Vegetation: whether a display list is a plant's (registered as its model loaded), and its
 // model-space height (gx_render.cpp, from callDisplayList).
 bool swayLookup(const void* list, uint32_t size, float* minY, float* maxY);

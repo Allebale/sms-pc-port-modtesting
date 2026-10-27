@@ -78,7 +78,6 @@ int s_grassMario = 0;     // Mario Grass Flattening: 0 dives and landings, 1 alw
 int s_fireLights = 0;     // Fire Lights
 int s_fireReach = 2;      // Fire Light Intensity: into kFireReaches
 int s_vegetation = 0;     // Moving Vegetation: 0 off, 1 gentle, 2 breezy, 3 windy
-int s_bounce = 0;         // Bounce Light: 0 off, 1 subtle, 2 normal, 3 strong, 4 very strong
 int s_godRays = 0;        // God Rays: 0 off, then 1 faintest .. 4 light (kSunNames)
 int s_grassCutHeight = 2, s_grassWildHeight = 2;  // into kGrassHeights
 int s_shadows = 0;        // Real Shadows: 0 off (the game's own), 1 soft, 2 strong
@@ -255,8 +254,6 @@ void load() {
             s_grassCutHeight = value < 1 ? 1 : value > 5 ? 5 : value;  // no 50 percent for cut grass
         } else if (sscanf(line, " grasswildheight = %d", &value) == 1) {
             s_grassWildHeight = value < 0 ? 0 : value > 5 ? 5 : value;
-        } else if (sscanf(line, " bouncelight = %d", &value) == 1) {
-            s_bounce = value < 0 ? 0 : value > 4 ? 4 : value;
         } else if (sscanf(line, " godraylevel = %d", &value) == 1) {
             s_godRays = value < 0 ? 0 : value > 4 ? 4 : value;
         } else if (sscanf(line, " vegetation = %d", &value) == 1) {
@@ -368,8 +365,6 @@ void save() {
     fprintf(f, "vegetation = %d\n", s_vegetation);
     fprintf(f, "# godraylevel: the sun's beams through leaves, round buildings and between clouds: 0 off, 1 very faint, 2 faint, 3 subtle, 4 light.\n");
     fprintf(f, "godraylevel = %d\n", s_godRays);
-    fprintf(f, "# bouncelight: Mario and characters near him tinted by the colours round them: 0 off, 1 subtle, 2 normal, 3 strong, 4 very strong.\n");
-    fprintf(f, "bouncelight = %d\n", s_bounce);
     fprintf(f, "# grasscutheight, grasswildheight: 0 50%% (wild only), 1 75%%, 2 100%%, 3 150%%, 4 200%%, 5 300%%.\n");
     fprintf(f, "grasscutheight = %d\n", s_grassCutHeight);
     fprintf(f, "grasswildheight = %d\n", s_grassWildHeight);
@@ -508,22 +503,6 @@ int sunSet(int i) {
     s_godRays = i;
     save();
     port_log("[sun] God Rays changed: %s\n", kSunNames[i]);
-    return 1;
-}
-
-const char* const kBounceNames[] = {"Off", "Subtle", "Normal", "Strong", "Very Strong"};
-int bounceCount() { return 5; }
-const char* bounceName(int i) { return kBounceNames[i < 0 || i > 4 ? 0 : i]; }
-int bounceGet() {
-    load();
-    return s_bounce;
-}
-int bounceSet(int i) {
-    if (i < 0 || i > 4) return 0;
-    load();
-    s_bounce = i;
-    save();
-    port_log("[bounce] Bounce Light changed: %s\n", kBounceNames[i]);
     return 1;
 }
 
@@ -1003,9 +982,6 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 110, "God Rays",
      "Beams of sunlight through palm leaves, round buildings and between clouds.", 0, nullptr, sunCount,
      sunName, sunGet, sunSet},
-    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 111, "Bounce Light",
-     "Mario and characters near him take the colours round them, warm by a sunlit wall, blue by the sea.",
-     0, nullptr, bounceCount, bounceName, bounceGet, bounceSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 107, "Moving Vegetation",
      "Palms, bushes and flowers sway in the wind and bend away from Mario and FLUDD's water.", 0,
      nullptr, vegetationCount, vegetationName, vegetationGet, vegetationSet},
@@ -1124,11 +1100,6 @@ float port_grass_height(int wild) {
     load();
     const int i = wild ? s_grassWildHeight : s_grassCutHeight;
     return kGrassHeights[i < 0 || i > 5 ? 2 : i];
-}
-// Bounce Light (the renderer's, from port_shadows_main_view): 0 off .. 4 very strong.
-int port_bounce_light(void) {
-    load();
-    return s_bounce;
 }
 // God Rays (the renderer's, from port_shadows_main_view): 0 off, 1 very faint .. 4 light.
 int port_god_rays(void) {

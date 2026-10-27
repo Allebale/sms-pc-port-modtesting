@@ -30,11 +30,6 @@ void port_lights_view(float (*view)[4]);
 // renderer's: the sun in the main camera's view this frame (null: none), their strength, its colour.
 int port_god_rays(void);
 void GXPC_SunFrame(const float* sunView, float rays, const float* color);
-// Bounce Light (platform/misc/port_puddle_settings.cpp): 0 off, 1 subtle, 2 normal, 3 strong,
-// 4 very strong; and the renderer's: Mario's middle and the world's up in the main camera's view
-// (null: none), its strength.
-int port_bounce_light(void);
-void GXPC_BounceFrame(const float* marioView, const float* upView, float strength);
 
 // The renderer's (platform/gx/src/gx_render.cpp, gx_api.cpp).
 // half: the near map's reach either side of focus; reach: the far one's.

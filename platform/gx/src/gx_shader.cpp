@@ -116,10 +116,6 @@ uniform vec4 u_shadow[12];
 // and highest y (model space), amount, flutter; [3..8] pushers (view, radius); [10] their count,
 // push strength
 uniform vec4 u_sway[11];
-// Bounce Light (gx_render.cpp): [0] Mario's middle (view), strength (0 off); [1] up (view), reach;
-// the colours round him (u_bounceTex: 0, 0 beside and above him; 1, 0 below him)
-uniform vec4 u_bounce[2];
-uniform sampler2D u_bounceTex;
 in vec3 a_pos; in vec3 a_nrm; in vec3 a_bin; in vec3 a_tan;
 in vec4 a_clr0; in vec4 a_clr1;
 in vec2 a_tex0; in vec2 a_tex1; in vec2 a_tex2; in vec2 a_tex3;
@@ -140,23 +136,6 @@ vec3 lightA(int l) { return R3(608 + l * 16 + 4); }
 vec3 lightK(int l) { return R3(608 + l * 16 + 7); }
 vec3 lightPos(int l) { return R3(608 + l * 16 + 10); }
 vec3 lightDir(int l) { return R3(608 + l * 16 + 13); }
-// Bounce Light: what the game's lights light near Mario (lsum, at vp facing N, in the view),
-// tinted by the colours round him: by what is beside and above him where it faces sideways or up,
-// by the ground where it faces down; toward their hue (a sunlit wall's orange, the sea's blue),
-// with a little of their light added. Fading out with distance from him.
-vec3 bounceLight(vec3 lsum, vec3 N, vec3 vp) {
-  float near = 1.0 - smoothstep(u_bounce[1].w * 0.5, u_bounce[1].w, length(vp - u_bounce[0].xyz));
-  float s = u_bounce[0].w * near;
-  if (s <= 0.0) return lsum;
-  vec3 ring = texelFetch(u_bounceTex, ivec2(0, 0), 0).rgb;
-  vec3 ground = texelFetch(u_bounceTex, ivec2(1, 0), 0).rgb;
-  float down = clamp(-dot(N, u_bounce[1].xyz), 0.0, 1.0);
-  vec3 c = mix(ring, ground, 0.25 + 0.6 * down);
-  float l = max(dot(c, vec3(0.299, 0.587, 0.114)), 0.05);
-  // its hue, made twice as strong (Sunshine's towns are pale: a white wall's warmth is faint)
-  vec3 hue = clamp(vec3(1.0) + (c / l - vec3(1.0)) * 2.0, vec3(0.35), vec3(1.9));
-  return lsum * mix(vec3(1.0), hue, s) + c * (0.3 * s);
-}
 // A plant's point moved (vp: in the view; mp, mn: its position and normal in its model). How much:
 // by how far up the plant it is (the model's own height, when the plant is a model of its own),
 // squared, so that it stays rooted; a stage's plants (part of the level's own mesh, no height of
@@ -292,8 +271,6 @@ static std::string genVS(const ShaderKey& k) {
                             s += buf;
                         }
                     }
-                if (c == 0 && part == 0)  // Bounce Light: tinted by what is round Mario
-                    s += "    if (u_bounce[0].w > 0.0) lsum.rgb = bounceLight(lsum.rgb, N, vpos);\n";
                 snprintf(buf, sizeof buf, "    col%d%s = (mat * clamp(lsum, 0.0, 1.0))%s; }\n", c, comp, comp);
             } else {
                 snprintf(buf, sizeof buf, "col%d%s = mat%s; }\n", c, comp, comp);
@@ -779,9 +756,6 @@ static void setupProgram(GLuint p, ShaderProgram& sp, bool aside = false) {
     sp.uShadow = glGetUniformLocation(p, "u_shadow");
     sp.uPlight = glGetUniformLocation(p, "u_plight");
     sp.uSway = glGetUniformLocation(p, "u_sway");
-    sp.uBounce = glGetUniformLocation(p, "u_bounce");
-    GLint bounceTex = glGetUniformLocation(p, "u_bounceTex");
-    if (bounceTex >= 0) glUniform1i(bounceTex, kBounceUnit);
     GLint shadowMap = glGetUniformLocation(p, "u_shadowMap");
     if (shadowMap >= 0) glUniform1i(shadowMap, kShadowUnit);
     GLint loc = glGetUniformLocation(p, "u_tex");
