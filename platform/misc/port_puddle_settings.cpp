@@ -75,6 +75,9 @@ int s_grassDistance = 2;  // Grass Distance: into kGrassDistances
 int s_grassThin = 0;      // Thinned Far Away
 int s_fireLights = 0;     // Fire Lights
 int s_fireReach = 2;      // Fire Light Intensity: into kFireReaches
+int s_ao = 0;             // Ambient Occlusion: 0 off, 1 fine detail, 2 large shapes, 3 both
+int s_aoStrength = 1;     // Ambient Occlusion Strength: into kAoStrengths
+int s_aoDistance = 1;     // Ambient Occlusion Distance: into kAoDistances
 int s_grassCutHeight = 2, s_grassWildHeight = 2;  // into kGrassHeights
 int s_shadows = 0;        // Real Shadows: 0 off (the game's own), 1 soft, 2 strong
 int s_shadowsRound = 0;   // Round Shadows Under Characters, with Real Shadows: 1 kept (lighter)
@@ -250,6 +253,12 @@ void load() {
             s_grassCutHeight = value < 1 ? 1 : value > 5 ? 5 : value;  // no 50 percent for cut grass
         } else if (sscanf(line, " grasswildheight = %d", &value) == 1) {
             s_grassWildHeight = value < 0 ? 0 : value > 5 ? 5 : value;
+        } else if (sscanf(line, " ambientocclusion = %d", &value) == 1) {
+            s_ao = value < 0 ? 0 : value > 3 ? 3 : value;
+        } else if (sscanf(line, " ambientocclusionstrength = %d", &value) == 1) {
+            s_aoStrength = value < 0 ? 0 : value > 3 ? 3 : value;
+        } else if (sscanf(line, " ambientocclusiondistance = %d", &value) == 1) {
+            s_aoDistance = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " firelightreach = %d", &value) == 1) {
             s_fireReach = value < 0 ? 0 : value > 4 ? 4 : value;
         } else if (sscanf(line, " firelights = %d", &value) == 1) {
@@ -345,6 +354,12 @@ void save() {
     fprintf(f, "firelights = %d\n", s_fireLights);
     fprintf(f, "# firelightreach: how far a fire's light goes: 0 very short, 1 short, 2 normal, 3 far, 4 very far.\n");
     fprintf(f, "firelightreach = %d\n", s_fireReach);
+    fprintf(f, "# ambientocclusion: shade where surfaces close in: 0 off, 1 fine detail, 2 large shapes, 3 both.\n");
+    fprintf(f, "ambientocclusion = %d\n", s_ao);
+    fprintf(f, "# ambientocclusionstrength: 0 low, 1 medium, 2 high, 3 very high.\n");
+    fprintf(f, "ambientocclusionstrength = %d\n", s_aoStrength);
+    fprintf(f, "# ambientocclusiondistance: how far from the camera: 0 short, 1 medium, 2 long, 3 very long.\n");
+    fprintf(f, "ambientocclusiondistance = %d\n", s_aoDistance);
     fprintf(f, "# grasscutheight, grasswildheight: 0 50%% (wild only), 1 75%%, 2 100%%, 3 150%%, 4 200%%, 5 300%%.\n");
     fprintf(f, "grasscutheight = %d\n", s_grassCutHeight);
     fprintf(f, "grasswildheight = %d\n", s_grassWildHeight);
@@ -451,6 +466,54 @@ int fireReachSet(int i) {
     s_fireReach = i;
     save();
     port_log("[lights] Fire Light Intensity changed: %s\n", kFireReachNames[i]);
+    return 1;
+}
+
+const char* const kAoNames[] = {"Off", "Fine Detail", "Large Shapes", "Both"};
+int aoCount() { return 4; }
+const char* aoName(int i) { return kAoNames[i < 0 || i > 3 ? 0 : i]; }
+int aoGet() {
+    load();
+    return s_ao;
+}
+int aoSet(int i) {
+    if (i < 0 || i > 3) return 0;
+    load();
+    s_ao = i;
+    save();
+    port_log("[ao] Ambient Occlusion changed: %s\n", kAoNames[i]);
+    return 1;
+}
+const char* const kAoStrengthNames[] = {"Low", "Medium", "High", "Very High"};
+const float kAoStrengths[] = {0.45f, 0.7f, 1.0f, 1.4f};
+int aoStrengthCount() { return 4; }
+const char* aoStrengthName(int i) { return kAoStrengthNames[i < 0 || i > 3 ? 1 : i]; }
+int aoStrengthGet() {
+    load();
+    return s_aoStrength;
+}
+int aoStrengthSet(int i) {
+    if (i < 0 || i > 3) return 0;
+    load();
+    s_aoStrength = i;
+    save();
+    port_log("[ao] Ambient Occlusion Strength changed: %s\n", kAoStrengthNames[i]);
+    return 1;
+}
+const char* const kAoDistanceNames[] = {"Short", "Medium", "Long", "Very Long"};
+const float kAoDistances[] = {2000.0f, 4000.0f, 8000.0f, 16000.0f};
+int aoDistanceCount() { return 4; }
+const char* aoDistanceName(int i) { return kAoDistanceNames[i < 0 || i > 3 ? 1 : i]; }
+int aoDistanceGet() {
+    load();
+    return s_aoDistance;
+}
+int aoDistanceSet(int i) {
+    if (i < 0 || i > 3) return 0;
+    load();
+    s_aoDistance = i;
+    save();
+    port_log("[ao] Ambient Occlusion Distance changed: %s\n", kAoDistanceNames[i]);
     return 1;
 }
 
@@ -889,6 +952,15 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 107, "Fire Light Intensity",
      "How far a fire's light reaches round it, with Fire Lights on.", 0, nullptr, fireReachCount,
      fireReachName, fireReachGet, fireReachSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 108, "Ambient Occlusion",
+     "Soft shade where surfaces close in: corners, creases, under things. Off is the original.", 0,
+     nullptr, aoCount, aoName, aoGet, aoSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 109, "Ambient Occlusion Strength",
+     "How dark Ambient Occlusion's shade is.", 0, nullptr, aoStrengthCount, aoStrengthName,
+     aoStrengthGet, aoStrengthSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 110, "Ambient Occlusion Distance",
+     "How far from the camera Ambient Occlusion reaches. Farther costs a little more.", 0, nullptr,
+     aoDistanceCount, aoDistanceName, aoDistanceGet, aoDistanceSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 96, "Real Shadows",
      "The sun's shadows of everything, the level and characters too. Off is the original.", 0,
      nullptr, shadowsCount, shadowsName, shadowsGet, shadowsSet},
@@ -1004,6 +1076,20 @@ float port_grass_height(int wild) {
     load();
     const int i = wild ? s_grassWildHeight : s_grassCutHeight;
     return kGrassHeights[i < 0 || i > 5 ? 2 : i];
+}
+// Ambient Occlusion (the renderer's, each frame from port_shadows_main_view): 0 off, 1 fine detail,
+// 2 large shapes, 3 both; its strength; how far from the camera it reaches, in units.
+int port_ao(void) {
+    load();
+    return s_ao;
+}
+float port_ao_strength(void) {
+    load();
+    return kAoStrengths[s_aoStrength < 0 || s_aoStrength > 3 ? 1 : s_aoStrength];
+}
+float port_ao_distance(void) {
+    load();
+    return kAoDistances[s_aoDistance < 0 || s_aoDistance > 3 ? 1 : s_aoDistance];
 }
 // Fire Light Intensity: how far a fire's light reaches, times the normal reach.
 float port_fire_light_reach(void) {

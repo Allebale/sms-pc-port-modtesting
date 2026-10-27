@@ -602,6 +602,13 @@ void GXSetProjection(f32 mtx[4][4], GXProjectionType type) {
     GXSetProjectionv(p);
 }
 void GXSetProjectionv(f32* ptr) {
+    // Ambient Occlusion: the main camera's 3D scene ends as a 2D (orthographic) projection follows
+    // it (the HUD, the screen's overlays): onto it, before they are drawn
+    if (g.aoArmed && ptr[0] != 0.0f && memcmp(g.projection, g.aoProj, sizeof g.aoProj) == 0) {
+        flushBatch();
+        g.aoArmed = false;
+        aoApply();
+    }
     g.userClipOn = false;  // the port's clip plane is for the camera it was set for
     traceNoteProjection(ptr);
     memcpy(g.projection, ptr, sizeof(g.projection));

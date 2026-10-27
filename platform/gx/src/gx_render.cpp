@@ -2518,6 +2518,257 @@ extern "C" void GXPC_GrassDraw(unsigned buf, int blades, int segments, int press
 
 extern "C" void GXPC_GrassEnd(void) { s_grassSp = nullptr; }
 
+// ------------------------------------------------------------------ Ambient Occlusion
+// Screen-space ambient occlusion (the port's own): where surfaces close in on a point (a corner,
+// a crease, the ground under a character, a doorway), less of the sky's light reaches it, so it is
+// darker. Once a frame, as the main camera's 3D scene is done (the first orthographic projection
+// after it, before the HUD: gx_api.cpp), from the scene's depth:
+//   1. the depth copied (resolved) into a texture of its own;
+//   2. at half size, each point's position and face (from the depth around it), and how much of
+//      a hemisphere over it is taken by what is in front: within 40 units (fine: creases, contact)
+//      and within 280 (large: walls, overhangs, the space under things), 8 samples each, turned
+//      for each pixel of a 4 by 4 tile;
+//   3. at full size, the 4 by 4 around each pixel averaged (by depth, edges kept: the tile's
+//      turns cancel out) and multiplied onto the scene. It fades out with distance (Ambient
+//      Occlusion Distance) and is never on the sky.
+static const char* kAoTraceFs = R"(#version 330 core
+uniform sampler2D u_depth;
+uniform vec4 u_lin;  // view z = x / (depth * y + z)
+uniform vec4 u_f;    // x, y: the projection's scale (y signed: the EFB's rows run down); z, w: a texel
+uniform vec4 u_ao;   // fine strength, large strength, fade start, fade end (units from the camera)
+in vec2 v_uv;
+out vec4 o_color;
+float viewZ(float d) { return u_lin.x / (d * u_lin.y + u_lin.z); }
+vec3 posAt(vec2 uv, float d) {
+  float z = viewZ(d);
+  vec2 n = uv * 2.0 - 1.0;
+  return vec3(n.x * -z / u_f.x, n.y * -z / u_f.y, z);
+}
+vec3 posUV(vec2 uv) { return posAt(uv, textureLod(u_depth, uv, 0.0).r); }
+vec2 toUV(vec3 p) { return vec2(p.x * u_f.x, p.y * u_f.y) / -p.z * 0.5 + 0.5; }
+const vec3 K[8] = vec3[8](
+  vec3( 0.36,  0.00, 0.21), vec3(-0.17,  0.38, 0.27), vec3(-0.30, -0.36, 0.33),
+  vec3( 0.47, -0.37, 0.40), vec3( 0.12,  0.68, 0.37), vec3(-0.71,  0.10, 0.45),
+  vec3(-0.05, -0.79, 0.45), vec3( 0.73,  0.33, 0.55));
+float occlusion(vec3 P, vec3 N, vec3 T, vec3 B, float R) {
+  float sum = 0.0;
+  for (int i = 0; i < 8; i++) {
+    vec3 s = P + (T * K[i].x + B * K[i].y + N * K[i].z) * R;
+    if (s.z > -1.0) continue;
+    vec2 uv = toUV(s);
+    if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) continue;
+    float d = textureLod(u_depth, uv, 0.0).r;
+    if (d >= 0.999999) continue;
+    float sz = viewZ(d);
+    if (sz >= s.z + R * 0.04) sum += smoothstep(0.0, 1.0, R / abs(P.z - sz));
+  }
+  return sum / 8.0;
+}
+void main() {
+  float d = textureLod(u_depth, v_uv, 0.0).r;
+  if (d >= 0.999999) { o_color = vec4(1.0); return; }
+  vec3 P = posAt(v_uv, d);
+  float dist = -P.z;
+  if (dist <= 0.0 || dist >= u_ao.w) { o_color = vec4(1.0); return; }
+  vec2 t = u_f.zw;
+  vec3 px = posUV(v_uv + vec2(t.x, 0.0)), nx = posUV(v_uv - vec2(t.x, 0.0));
+  vec3 py = posUV(v_uv + vec2(0.0, t.y)), ny = posUV(v_uv - vec2(0.0, t.y));
+  vec3 dx = abs(px.z - P.z) < abs(P.z - nx.z) ? px - P : P - nx;
+  vec3 dy = abs(py.z - P.z) < abs(P.z - ny.z) ? py - P : P - ny;
+  vec3 N = cross(dx, dy);
+  if (dot(N, N) < 1e-12) { o_color = vec4(1.0); return; }
+  N = normalize(N);
+  if (dot(N, P) > 0.0) N = -N;
+  // a turn for each pixel of a 4 by 4 tile (the blur's 4 by 4 averages them out)
+  ivec2 ip = ivec2(gl_FragCoord.xy) & 3;
+  const float bayer[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0,
+                                    3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+  float ang = (bayer[ip.y * 4 + ip.x] + 0.5) / 16.0 * 6.2831853;
+  vec3 rv = vec3(cos(ang), sin(ang), 0.37);
+  vec3 T = rv - N * dot(rv, N);
+  T = dot(T, T) > 1e-6 ? normalize(T) : normalize(cross(N, vec3(0.0, 1.0, 0.0)));
+  vec3 B = cross(N, T);
+  float ao = 1.0;
+  if (u_ao.x > 0.0) ao *= 1.0 - u_ao.x * occlusion(P, N, T, B, 40.0);
+  if (u_ao.y > 0.0) ao *= 1.0 - u_ao.y * occlusion(P, N, T, B, 280.0);
+  float fade = 1.0 - smoothstep(u_ao.z, u_ao.w, dist);
+  o_color = vec4(clamp(mix(1.0, ao, fade), 0.0, 1.0));
+}
+)";
+static const char* kAoApplyFs = R"(#version 330 core
+uniform sampler2D u_depth;
+uniform sampler2D u_occ;
+uniform vec4 u_lin;
+uniform vec4 u_half;  // x, y: a half-size texel
+in vec2 v_uv;
+out vec4 o_color;
+float viewZ(float d) { return u_lin.x / (d * u_lin.y + u_lin.z); }
+void main() {
+  float d0 = textureLod(u_depth, v_uv, 0.0).r;
+  if (d0 >= 0.999999) { o_color = vec4(1.0); return; }
+  float z0 = viewZ(d0);
+  float sum = 0.0, wsum = 0.0;
+  for (int y = -2; y < 2; y++)
+    for (int x = -2; x < 2; x++) {
+      vec2 uv = v_uv + (vec2(x, y) + 0.5) * u_half.xy;
+      float z = viewZ(textureLod(u_depth, uv, 0.0).r);
+      float w = 1.0 / (1.0 + abs(z - z0) / (abs(z0) * 0.03 + 2.0));
+      w *= w;
+      sum += textureLod(u_occ, uv, 0.0).r * w;
+      wsum += w;
+    }
+  float ao = wsum > 1e-4 ? sum / wsum : 1.0;
+  o_color = vec4(ao, ao, ao, 1.0);
+}
+)";
+static GLuint s_aoTraceProg, s_aoApplyProg, s_aoVao;
+static GLint s_aoTLin, s_aoTF, s_aoTAo, s_aoALin, s_aoAHalf;
+static GLuint s_aoDepthTex, s_aoDepthFbo, s_aoTex, s_aoFbo;
+static int s_aoW, s_aoH;
+static const int kAoDepthUnit = 13, kAoOccUnit = 14;
+
+// The settings for this frame (GXPC_AOFrame, from the main camera's view: port_shadows.cpp).
+static int s_aoMode;  // 0 off, 1 fine, 2 large, 3 both
+static float s_aoStrength = 0.75f, s_aoDistance = 4000.0f;
+
+extern "C" void GXPC_AOFrame(int mode, float strength, float distance) {
+    s_aoMode     = mode;
+    s_aoStrength = strength;
+    s_aoDistance = distance;
+    g.aoArmed    = mode > 0 && s_ready;
+    if (g.aoArmed) memcpy(g.aoProj, g.projection, sizeof g.aoProj);
+}
+
+void aoApply() {
+    if (!s_ready || s_aoMode <= 0) return;
+    // the main view's projection and depth range (the XF's, still the main camera's)
+    if (g.xfReg[XFR_PROJ + 6] & 1) return;  // orthographic: not a 3D view
+    const float fy = xff(XFR_PROJ + 2), A = xff(XFR_PROJ + 4), B = xff(XFR_PROJ + 5);
+    const float vz0 = xff(XFR_VIEWPORT + 2), vz1 = xff(XFR_VIEWPORT + 5);
+    if (fy == 0.0f || vz0 == 0.0f) return;
+    const int W = scaled(s_efbW), H = scaled(EFB_H);
+    if (!s_aoTraceProg) {
+        s_aoTraceProg = compileProgram(kPostVs, kAoTraceFs);
+        s_aoApplyProg = compileProgram(kPostVs, kAoApplyFs);
+        glUseProgram(s_aoTraceProg);
+        glUniform1i(glGetUniformLocation(s_aoTraceProg, "u_flip"), 0);
+        glUniform1i(glGetUniformLocation(s_aoTraceProg, "u_depth"), kAoDepthUnit);
+        s_aoTLin = glGetUniformLocation(s_aoTraceProg, "u_lin");
+        s_aoTF   = glGetUniformLocation(s_aoTraceProg, "u_f");
+        s_aoTAo  = glGetUniformLocation(s_aoTraceProg, "u_ao");
+        glUseProgram(s_aoApplyProg);
+        glUniform1i(glGetUniformLocation(s_aoApplyProg, "u_flip"), 0);
+        glUniform1i(glGetUniformLocation(s_aoApplyProg, "u_depth"), kAoDepthUnit);
+        glUniform1i(glGetUniformLocation(s_aoApplyProg, "u_occ"), kAoOccUnit);
+        s_aoALin  = glGetUniformLocation(s_aoApplyProg, "u_lin");
+        s_aoAHalf = glGetUniformLocation(s_aoApplyProg, "u_half");
+        glGenVertexArrays(1, &s_aoVao);
+        g_glc.prog = ~0u;
+    }
+    if (W != s_aoW || H != s_aoH) {
+        if (s_aoDepthFbo) {
+            glDeleteFramebuffers(1, &s_aoDepthFbo);
+            glDeleteFramebuffers(1, &s_aoFbo);
+            glDeleteTextures(1, &s_aoDepthTex);
+            glDeleteTextures(1, &s_aoTex);
+        }
+        s_aoW = W, s_aoH = H;
+        glGenTextures(1, &s_aoDepthTex);
+        glGenTextures(1, &s_aoTex);
+        glGenFramebuffers(1, &s_aoDepthFbo);
+        glGenFramebuffers(1, &s_aoFbo);
+        glActiveTexture(GL_TEXTURE0 + kAoDepthUnit);
+        glBindTexture(GL_TEXTURE_2D, s_aoDepthTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, W, H, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+        glActiveTexture(GL_TEXTURE0 + kAoOccUnit);
+        glBindTexture(GL_TEXTURE_2D, s_aoTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, (W + 1) / 2, (H + 1) / 2, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindFramebuffer(GL_FRAMEBUFFER, s_aoDepthFbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, s_aoDepthTex, 0);
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+        GLenum st1 = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        glBindFramebuffer(GL_FRAMEBUFFER, s_aoFbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_aoTex, 0);
+        GLenum st2 = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (st1 != GL_FRAMEBUFFER_COMPLETE || st2 != GL_FRAMEBUFFER_COMPLETE)
+            logmsg("ambient occlusion: its buffers are not complete (0x%x, 0x%x)", st1, st2);
+        logmsg("ambient occlusion: buffers made (%dx%d, worked at %dx%d)", W, H, (W + 1) / 2, (H + 1) / 2);
+    }
+    // 1. the depth, resolved
+    const GLuint src = efbReadFbo(0, 0, W, H, GL_DEPTH_BUFFER_BIT);
+    glDisable(GL_SCISSOR_TEST);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, src);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_aoDepthFbo);
+    glBlitFramebuffer(0, 0, W, H, 0, 0, W, H, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+
+    // what both passes share: no tests, no blending, no clip planes, all colour
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_COLOR_LOGIC_OP);
+    glDisable(GL_CLIP_DISTANCE0);
+    glDisable(GL_CLIP_DISTANCE0 + 1);
+    glDisable(GL_CLIP_DISTANCE0 + 2);
+    glDepthMask(GL_FALSE);
+    glActiveTexture(GL_TEXTURE0 + kAoDepthUnit);
+    glBindTexture(GL_TEXTURE_2D, s_aoDepthTex);
+    glBindSampler(kAoDepthUnit, 0);
+    glActiveTexture(GL_TEXTURE0 + kAoOccUnit);
+    glBindTexture(GL_TEXTURE_2D, s_aoTex);
+    glBindSampler(kAoOccUnit, 0);
+    glBindVertexArray(s_aoVao);
+    // view z from the depth: d * 16777215 = vz1 - vz0 * A - vz0 * B / z (gx_shader.cpp's mapping)
+    const float lin[4] = {-vz0 * B, 16777215.0f, vz0 * A - vz1, 0.0f};
+    const float hw = float((W + 1) / 2), hh = float((H + 1) / 2);
+
+    // 2. the occlusion, at half size
+    glBindFramebuffer(GL_FRAMEBUFFER, s_aoFbo);
+    glViewport(0, 0, int(hw), int(hh));
+    glDisable(GL_BLEND);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glUseProgram(s_aoTraceProg);
+    const float f[4] = {fabsf(fy) * float(H) / float(W), -fabsf(fy), 1.0f / float(W), 1.0f / float(H)};
+    const float fine  = (s_aoMode & 1) ? s_aoStrength : 0.0f;
+    const float large = (s_aoMode & 2) ? s_aoStrength * 0.8f : 0.0f;
+    const float ao[4] = {fine, large, s_aoDistance * 0.6f, s_aoDistance};
+    glUniform4fv(s_aoTLin, 1, lin);
+    glUniform4fv(s_aoTF, 1, f);
+    glUniform4fv(s_aoTAo, 1, ao);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    // 3. averaged and multiplied onto the scene (its alpha kept)
+    glBindFramebuffer(GL_FRAMEBUFFER, s_efbFbo);
+    glViewport(0, 0, W, H);
+    glEnable(GL_BLEND);
+    glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+    glBlendFuncSeparate(GL_ZERO, GL_SRC_COLOR, GL_ZERO, GL_ONE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+    glUseProgram(s_aoApplyProg);
+    const float half[4] = {1.0f / hw, 1.0f / hh, 0.0f, 0.0f};
+    glUniform4fv(s_aoALin, 1, lin);
+    glUniform4fv(s_aoAHalf, 1, half);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    s_drawGen++;
+
+    // the cache knows none of this: everything is set again by the next draw
+    glcInvalidate();
+    static bool s_told;
+    if (!s_told) {
+        s_told = true;
+        logmsg("ambient occlusion: on the scene as the 3D view ends (%s)",
+               s_aoMode == 1 ? "fine" : s_aoMode == 2 ? "large" : "fine and large");
+    }
+}
+
 // ------------------------------------------------------------------ Fire Lights
 // Point lights (ext/core/game/port_lights.cpp: the fires burning near Mario): set in the world
 // each tick (GXPC_SetLights: 8 floats a light: x, y, z, radius, r, g, b, strength), taken into a

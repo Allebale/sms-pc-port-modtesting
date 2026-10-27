@@ -26,6 +26,13 @@ void port_shadows_main_view(void* camera, float (*view)[4]);
 // projection was just set (the main camera's, from port_shadows_main_view; a mirror's, from
 // port_mirror_clip), lit in what it draws.
 void port_lights_view(float (*view)[4]);
+// Ambient Occlusion (platform/misc/port_puddle_settings.cpp): 0 off, 1 fine detail, 2 large
+// shapes, 3 both; its strength; its reach from the camera, in units.
+int port_ao(void);
+float port_ao_strength(void);
+float port_ao_distance(void);
+// The renderer's: armed for the main camera's view this frame (applied as its 3D scene ends).
+void GXPC_AOFrame(int mode, float strength, float distance);
 
 // The renderer's (platform/gx/src/gx_render.cpp, gx_api.cpp).
 // half: the near map's reach either side of focus; reach: the far one's.
