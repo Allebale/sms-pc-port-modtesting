@@ -83,7 +83,6 @@ int s_vegetation = 0;     // Moving Vegetation: 0 off, 1 gentle, 2 breezy, 3 win
 int s_sandy = 0;          // Sandy Mario: 0 off, 1 light, 2 normal, 3 heavy
 int s_grassStains = 0;    // Grass Stains: 0 off, 1 light, 2 normal, 3 strong
 int s_stainTime = 4;      // Grass Stain Duration: into kStainSeconds
-int s_godRays = 0;        // God Rays: 0 off, then 1 faintest .. 4 light (kSunNames)
 int s_grassCutHeight = 2, s_grassWildHeight = 2;  // into kGrassHeights
 int s_shadows = 0;        // Real Shadows: 0 off (the game's own), 1 soft, 2 strong
 int s_shadowsRound = 0;   // Round Shadows Under Characters, with Real Shadows: 1 kept (lighter)
@@ -265,8 +264,6 @@ void load() {
             s_grassStains = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " grassstaintime = %d", &value) == 1) {
             s_stainTime = value < 0 ? 0 : value > 6 ? 6 : value;
-        } else if (sscanf(line, " godraylevel = %d", &value) == 1) {
-            s_godRays = value < 0 ? 0 : value > 4 ? 4 : value;
         } else if (sscanf(line, " vegetation = %d", &value) == 1) {
             s_vegetation = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " firelightreach = %d", &value) == 1) {
@@ -382,8 +379,6 @@ void save() {
     fprintf(f, "firelightreach = %d\n", s_fireReach);
     fprintf(f, "# vegetation: plants sway, bend from Mario and FLUDD's water: 0 off, 1 gentle, 2 breezy, 3 windy.\n");
     fprintf(f, "vegetation = %d\n", s_vegetation);
-    fprintf(f, "# godraylevel: the sun's beams through leaves, round buildings and between clouds: 0 off, 1 very faint, 2 faint, 3 subtle, 4 light.\n");
-    fprintf(f, "godraylevel = %d\n", s_godRays);
     fprintf(f, "# sandymario: sand sticks to Mario where he touches it, falling away over 20 seconds: 0 off, 1 light, 2 normal, 3 heavy.\n");
     fprintf(f, "sandymario = %d\n", s_sandy);
     fprintf(f, "# grassstains: diving, sliding or falling on grass stains Mario's clothes: 0 off, 1 light, 2 normal, 3 strong.\n");
@@ -515,21 +510,6 @@ int vegetationSet(int i) {
     return 1;
 }
 
-const char* const kSunNames[] = {"Off", "Very Faint", "Faint", "Subtle", "Light"};
-int sunCount() { return 5; }
-const char* sunName(int i) { return kSunNames[i < 0 || i > 4 ? 0 : i]; }
-int sunGet() {
-    load();
-    return s_godRays;
-}
-int sunSet(int i) {
-    if (i < 0 || i > 4) return 0;
-    load();
-    s_godRays = i;
-    save();
-    port_log("[sun] God Rays changed: %s\n", kSunNames[i]);
-    return 1;
-}
 
 const char* const kStainNames[] = {"Off", "Light", "Normal", "Strong"};
 int stainsCount() { return 4; }
@@ -1075,9 +1055,6 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 109, "Fire Light Intensity",
      "How far a fire's light reaches round it, with Fire Lights on.", 0, nullptr, fireReachCount,
      fireReachName, fireReachGet, fireReachSet},
-    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 110, "God Rays",
-     "Beams of sunlight through palm leaves, round buildings and between clouds.", 0, nullptr, sunCount,
-     sunName, sunGet, sunSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 111, "Sandy Mario",
      "Sand sticks to Mario where he touches it (shoes, a belly slide, a fall) and falls away over 20 seconds.",
      0, nullptr, sandyCount, sandyName, sandyGet, sandySet},
@@ -1234,11 +1211,6 @@ float port_grass_stain_seconds(void) {
 int port_sandy_mario(void) {
     load();
     return s_sandy;
-}
-// God Rays (the renderer's, from port_shadows_main_view): 0 off, 1 very faint .. 4 light.
-int port_god_rays(void) {
-    load();
-    return s_godRays;
 }
 // Moving Vegetation (ext/core/game/port_vegetation.cpp): 0 off, 1 gentle, 2 breezy, 3 windy.
 int port_vegetation(void) {

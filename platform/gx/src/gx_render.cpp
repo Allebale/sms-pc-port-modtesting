@@ -2042,18 +2042,19 @@ static void statsFrame() {
 // SMS_GX_HITCH_MS=n: logs each display frame longer than n ms with what it
 // spent: draw-time shader compiles, texture uploads (and texture pack bytes
 // sent), time making batches (where compiles fall), and waiting for the GL
-// thread.
+// thread. Without it, frames of 45 ms and more (stutters), the first 300.
 static void hitchFrame() {
     static double limit = -1, last = 0, flush0 = 0, wait0 = 0;
     static uint32_t compiles0 = 0, uploads0 = 0;
     static uint64_t hires0 = 0;
     if (limit < 0) {
         const char* e = getenv("SMS_GX_HITCH_MS");
-        limit = e ? atof(e) / 1000.0 : 0;
+        limit = e ? atof(e) / 1000.0 : 0.045;  // by default, frames of 45 ms and more (stutters)
     }
     if (limit <= 0) return;
     const double now = nowSeconds(), waited = glt::waitedSeconds();
-    if (last > 0 && now - last > limit)
+    static int told = 0;
+    if (last > 0 && now - last > limit && (getenv("SMS_GX_HITCH_MS") || told++ < 300))
         logmsg("hitch: frame %u took %.1f ms: %u shader compiles, %u texture uploads (%.1f MiB from the texture pack), "
                "%.1f ms in batches, %.1f ms waiting for the GL thread",
                g_displayFrames, (now - last) * 1000.0, g_statShaderCompiles - compiles0, g_statTexUploads - uploads0,
@@ -2576,234 +2577,6 @@ extern "C" void GXPC_GrassFlatMap(const unsigned char* rgba, int size, float x0,
     s_grassFlatArea[1] = z0;
     s_grassFlatArea[2] = 1.0f;
     s_grassFlatArea[3] = 1.0f / span;
-}
-
-// ------------------------------------------------------------------ God Rays
-// The sun's light (ext/core/game/port_shadows.cpp hands the sun's place in the main camera's view
-// each frame, GXPC_SunFrame). Once a frame, as the main camera's 3D scene ends (the first
-// orthographic projection after it, before the HUD: gx_api.cpp):
-//   1. the scene's depth (resolved) and a quarter-size copy of its colour;
-//   2. at a quarter size, the sky that shows (what is farther than half the far plane, or nothing),
-//      brighter near the sun and where the sky itself is bright;
-//   3. that blurred outward from the sun (64 steps, fading): beams where it shows between leaves,
-//      buildings and clouds;
-//   4. at full size, added onto the scene, faded in from a little way out from the sun (the game's
-//      own sun and its glare stay as they are).
-static const char* kSunMaskFs = R"(#version 330 core
-uniform sampler2D u_depth;
-uniform sampler2D u_color;
-uniform vec4 u_lin;  // view z = x / (depth * y + z); w: what is sky (units from the camera)
-uniform vec4 u_sun;  // the sun on the screen (uv), the screen's width over its height, the glow's size
-in vec2 v_uv;
-out vec4 o_color;
-void main() {
-  float d = textureLod(u_depth, v_uv, 0.0).r;
-  float dist = d >= 0.999999 ? 1e9 : -(u_lin.x / (d * u_lin.y + u_lin.z));
-  if (dist < u_lin.w) { o_color = vec4(0.0); return; }
-  vec3 c = textureLod(u_color, v_uv, 0.0).rgb;
-  vec2 dv = (v_uv - u_sun.xy) * vec2(u_sun.z, 1.0);
-  float g = exp(-dot(dv, dv) / (u_sun.w * u_sun.w));
-  float m = g * g * (0.6 + 0.4 * dot(c, vec3(0.3, 0.5, 0.2))) + 0.02 * dot(c, vec3(0.3, 0.5, 0.2));
-  o_color = vec4(m);
-}
-)";
-static const char* kSunRaysFs = R"(#version 330 core
-uniform sampler2D u_mask;
-uniform vec4 u_sun;  // the sun (uv), reach (how far toward it each pixel looks, 0..1)
-in vec2 v_uv;
-out vec4 o_color;
-void main() {
-  vec2 delta = (v_uv - u_sun.xy) * (u_sun.z / 64.0);
-  vec2 uv = v_uv;
-  float lit = 1.0, sum = 0.0;
-  for (int i = 0; i < 64; i++) {
-    uv -= delta;
-    sum += textureLod(u_mask, uv, 0.0).r * lit;
-    lit *= 0.978;
-  }
-  o_color = vec4(0.5 * (1.0 - exp(-sum / 20.0)));  // a soft ceiling: never whiter than half
-}
-)";
-static const char* kSunApplyFs = R"(#version 330 core
-uniform sampler2D u_rays;
-uniform vec4 u_sun;    // the sun (uv), the screen's width over its height
-uniform vec4 u_color;  // the sun's colour, God Rays' strength
-in vec2 v_uv;
-out vec4 o_color;
-void main() {
-  // the beams, but not on the sun itself (the game's own sun and glare stay as they are): faded in
-  // from a little way out
-  vec2 dv = (v_uv - u_sun.xy) * vec2(u_sun.z, 1.0);
-  float away = 0.3 + 0.7 * smoothstep(0.0, 0.18, length(dv));
-  o_color = vec4(u_color.rgb * (textureLod(u_rays, v_uv, 0.0).r * u_color.w * away), 0.0);
-}
-)";
-static GLuint s_sunMaskProg, s_sunRaysProg, s_sunApplyProg, s_sunVao;
-static GLint s_sunMLin, s_sunMSun, s_sunRSun, s_sunASun, s_sunAColor;
-static GLuint s_sunDepthTex, s_sunDepthFbo, s_sunColorTex, s_sunColorFbo, s_sunMaskTex, s_sunMaskFbo, s_sunRaysTex,
-    s_sunRaysFbo;
-static int s_sunW, s_sunH;
-static const int kSunUnitA = 14, kSunUnitB = 15;
-static float s_sunDir[3];  // the sun in the main camera's view (a direction)
-static float s_sunRays;
-static float s_sunColor[3] = {1.0f, 0.9f, 0.7f};
-
-// From the main camera's view (port_shadows.cpp), each frame: the sun's place in its view (null:
-// no sun), God Rays' strength (0 off), the sun's colour.
-extern "C" void GXPC_SunFrame(const float* sunView, float rays, const float* color) {
-    g.sunArmed = false;
-    if (!sunView || rays <= 0.0f || !s_ready) return;
-    const float l = sqrtf(sunView[0] * sunView[0] + sunView[1] * sunView[1] + sunView[2] * sunView[2]);
-    if (l < 1e-3f || sunView[2] / l > -0.05f) return;  // behind the camera (or beside it)
-    for (int i = 0; i < 3; i++) s_sunDir[i] = sunView[i] / l;
-    s_sunRays = rays;
-    if (color) memcpy(s_sunColor, color, sizeof s_sunColor);
-    memcpy(g.sunProj, g.projection, sizeof g.sunProj);
-    g.sunArmed = true;
-}
-
-static GLuint sunTarget(GLuint* tex, GLuint* fbo, int w, int h, GLenum fmt, GLenum ext, GLenum type, bool depth) {
-    glGenTextures(1, tex);
-    glGenFramebuffers(1, fbo);
-    glBindTexture(GL_TEXTURE_2D, *tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, fmt, w, h, 0, ext, type, nullptr);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, depth ? GL_NEAREST : GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, depth ? GL_NEAREST : GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    if (depth) glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
-    glBindFramebuffer(GL_FRAMEBUFFER, *fbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, depth ? GL_DEPTH_ATTACHMENT : GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, *tex, 0);
-    if (depth) {
-        glDrawBuffer(GL_NONE);
-        glReadBuffer(GL_NONE);
-    }
-    return glCheckFramebufferStatus(GL_FRAMEBUFFER);
-}
-
-void sunApply() {
-    if (!s_ready || g.xfReg[XFR_PROJ + 6] & 1) return;  // orthographic: not a 3D view
-    const float fy = xff(XFR_PROJ + 2), A = xff(XFR_PROJ + 4), B = xff(XFR_PROJ + 5);
-    const float vz0 = xff(XFR_VIEWPORT + 2), vz1 = xff(XFR_VIEWPORT + 5);
-    if (fy == 0.0f || vz0 == 0.0f) return;
-    const int W = scaled(s_efbW), H = scaled(EFB_H);
-    const int qw = (W + 3) / 4, qh = (H + 3) / 4;
-    // the sun on the screen (the projection's scale: gx_shader.cpp's mapping, rows running down)
-    const float fx = fabsf(fy) * float(H) / float(W);
-    const float sx = 0.5f + 0.5f * fx * s_sunDir[0] / -s_sunDir[2];
-    const float sy = 0.5f + 0.5f * -fabsf(fy) * s_sunDir[1] / -s_sunDir[2];
-    if (!s_sunMaskProg) {
-        s_sunMaskProg  = compileProgram(kPostVs, kSunMaskFs);
-        s_sunRaysProg  = compileProgram(kPostVs, kSunRaysFs);
-        s_sunApplyProg = compileProgram(kPostVs, kSunApplyFs);
-        glUseProgram(s_sunMaskProg);
-        glUniform1i(glGetUniformLocation(s_sunMaskProg, "u_flip"), 0);
-        glUniform1i(glGetUniformLocation(s_sunMaskProg, "u_depth"), kSunUnitA);
-        glUniform1i(glGetUniformLocation(s_sunMaskProg, "u_color"), kSunUnitB);
-        s_sunMLin = glGetUniformLocation(s_sunMaskProg, "u_lin");
-        s_sunMSun = glGetUniformLocation(s_sunMaskProg, "u_sun");
-        glUseProgram(s_sunRaysProg);
-        glUniform1i(glGetUniformLocation(s_sunRaysProg, "u_flip"), 0);
-        glUniform1i(glGetUniformLocation(s_sunRaysProg, "u_mask"), kSunUnitA);
-        s_sunRSun = glGetUniformLocation(s_sunRaysProg, "u_sun");
-        glUseProgram(s_sunApplyProg);
-        glUniform1i(glGetUniformLocation(s_sunApplyProg, "u_flip"), 0);
-        glUniform1i(glGetUniformLocation(s_sunApplyProg, "u_rays"), kSunUnitA);
-        s_sunASun   = glGetUniformLocation(s_sunApplyProg, "u_sun");
-        s_sunAColor = glGetUniformLocation(s_sunApplyProg, "u_color");
-        glGenVertexArrays(1, &s_sunVao);
-    }
-    if (W != s_sunW || H != s_sunH) {
-        GLuint* all[8] = {&s_sunDepthTex, &s_sunColorTex, &s_sunMaskTex, &s_sunRaysTex,
-                          &s_sunDepthFbo, &s_sunColorFbo, &s_sunMaskFbo, &s_sunRaysFbo};
-        if (s_sunDepthFbo) {
-            for (int i = 0; i < 4; i++) glDeleteTextures(1, all[i]);
-            for (int i = 4; i < 8; i++) glDeleteFramebuffers(1, all[i]);
-        }
-        s_sunW = W, s_sunH = H;
-        glActiveTexture(GL_TEXTURE0 + kSunUnitA);
-        GLenum st[4];
-        st[0] = sunTarget(&s_sunDepthTex, &s_sunDepthFbo, W, H, GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, true);
-        st[1] = sunTarget(&s_sunColorTex, &s_sunColorFbo, qw, qh, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, false);
-        st[2] = sunTarget(&s_sunMaskTex, &s_sunMaskFbo, qw, qh, GL_R8, GL_RED, GL_UNSIGNED_BYTE, false);
-        st[3] = sunTarget(&s_sunRaysTex, &s_sunRaysFbo, qw, qh, GL_R8, GL_RED, GL_UNSIGNED_BYTE, false);
-        for (int i = 0; i < 4; i++)
-            if (st[i] != GL_FRAMEBUFFER_COMPLETE) logmsg("sun: buffer %d is not complete (0x%x)", i, st[i]);
-        logmsg("sun: God Rays' buffers made (%dx%d, the beams at %dx%d)", W, H, qw, qh);
-    }
-    // 1. the depth and a quarter of the colour
-    const GLuint src = efbReadFbo(0, 0, W, H, GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glDisable(GL_SCISSOR_TEST);
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, src);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_sunDepthFbo);
-    glBlitFramebuffer(0, 0, W, H, 0, 0, W, H, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_sunColorFbo);
-    glBlitFramebuffer(0, 0, W, H, 0, 0, qw, qh, GL_COLOR_BUFFER_BIT, GL_LINEAR);
-
-    glDisable(GL_DEPTH_TEST);
-    glDisable(GL_CULL_FACE);
-    glDisable(GL_COLOR_LOGIC_OP);
-    glDisable(GL_CLIP_DISTANCE0);
-    glDisable(GL_CLIP_DISTANCE0 + 1);
-    glDisable(GL_CLIP_DISTANCE0 + 2);
-    glDepthMask(GL_FALSE);
-    glDisable(GL_BLEND);
-    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-    glBindSampler(kSunUnitA, 0);
-    glBindSampler(kSunUnitB, 0);
-    glBindVertexArray(s_sunVao);
-    // view distance from the depth (gx_shader.cpp's mapping); the sky: farther than half the far plane
-    const float farthest = fabsf(-vz0 * B / (16777215.0f + vz0 * A - vz1));  // (not "far": a Windows macro)
-    const float lin[4] = {-vz0 * B, 16777215.0f, vz0 * A - vz1, farthest * 0.5f};
-    const float aspect = float(W) / float(H);
-
-    {
-        // 2. the sky that shows, at a quarter size
-        glBindFramebuffer(GL_FRAMEBUFFER, s_sunMaskFbo);
-        glViewport(0, 0, qw, qh);
-        glUseProgram(s_sunMaskProg);
-        glActiveTexture(GL_TEXTURE0 + kSunUnitA);
-        glBindTexture(GL_TEXTURE_2D, s_sunDepthTex);
-        glActiveTexture(GL_TEXTURE0 + kSunUnitB);
-        glBindTexture(GL_TEXTURE_2D, s_sunColorTex);
-        const float msun[4] = {sx, sy, aspect, 0.2f};
-        glUniform4fv(s_sunMLin, 1, lin);
-        glUniform4fv(s_sunMSun, 1, msun);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        // 3. blurred outward from the sun
-        glBindFramebuffer(GL_FRAMEBUFFER, s_sunRaysFbo);
-        glUseProgram(s_sunRaysProg);
-        glActiveTexture(GL_TEXTURE0 + kSunUnitA);
-        glBindTexture(GL_TEXTURE_2D, s_sunMaskTex);
-        const float rsun[4] = {sx, sy, 0.9f, 0.0f};
-        glUniform4fv(s_sunRSun, 1, rsun);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    }
-    // 4. added onto the scene (its alpha kept)
-    glBindFramebuffer(GL_FRAMEBUFFER, s_efbFbo);
-    glViewport(0, 0, W, H);
-    glEnable(GL_BLEND);
-    glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
-    glBlendFuncSeparate(GL_ONE, GL_ONE, GL_ZERO, GL_ONE);
-    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
-    glUseProgram(s_sunApplyProg);
-    glActiveTexture(GL_TEXTURE0 + kSunUnitA);
-    glBindTexture(GL_TEXTURE_2D, s_sunRaysTex);
-    const float asun[4] = {sx, sy, aspect, 0.0f};
-    const float acol[4] = {s_sunColor[0], s_sunColor[1], s_sunColor[2], s_sunRays};
-    glUniform4fv(s_sunASun, 1, asun);
-    glUniform4fv(s_sunAColor, 1, acol);
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    s_drawGen++;
-
-    // the cache knows none of this: everything is set again by the next draw
-    glcInvalidate();
-    static bool s_told;
-    if (!s_told) {
-        s_told = true;
-        logmsg("sun: God Rays on the scene as the 3D view ends (the sun at %.2f, %.2f; the sky from %.0f units)",
-               sx, sy, farthest * 0.5f);
-    }
 }
 
 // ------------------------------------------------------------------ Fire Lights
