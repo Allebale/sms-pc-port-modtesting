@@ -115,6 +115,9 @@ struct State {
     float shadowProj[7];
     bool shadowArmed, shadowMain, shadowTag;
     bool shadowNoReceive;  // GXPC_ShadowReceive(0): what is drawn now takes no sun shadow
+    // God Rays and Lens Flare (gx_render.cpp sunApply): armed for the main camera's projection each frame
+    float sunProj[7];
+    bool sunArmed;
     // Moving Vegetation (GXPC_SwayFrame, GXPC_SwayRegister; gx_render.cpp): the wind and what
     // pushes plants aside, in the world (set each tick) and in the view they were last taken
     // into (u_sway: up, wind and time, the plant's shape, six pushers, their count); a plant's
@@ -418,6 +421,8 @@ const int kGrassColorUnit = 11, kGrassDepthUnit = 12, kGrassFlatUnit = 13;
 // GXSetLineWidth wide (a geometry shader)
 // depthOnly: 0 the draw, 1 its depth only (the ordered depth pass), 2 into the sun's shadow map
 const ShaderProgram* shaderForCurrentState(int depthOnly = 0, bool lines = false);
+// God Rays and Lens Flare: onto the main camera's scene, as it ends (gx_render.cpp, from GXSetProjectionv).
+void sunApply();
 // Moving Vegetation: whether a display list is a plant's (registered as its model loaded), and its
 // model-space height (gx_render.cpp, from callDisplayList).
 bool swayLookup(const void* list, uint32_t size, float* minY, float* maxY);
