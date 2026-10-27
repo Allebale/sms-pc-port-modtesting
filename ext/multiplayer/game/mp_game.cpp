@@ -89,6 +89,8 @@
 extern "C" void GXPC_ExtOverlaySet(int panel, const char* text) __attribute__((weak));
 extern "C" void GXPC_ExtOverlayLabels(const GXPCLabel* labels, int count) __attribute__((weak));
 enum { OVERLAY_NOTICE = 0, OVERLAY_STATUS = 1 };
+// SMS_SKIP_INTRO (platform): no Nintendo and Dolby logos, no opening movie.
+extern "C" int port_skip_intro;
 
 namespace {
 
@@ -700,6 +702,10 @@ void MpCapturePose(TMario* m, MpgPose* out)
 		p.flags |= MPG_POSE_CAP;
 	if (mm->unk24[1].unk3 != 0xff)
 		p.flags |= MPG_POSE_UPPER;
+	// the sunglasses (the stand's, the launcher's outfit, Eclipse's Persistent Shades)
+	if (m->mCap && m->mCap->isModelActive(TMarioCap::E_CAP_MODEL_SUNGLASSES))
+		p.more |= MPG_POSE2_SUNGLASSES;
+	p.body = (u8)MpLocalBody();
 	// surfing on a Blooper: the game draws it with Mario (TMario::entryModels)
 	if (m->checkStatusType(MARIO_STATUS_FLAG_UNK10000) && m->mSurfGesso)
 		p.more |= MPG_POSE2_SURF | (u8)((m->mSurfGessoType & 3) << 2);
@@ -1123,6 +1129,31 @@ void guestCardNotice()
 		s_statusFrames = 0; // the player list would cover it (why the link ended was its own notice)
 	}
 	s_noticeFrames = noticeFrames();
+}
+
+// A joining game goes straight to the host's level: no Nintendo and Dolby
+// logos or opening movie (as SMS_SKIP_INTRO, set from its first frame, before
+// the logos' first), and the title it passes through (skipTitle) is kept out
+// of sight, black under the notices of how joining goes, until it fades into
+// the host's level. A game the host refused, or whose host is gone, shows its
+// title as ever (guestCardNotice says why).
+bool joinCovered()
+{
+	if (s_role != MPG_ROLE_CLIENT || mpg_link_over() || s_leftWhy[0])
+		return false;
+	const int state = gpApplication.mAppState;
+	if (state == TApplication::APP_STATE_BOOT || state == TApplication::APP_STATE_NLOGO
+	    || state == TApplication::APP_STATE_DONE)
+		return true; // the logos, the boot's loading, the opening movie (skipped)
+	return state == TApplication::APP_STATE_GAMEPLAY && gpApplication.mCurrArea.getStage() == 15;
+}
+
+void joinCover()
+{
+	const bool covered = joinCovered();
+	MpServerCover(covered);
+	if (covered && !s_notice[0])
+		showNotice("Joining the game...");
 }
 
 // The host left while we were in its game (closed it, went back to the title,
@@ -3212,6 +3243,17 @@ bool shineOutEarly(TShine* shine)
 	return false;
 }
 
+// Out in this game already: coming out (TShine::appearWithTime's rise,
+// circle and fall), touched, or out and waiting. Not one a script only
+// showed for its cutscene to bring out (setTransScale shows what it moves:
+// Super Mario Eclipse's Bollente Crypt puts its Shine in the lava that way,
+// then calls appearShine), nor a "quickly" one asking for its own (0x12).
+const u16 kShineComingOut = 0xB, kShineOut = 0x11; // TShine's states
+bool shineCameOut(TShine* shine)
+{
+	return !shine->checkLiveFlag(LIVE_FLAG_DEAD) && shine->mState >= kShineComingOut && shine->mState <= kShineOut;
+}
+
 int demoCamera(const char* name, const float* pos, int frames, float angle, int option, int hasCallback, void* actor,
                unsigned flags)
 {
@@ -3223,7 +3265,7 @@ int demoCamera(const char* name, const float* pos, int frames, float angle, int 
 	// cutscene brought out here already, or that is out: it played
 	if (enabled() && !s_replayingDemo && hasCallback && inStage()) {
 		TShine* shine = shineOfDemo(pos, true);
-		if (shine && (shineOutEarly(shine) || !shine->checkLiveFlag(LIVE_FLAG_DEAD))) {
+		if (shine && (shineOutEarly(shine) || shineCameOut(shine))) {
 			fprintf(stderr, "[multiplayer] the Shine's cutscene (%s) played here already: left out\n", name);
 			return 1;
 		}
@@ -4435,8 +4477,11 @@ void dressSelf()
 
 void frame()
 {
-	if (s_role < 0)
+	if (s_role < 0) {
 		s_role = mpg_start();
+		if (s_role == MPG_ROLE_CLIENT)
+			port_skip_intro = 1; // joinCovered
+	}
 	if (!enabled())
 		return;
 	s_clock++;
@@ -4584,6 +4629,7 @@ void frame()
 		mpg_set_pose(&none);
 	}
 	selectFrame();
+	joinCover();
 	MpServerFrame(dir, s_arrivedNow, s_playing && inStage());
 	updateText();
 }

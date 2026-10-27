@@ -16,7 +16,6 @@
 #include "port_setting_list.h"
 #include "port_settings.h"
 #include "port_hud_settings.h"
-#include "port_first_person.h"
 #include <dolphin/pad.h>
 #include <string.h>
 #include <strings.h>
@@ -86,7 +85,9 @@ __attribute__((weak)) void sms_gx_set_event_callback(void (*cb)(const union SDL_
 __attribute__((weak)) void sms_gx_pump_events(void);
 __attribute__((weak)) int sms_gx_rumble(unsigned short strength);
 __attribute__((weak)) void sms_gx_rumble_shutdown(void);
+__attribute__((weak)) int sms_gx_fludd_trigger(int level);
 __attribute__((weak)) int GXPC_IsHeadless(void);
+__attribute__((weak)) int GXPC_ControllerCount(void);
 __attribute__((weak)) int GXPC_MouseCaptured(void);
 __attribute__((weak)) int GXPC_GameInputBlocked(void);
 __attribute__((weak)) int GXPC_SettingsMenuIsOpen(void);
@@ -94,7 +95,10 @@ __attribute__((weak)) int GXPC_RequestQuit(void);
 }
 
 // PC camera options, read by the camera code (decomp-patches/zzz-pc-camera.patch):
-//   SMS_CAMERA_INVERT_X / _Y   flip the C-stick (and mouse) on that axis
+//   SMS_CAMERA_INVERT_X / _Y   flip the C-stick on that axis, and _Y mouse look's
+//                              up and down too (the mouse turns the view left and
+//                              right the way it moves, whichever way the C-stick
+//                              is set to)
 //   SMS_FLUDD_AIM_INVERT_Y     flips the control stick's up and down while Mario
 //                              aims FLUDD spraying in place (R all the way down,
 //                              or L held to walk sideways); unset, it follows
@@ -111,7 +115,9 @@ __attribute__((weak)) int GXPC_RequestQuit(void);
 //                              (decomp-patches/zzz-camera-07-stance-cstick-aim.patch)
 //   SMS_CLOSE_CAMERA_MOUSE=0   mouse look leaves the Y close-up camera alone; by
 //                              default it turns it, and so aims FLUDD in it
-//                              (decomp-patches/zzz-camera-05-close-camera-mouse.patch)
+//                              (decomp-patches/zzz-camera-05-close-camera-mouse.patch),
+//                              and in the spray-in-place stance it turns Mario and
+//                              tilts FLUDD (decomp-patches/zzz-camera-08-stance-mouse-aim.patch)
 //   SMS_MOUSE_ORBIT=0          the mouse's up/down acts as the C-stick's again
 //                              (nearer and lower, or further and higher) instead
 //                              of tilting the camera around Mario
@@ -129,6 +135,9 @@ int port_close_camera_mouse  = 1;
 // Presses of MAP so far; the radar (src/radar.cpp) opens or closes its full
 // map on each.
 int port_radar_map_presses = 0;
+// 1 while Mario has FLUDD and his stage is running (not paused, not a movie or
+// a menu): ext/dualsense sets it for the DualSense's FLUDD trigger (below).
+int port_fludd_trigger_ready = 0;
 f32 port_camera_speed_x   = 1.0f;
 f32 port_camera_speed_y   = 1.0f;
 // Mouse orbit (zzz-camera-02): whether the mouse's up/down tilts the camera,
@@ -144,6 +153,12 @@ f32 port_camera_zoom         = 1.0f;
 // Frames left in which the camera follows the mouse as closely as it follows
 // the C-stick (the game follows a camera left alone more slowly).
 int port_camera_mouse_busy   = 0;
+// Mouse aim in the spray-in-place stance (zzz-camera-08): the motion the normal
+// camera passed on to Mario instead of turning itself, until TMario::squating
+// turns him by it (s16 angle units, as far as it would have turned the camera)
+// and TNozzleBase::calcGunAngle tilts FLUDD by it (C-stick units).
+int port_stance_mouse_turn   = 0;
+f32 port_stance_mouse_tilt   = 0.0f;
 }
 
 // SMS_RUMBLE_STRENGTH above 100: how much more often the game runs the motor,
@@ -159,7 +174,7 @@ enum Control {
 	C_DUP, C_DDOWN, C_DLEFT, C_DRIGHT,
 	C_UP, C_DOWN, C_LEFT, C_RIGHT,
 	C_CUP, C_CDOWN, C_CLEFT, C_CRIGHT,
-	C_HALF, C_QUIT, C_LSOFT, C_RSOFT, C_SAVESTATE, C_LOADSTATE, C_MAP, C_CZOOM, C_HUD, C_FP, C_COUNT
+	C_HALF, C_QUIT, C_LSOFT, C_RSOFT, C_SAVESTATE, C_LOADSTATE, C_MAP, C_CZOOM, C_HUD, C_COUNT
 };
 const char* const kControlNames[C_COUNT] = {
 	"A", "B", "X", "Y", "Z", "L", "R", "START",
@@ -167,7 +182,7 @@ const char* const kControlNames[C_COUNT] = {
 	"STICK_UP", "STICK_DOWN", "STICK_LEFT", "STICK_RIGHT",
 	"CSTICK_UP", "CSTICK_DOWN", "CSTICK_LEFT", "CSTICK_RIGHT",
 	"HALF_TILT", "QUIT", "L_SOFT", "R_SOFT", "SAVE_STATE", "LOAD_STATE", "MAP", "CAMERA_ZOOM",
-	"HUD_TOGGLE", "FIRST_PERSON",
+	"HUD_TOGGLE",
 };
 // SAVE_STATE / LOAD_STATE are the port's, not the GameCube's: a press saves a
 // save state, or loads the newest (port_savestate.h). Their bindings are often
@@ -177,9 +192,7 @@ const char* const kControlNames[C_COUNT] = {
 // (src/radar.cpp), counted in port_radar_map_presses.
 // HUD_TOGGLE is the port's too: a press hides or shows the game's HUD, the settings menu's
 // HUD page's Hide HUD (port_hud_settings.h). H by default.
-// FIRST_PERSON is the port's too: a press switches the first-person camera on or off, the settings
-// menu's First Person page's First Person (port_first_person.h). V by default.
-bool is_port_action(int c) { return c == C_SAVESTATE || c == C_LOADSTATE || c == C_MAP || c == C_HUD || c == C_FP; }
+bool is_port_action(int c) { return c == C_SAVESTATE || c == C_LOADSTATE || c == C_MAP || c == C_HUD; }
 // CAMERA_ZOOM is the port's as well, and no button of the game's: with C-stick
 // orbit on (SMS_CSTICK_ORBIT), holding it gives the C-stick's up and down back
 // its own job of moving the camera nearer or further. The right stick's press
@@ -190,6 +203,17 @@ bool is_port_action(int c) { return c == C_SAVESTATE || c == C_LOADSTATE || c ==
 // the click). R_SOFT is the middle mouse button by default; L_SOFT is unbound
 // unless bindings.txt gives it a key.
 int g_softTrigger = 95 * 255 / 100;
+// The sticks' dead zone, in percent of a stick's travel (SMS_STICK_DEADZONE, 0 to 50): how far a
+// controller's stick, either one, goes before it moves anything; for a stick that drifts, or one
+// that feels slow to start. Each axis on its own, as on the console. The default is PADClamp's
+// own (ClampRegion's minStick and minSubstick, 15 of a stick's 100), so the game plays as on hardware.
+const int kClampDeadzone = 15;
+int g_stickDeadzone = kClampDeadzone;
+// DualSense FLUDD trigger (SMS_FLUDD_TRIGGER, percent, 0 or unset off): on a DualSense, R2 gets
+// harder to pull along its travel while it is FLUDD's trigger (Mario has FLUDD, his stage runs, the
+// window has focus and R is bound to R2), up to this share of the controller's strongest resistance
+// at the end. Only the force on the trigger: what R2 reads, and so the game, is the same.
+int g_fluddTrigger;
 
 struct KeyName {
 	const char* name;
@@ -251,8 +275,7 @@ const char* const kDefaultBindings =
     "SAVE_STATE = F5\n"
     "LOAD_STATE = F6\n"
     "MAP = M\n"
-    "HUD_TOGGLE = H\n"
-    "FIRST_PERSON = V\n";
+    "HUD_TOGGLE = H\n";
 
 // A binding is one key or controller button, or two held together, written
 // FIRST+SECOND (PAD_LB+PAD_RB, LCTRL+S): the second's code plus one sits above
@@ -280,7 +303,9 @@ struct Ctl {
 	s16 axis[6];
 	bool btn[21];
 	u32 seen;
-	bool startWas; // Start held at the last PADRead
+	bool startWas;  // Start held at the last PADRead
+	double startAt; // when its Start last went down (split-screen co-op)
+	double heldAt;  // when it was last played with: a button but Start, a stick, a trigger (co-op)
 };
 const int kPadStart = 6; // SDL_CONTROLLER_BUTTON_START
 const int kMaxCtl = 8;
@@ -344,6 +369,12 @@ bool g_cstickOrbit;
 // mouse look (see above): its speed, and the motion not yet given to the camera
 float g_mouseSens = 1.0f;
 int g_mouseDX, g_mouseDY;
+// The PADRead at which a camera last took the mouse's motion. Motion no camera
+// takes (a fixed or talk camera, a cutscene, the pause menu) is dropped once
+// kMouseKeepReads go by without one, instead of turning the normal camera by
+// all of it at once when it is back.
+u32 g_mouseTaken;
+const u32 kMouseKeepReads = 2;
 // mouse wheel zoom: the share of the game's distance chosen, its limits, and
 // how much one notch changes it
 float g_zoomGoal = 1.0f;
@@ -373,6 +404,20 @@ bool g_focused = true, g_backgroundInput;
 u16 g_rumbleStrength = 0xFFFF;
 bool g_motor; // controller 1's motor, as the game last set it
 
+// The DualSense FLUDD trigger (g_fluddTrigger): its strength at the end of R2's travel, 1 to 8,
+// while R2 is FLUDD's trigger, and 0 (no resistance) otherwise. The GX layer sends it to the
+// controller in use when it changes, if that is a DualSense.
+void update_fludd_trigger(bool blocked)
+{
+	if (!sms_gx_fludd_trigger)
+		return;
+	bool r2 = false;
+	for (int i = 0; i < g_npbind[C_R]; i++)
+		r2 = r2 || g_pbind[C_R][i] == PAD_SRC_RT;
+	const bool on = g_fluddTrigger && port_fludd_trigger_ready && g_focused && !blocked && r2;
+	sms_gx_fludd_trigger(on ? std::max(1, (g_fluddTrigger * 8 + 50) / 100) : 0);
+}
+
 // Sends the motor's state, off while another window has focus.
 void update_rumble()
 {
@@ -384,6 +429,8 @@ void update_rumble()
 
 void stop_rumble_at_exit()
 {
+	if (sms_gx_fludd_trigger)
+		sms_gx_fludd_trigger(0);
 	if (sms_gx_rumble_shutdown)
 		sms_gx_rumble_shutdown();
 	if (!g_motor)
@@ -686,12 +733,20 @@ int analog_trigger(int c)
 	return held(c) ? 255 : v;
 }
 
-s8 axis8(int v, int range)
+// An SDL controller's axis, -32768..32767, as a GameCube stick reads: about -100..100 at the rim.
+int axis100(int v) { return std::max(v * 100 / 32767, -100); }
+
+// A stick's axis (axis100, or a GameCube adapter's) with the dead zone (g_stickDeadzone) taken off,
+// for PADClamp: what is left past it is spread over the travel past PADClamp's own dead zone, with
+// that dead zone added back, so PADClamp's taking it off leaves just that. The rim reads the same at
+// any setting, and the default changes nothing.
+int dead_zone(int x)
 {
-	int x = v * range / 32767;
-	if (x > -8 && x < 8)
-		x = 0; // dead zone
-	return (s8)(x > 127 ? 127 : x < -128 ? -128 : x);
+	const int m = x < 0 ? -x : x;
+	if (m <= g_stickDeadzone)
+		return 0;
+	const int v = kClampDeadzone + (m - g_stickDeadzone) * (100 - kClampDeadzone) / (100 - g_stickDeadzone);
+	return x < 0 ? -std::min(v, 128) : std::min(v, 127);
 }
 
 void autopress_init();
@@ -717,6 +772,17 @@ void init()
 			g_softTrigger = pct * 255 / 100;
 			port_log("[pad] soft L/R press: %d%%\n", pct);
 		}
+	if (const char* e = getenv("SMS_STICK_DEADZONE"))
+		if (*e) {
+			g_stickDeadzone = atoi(e) < 0 ? 0 : atoi(e) > 50 ? 50 : atoi(e);
+			if (g_stickDeadzone != kClampDeadzone)
+				port_log("[pad] stick dead zone: %d%%\n", g_stickDeadzone);
+		}
+	if (const char* e = getenv("SMS_FLUDD_TRIGGER")) {
+		g_fluddTrigger = atoi(e) < 0 ? 0 : atoi(e) > 100 ? 100 : atoi(e);
+		if (g_fluddTrigger)
+			port_log("[pad] DualSense FLUDD trigger: %d%%\n", g_fluddTrigger);
+	}
 	if (const char* e = getenv("SMS_RUMBLE"))
 		if (*e && !env_on("SMS_RUMBLE")) {
 			g_rumbleStrength = 0;
@@ -886,6 +952,73 @@ void automouse_init()
 	port_log("[pad] SMS_AUTOMOUSE: %u scripted mouse moves\n", (unsigned)g_autoMouse.size());
 }
 
+// --- Test input: SMS_AUTOCONTROLLER=id:button@field[+fields],id:axis=value@field[+fields],...
+// e.g. SMS_AUTOCONTROLLER=7:6@4700,7:3@4800 presses Start, then Y, on a pretend
+// SDL controller with instance id 7: the events go through on_event as a real
+// controller's would (split-screen co-op's second player). Buttons and axes by
+// SDL number (A 0, B 1, X 2, Y 3, Start 6; axes 0-5).
+struct AutoCtlEvent {
+	s32 which;
+	int button, axis, value; // button >= 0, else axis and value
+	u32 at, until;
+	bool down, done;
+};
+std::vector<AutoCtlEvent> g_autoCtl;
+
+void autocontroller_init()
+{
+	const char* e = getenv("SMS_AUTOCONTROLLER");
+	if (!e || !*e)
+		return;
+	char buf[1024];
+	strncpy(buf, e, sizeof buf - 1);
+	buf[sizeof buf - 1] = 0;
+	for (char* tok = strtok(buf, ","); tok; tok = strtok(NULL, ",")) {
+		AutoCtlEvent a = {};
+		u32 hold       = 8;
+		int which      = 0;
+		if (sscanf(tok, "%d:%d=%d@%u+%u", &which, &a.axis, &a.value, &a.at, &hold) >= 4)
+			a.button = -1;
+		else if (sscanf(tok, "%d:%d@%u+%u", &which, &a.button, &a.at, &hold) < 3) {
+			port_log("[pad] SMS_AUTOCONTROLLER: cannot read '%s'\n", tok);
+			continue;
+		}
+		a.which = which;
+		a.until = a.at + (hold ? hold : 1);
+		g_autoCtl.push_back(a);
+	}
+	port_log("[pad] SMS_AUTOCONTROLLER: %u scripted controller inputs\n", (unsigned)g_autoCtl.size());
+}
+
+void autocontroller_field(u32 field)
+{
+	for (size_t i = 0; i < g_autoCtl.size(); i++) {
+		AutoCtlEvent& a = g_autoCtl[i];
+		if (a.done || field < a.at || (a.down && field < a.until))
+			continue;
+		const bool down = !a.down;
+		a.down          = true;
+		a.done          = !down;
+		if (a.button >= 0) {
+			sdl::ControllerButtonEvent ev = {};
+			ev.type   = down ? sdl::CBUTTONDOWN : sdl::CBUTTONUP;
+			ev.which  = a.which;
+			ev.button = (u8)a.button;
+			ev.state  = down ? 1 : 0;
+			on_event((const union SDL_Event*)&ev);
+		} else {
+			sdl::ControllerAxisEvent ev = {};
+			ev.type  = sdl::CAXIS;
+			ev.which = a.which;
+			ev.axis  = (u8)a.axis;
+			ev.value = (s16)(down ? a.value : 0);
+			on_event((const union SDL_Event*)&ev);
+		}
+		port_log("[pad] autocontroller %d %s %d %s at field %u\n", (int)a.which, a.button >= 0 ? "button" : "axis",
+		         a.button >= 0 ? a.button : a.axis, down ? "down" : "up", field);
+	}
+}
+
 void automouse_field(u32 field)
 {
 	for (size_t i = 0; i < g_autoMouse.size(); i++) {
@@ -906,6 +1039,7 @@ void automouse_field(u32 field)
 extern "C" void port_pad_autopress_field(u32 field)
 {
 	automouse_field(field);
+	autocontroller_field(field);
 	for (size_t i = 0; i < g_auto.size(); i++) {
 		AutoPress& a = g_auto[i];
 		if (a.done)
@@ -938,6 +1072,11 @@ extern "C" int port_pad_savestate_labels(int style, char labels[2][16])
 		"A", "B", "X", "Y", "View", "Steam", "Menu", "L3", "R3", "L1", "R1", "Up", "Down", "Left", "Right",
 		"...", "L4", "R4", "L5", "R5", "Touchpad", "L2", "R2",
 	};
+	// by their letters, as SDL reads Switch controllers (and others with SMS_NINTENDO_LAYOUT)
+	static const char* const kNintendo[PAD_SRC_COUNT] = {
+		"A", "B", "X", "Y", "-", "Home", "+", "LS", "RS", "L", "R", "Up", "Down", "Left", "Right",
+		"Capture", "P1", "P2", "P3", "P4", "Touchpad", "ZL", "ZR",
+	};
 	init();
 	labels[0][0] = labels[1][0] = 0;
 	const bool keyboard = style == 0;
@@ -953,7 +1092,7 @@ extern "C" int port_pad_savestate_labels(int style, char labels[2][16])
 				if (kKeys[k].code == parts[i])
 					name = kKeys[k].name;
 		} else if (parts[i] < PAD_SRC_COUNT) {
-			name = (style == 2 ? kPlayStation : style == 3 ? kSteamDeck : kXbox)[parts[i]];
+			name = (style == 2 ? kPlayStation : style == 3 ? kSteamDeck : style == 4 ? kNintendo : kXbox)[parts[i]];
 		}
 		if (name)
 			snprintf(labels[i], 16, "%s", name);
@@ -1060,8 +1199,9 @@ void fill_status(PADStatus& s, bool haveGc, const GcAdapterInput& gc)
 	s.button       = b;
 	// Sticks are reported raw (a real stick reads about +-100 at the rim);
 	// the decomp's PADClamp (libs/dolphin/src/pad/Padclamp.c) then applies the dead
-	// zone and the octagon exactly as on hardware. Keys give full deflection
-	// (half with HALF_TILT).
+	// zone and the octagon exactly as on hardware. A controller's sticks get the
+	// player's dead zone first (dead_zone), which PADClamp's then leaves alone.
+	// Keys give full deflection (half with HALF_TILT).
 	int full = held(C_HALF) ? 50 : 100;
 	int x = held(C_RIGHT) * full - held(C_LEFT) * full;
 	int y = held(C_UP) * full - held(C_DOWN) * full;
@@ -1069,12 +1209,14 @@ void fill_status(PADStatus& s, bool haveGc, const GcAdapterInput& gc)
 		x = x * 7 / 10;
 		y = y * 7 / 10;
 	}
-	int sx = axis8(g_axis[0], 100), sy = axis8(-g_axis[1], 100);
+	int sx = dead_zone(axis100(g_axis[0])), sy = dead_zone(axis100(-g_axis[1]));
 	int cx = held(C_CRIGHT) * 100 - held(C_CLEFT) * 100;
 	int cy = held(C_CUP) * 100 - held(C_CDOWN) * 100;
-	int pcx = axis8(g_axis[2], 100), pcy = axis8(-g_axis[3], 100);
-	if (haveGc && (gc.lx || gc.ly)) { sx = gc.lx; sy = gc.ly; }
-	if (haveGc && (gc.cx || gc.cy)) { pcx = gc.cx; pcy = gc.cy; }
+	int pcx = dead_zone(axis100(g_axis[2])), pcy = dead_zone(axis100(-g_axis[3]));
+	// An adapter's stick wins once it is past the dead zone, so one that drifts does not hide the other controller's.
+	const int gx = dead_zone(gc.lx), gy = dead_zone(gc.ly), gcx = dead_zone(gc.cx), gcy = dead_zone(gc.cy);
+	if (haveGc && (gx || gy)) { sx = gx; sy = gy; }
+	if (haveGc && (gcx || gcy)) { pcx = gcx; pcy = gcy; }
 	s.stickX    = (s8)(x ? x : sx);
 	s.stickY    = (s8)(y ? y : sy);
 	cx          = cx ? cx : pcx;
@@ -1095,6 +1237,12 @@ void fill_status(PADStatus& s, bool haveGc, const GcAdapterInput& gc)
 // adapter's ports join the same way, each port a controller.
 // The second player's Start held for 1.5 seconds leaves; pressed briefly, it
 // is controller 1's Start (the pause menu). Unplugging it leaves too.
+// While a stage is played, the first player's device stays theirs as long as
+// they play with it (kOwnerIdle): a second player trying their stick before
+// pressing Start (which moves Mario, as every controller but player 2's is
+// controller 1) does not make it the first player's, so their Start joins.
+// One controller seen as two (DS4Windows, BetterJoy, Steam Input beside the
+// controller itself) presses Start on both at once: such a Start never joins.
 const s32 kNoCtl = -1000, kGcFirst = -3, kGcSecond = -2, kVirtual = -4; // SDL instance ids are >= 0
 s32 g_p2 = kNoCtl;
 double g_p2StartAt;   // when its Start went down (0: up, or the press that joined)
@@ -1106,6 +1254,11 @@ int g_joinable;
 u32 g_gcSeen[2];
 bool g_gcStartWas[2];
 GcAdapterInput g_gcLast[2];
+double g_gcHeldAt[2], g_keyHeldAt; // when the adapter's ports, the keyboard and mouse were last played with
+s32 g_owner = kNoCtl;              // the first player's device (p1_controller)
+const double kOwnerIdle = 3.0;     // seconds of nothing from it before the device used last is theirs
+s32 g_joinPending = kNoCtl;        // a controller whose Start joins once no twin's comes with it
+const double kTwinWindow = 0.15;   // seconds apart two controllers' Starts are one press
 
 double now_seconds()
 {
@@ -1119,8 +1272,8 @@ bool gc_used_since(const GcAdapterInput& a, const GcAdapterInput& b)
 	return ((a.b1 & ~b.b1) & 0xFF) || ((a.b2 & ~b.b2) & 0x0E) || (moved > 40 && (abs(a.lx) > 50 || abs(a.ly) > 50 || abs(a.cx) > 50 || abs(a.cy) > 50));
 }
 
-// The controller the first player has in hand, or kNoCtl on the keyboard.
-s32 p1_controller()
+// The controller used last, or kNoCtl for the keyboard and mouse.
+s32 last_used()
 {
 	s32 best = kNoCtl;
 	u32 seen = g_keySeen;
@@ -1135,6 +1288,69 @@ s32 p1_controller()
 			best = p ? kGcSecond : kGcFirst;
 		}
 	return best;
+}
+
+// The controller the first player has in hand, or kNoCtl on the keyboard.
+s32 p1_controller() { return g_owner; }
+
+// Whether a controller is played with now: a button but Start, a stick pushed, a trigger.
+bool ctl_held(const Ctl& c)
+{
+	for (int k = 0; k < 21; k++)
+		if (c.btn[k] && k != kPadStart)
+			return true;
+	for (int k = 0; k < 4; k++)
+		if (abs(c.axis[k]) > 12000)
+			return true;
+	return c.axis[4] > 8000 || c.axis[5] > 8000;
+}
+
+bool gc_held(const GcAdapterInput& a)
+{
+	return (a.b1 & 0xFF) || (a.b2 & 0x0E) || abs(a.lx) > 50 || abs(a.ly) > 50 || abs(a.cx) > 50 || abs(a.cy) > 50;
+}
+
+double held_at(s32 who)
+{
+	if (who == kNoCtl)
+		return g_keyHeldAt;
+	if (who == kGcFirst || who == kGcSecond)
+		return g_gcHeldAt[who == kGcSecond];
+	const Ctl* c = ctl_of(who, false);
+	return c ? c->heldAt : 0.0;
+}
+
+// Once a PADRead: what each device is doing, and whose the first player's is.
+void update_owner(const bool gcHave[2], const GcAdapterInput gc[2], double t)
+{
+	for (int i = 0; i < kMaxCtl; i++)
+		if (g_ctl[i].used && ctl_held(g_ctl[i]))
+			g_ctl[i].heldAt = t;
+	for (int p = 0; p < 2; p++)
+		if (gcHave[p] && gc_held(gc[p]))
+			g_gcHeldAt[p] = t;
+	bool key = g_keySeen == g_reads; // a key or mouse button pressed, the mouse moved (mouse look)
+	for (int k = 0; k < kKeyCodes && !key; k++)
+		key = g_key[k];
+	if (key)
+		g_keyHeldAt = t;
+	const s32 last = last_used();
+	if (last != g_owner && (!g_joinable || g_owner == g_p2 || t - held_at(g_owner) >= kOwnerIdle)) {
+		if (g_joinable)
+			port_log("[pad] co-op: player 1 has %s now (theirs was idle)\n", last == kNoCtl ? "the keyboard" : "another controller");
+		g_owner = last;
+	}
+}
+
+// Another controller's Start went down with this one's: one controller seen twice.
+bool start_twin(const Ctl& c)
+{
+	for (int i = 0; i < kMaxCtl; i++) {
+		const Ctl& o = g_ctl[i];
+		if (o.used && o.which != c.which && o.startAt > 0 && fabs(o.startAt - c.startAt) < kTwinWindow)
+			return true;
+	}
+	return false;
 }
 
 void coop_join(s32 which)
@@ -1169,17 +1385,34 @@ void coop_update(const bool gcHave[2], const GcAdapterInput gc[2])
 	}
 	if (!g_coop)
 		return;
+	const double t = now_seconds();
+	for (int i = 0; i < kMaxCtl; i++)
+		if (g_ctl[i].used && g_ctl[i].btn[kPadStart] && !g_ctl[i].startWas)
+			g_ctl[i].startAt = t;
+	update_owner(gcHave, gc, t);
 	if (g_p2 != kNoCtl) { // still there?
 		bool there = g_p2 == kGcFirst ? gcHave[0] : g_p2 == kGcSecond ? gcHave[1] : g_p2 == kVirtual || ctl_of(g_p2, false);
 		if (!there)
 			coop_leave("its controller is gone");
 	}
-	if (g_p2 == kNoCtl && g_joinable && g_focused) {
+	if (g_joinPending != kNoCtl) { // joins once no other controller's Start came with its own
+		const Ctl* c = ctl_of(g_joinPending, false);
+		if (c && start_twin(*c))
+			port_log("[pad] co-op: controller %d's Start came with another controller's: one controller seen twice "
+			         "(DS4Windows, BetterJoy, Steam Input)? Not joining\n", (int)g_joinPending);
+		if (!c || !g_joinable || g_p2 != kNoCtl || start_twin(*c))
+			g_joinPending = kNoCtl;
+		else if (t - c->startAt >= kTwinWindow) {
+			g_joinPending = kNoCtl;
+			coop_join(c->which);
+		}
+	}
+	if (g_p2 == kNoCtl && g_joinPending == kNoCtl && g_joinable && g_focused) {
 		const s32 p1 = p1_controller();
-		for (int i = 0; i < kMaxCtl && g_p2 == kNoCtl; i++) {
+		for (int i = 0; i < kMaxCtl && g_joinPending == kNoCtl; i++) {
 			Ctl& c = g_ctl[i];
-			if (c.used && c.btn[kPadStart] && !c.startWas && c.which != p1)
-				coop_join(c.which);
+			if (c.used && c.btn[kPadStart] && !c.startWas && c.which != p1 && !start_twin(c))
+				g_joinPending = c.which;
 		}
 		for (int p = 0; p < 2 && g_p2 == kNoCtl; p++)
 			if (start[p] && !g_gcStartWas[p] && (p ? kGcSecond : kGcFirst) != p1)
@@ -1193,7 +1426,6 @@ void coop_update(const bool gcHave[2], const GcAdapterInput gc[2])
 		return;
 	const Ctl* c  = g_p2 >= 0 ? ctl_of(g_p2, false) : nullptr;
 	const bool down = c ? c->btn[kPadStart] : g_p2 == kGcFirst ? start[0] : start[1];
-	const double t = now_seconds();
 	if (down && !g_p2StartWas)
 		g_p2StartAt = t;
 	if (down && g_p2StartAt > 0 && t - g_p2StartAt >= 1.5) {
@@ -1221,7 +1453,9 @@ extern "C" unsigned port_coop_take_events(void)
 	g_coopEvents     = 0;
 	return e;
 }
-// Whether a controller other than the first player's is there to join with.
+// Whether a controller other than the first player's is there to join with:
+// one pressed already, or one connected but not pressed yet (SDL's controllers
+// are known here only once used).
 extern "C" int port_coop_can_join(void)
 {
 	if (!g_coop || g_p2 != kNoCtl)
@@ -1230,6 +1464,8 @@ extern "C" int port_coop_can_join(void)
 	for (int i = 0; i < kMaxCtl; i++)
 		if (g_ctl[i].used && g_ctl[i].which != p1)
 			return 1;
+	if (GXPC_ControllerCount && GXPC_ControllerCount() > (p1 >= 0 ? 1 : 0))
+		return 1;
 	GcAdapterInput gc;
 	return (gc_adapter_read(&gc) && kGcFirst != p1) || (gc_adapter_read_second(&gc) && kGcSecond != p1);
 }
@@ -1261,8 +1497,11 @@ extern "C" u32 PADRead(PADStatus* status)
 		autoInited = true;
 		autopress_init();
 		automouse_init();
+		autocontroller_init();
 	}
 	g_reads++;
+	if (g_reads - g_mouseTaken > kMouseKeepReads)
+		g_mouseDX = g_mouseDY = 0;
 	if (sms_gx_pump_events)
 		sms_gx_pump_events();
 	// GameCube adapter (gc_adapter.cpp): its first and second ports with a controller
@@ -1281,8 +1520,8 @@ extern "C" u32 PADRead(PADStatus* status)
 		for (int k = 0; k < 6; k++)
 			if (abs(c.axis[k]) > abs(g_axis[k]))
 				g_axis[k] = c.axis[k];
-		for (int k = 0; k < 21; k++)
-			g_cbtn[k] = g_cbtn[k] || c.btn[k];
+		for (int k = 0; k < 21; k++) // a Start about to join is not the pause menu's
+			g_cbtn[k] = g_cbtn[k] || (c.btn[k] && !(k == kPadStart && c.which == g_joinPending));
 	}
 	for (int i = 0; i < 4; i++) {
 		memset(&status[i], 0, sizeof status[i]);
@@ -1315,11 +1554,7 @@ extern "C" u32 PADRead(PADStatus* status)
 	if (hudKey && !wasHud && !hotkeysBlocked)
 		port_hud_settings_toggle();
 	wasHud = hudKey;
-	static bool wasFp;
-	const bool fpKey = held(C_FP);
-	if (fpKey && !wasFp && !hotkeysBlocked)
-		port_fp_toggle();
-	wasFp = fpKey;
+	update_fludd_trigger(blocked);
 	if (blocked)
 		return PAD_CHAN0_BIT;
 	// controller 1: the keyboard and every controller but the second player's,
@@ -1366,9 +1601,12 @@ extern "C" u32 PADRead(PADStatus* status)
 }
 
 // Mouse look: the motion since the last call, in C-stick units (1.0 is full
-// deflection for one frame), with the camera's inversion applied. Returns 0
-// when the mouse has not moved. The normal camera calls it once a frame, which
-// also moves the wheel's zoom along.
+// deflection for one frame), with Invert camera Y applied. Invert camera X is
+// left out: it flips the C-stick, whose right turns the view left as on the
+// GameCube, so that it turns the view as the mouse does. Returns 0 when the
+// mouse has not moved. The cameras the mouse turns (the normal, the Y close-up
+// and the coaster's) call it once a frame, which also moves the wheel's zoom
+// along; motion they leave is dropped (g_mouseTaken).
 // While split-screen co-op runs the second player's camera (ext/coop), the
 // mouse is the first player's: it gives that camera nothing.
 extern "C" int port_coop_in_p2 = 0;
@@ -1378,6 +1616,7 @@ extern "C" int port_camera_take_mouse(f32* dx, f32* dy)
 	*dx = *dy = 0.0f;
 	if (port_coop_in_p2)
 		return 0;
+	g_mouseTaken = g_reads;
 	if (port_camera_zoom != g_zoomGoal) {
 		port_camera_zoom += (g_zoomGoal - port_camera_zoom) * 0.25f;
 		if (fabsf(g_zoomGoal - port_camera_zoom) < 0.002f)
@@ -1391,8 +1630,6 @@ extern "C" int port_camera_take_mouse(f32* dx, f32* dy)
 	// moving the mouse right turns the view right, as the C-stick pushed left does
 	*dx = -(float)g_mouseDX * k;
 	*dy = -(float)g_mouseDY * k;
-	if (g_invert_cx)
-		*dx = -*dx;
 	if (g_invert_cy)
 		*dy = -*dy;
 	g_mouseDX = g_mouseDY = 0;
@@ -1418,7 +1655,7 @@ const char* percent_name(const PortValueList& l, int i)
 }
 
 // The launcher's values come from the standard steps, plus the one the game started with.
-PortValueList g_cameraSpeedList, g_mouseSensList, g_softTriggerList, g_rumbleList;
+PortValueList g_cameraSpeedList, g_mouseSensList, g_softTriggerList, g_deadzoneList, g_rumbleList, g_fluddTriggerList;
 
 int camera_speed_percent() { return (int)(port_camera_speed_x * 100.0f + 0.5f); }
 int mouse_sens_percent() { return (int)(g_mouseSens * 100.0f + 0.5f); }
@@ -1462,6 +1699,16 @@ const PortValueList& soft_trigger_list()
 		g_softTriggerList.build(steps, (int)(sizeof steps / sizeof steps[0]), soft_trigger_percent());
 	}
 	return g_softTriggerList;
+}
+
+const PortValueList& deadzone_list()
+{
+	static const int steps[] = { 0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50 };
+	if (!g_deadzoneList.built) {
+		init();
+		g_deadzoneList.build(steps, (int)(sizeof steps / sizeof steps[0]), g_stickDeadzone);
+	}
+	return g_deadzoneList;
 }
 
 const PortValueList& rumble_list()
@@ -1534,6 +1781,43 @@ int soft_trigger_set(int i)
 	return 1;
 }
 
+int deadzone_count() { return deadzone_list().n; }
+const char* deadzone_name(int i) { return percent_name(deadzone_list(), i); }
+int deadzone_get() { return deadzone_list().indexOf(g_stickDeadzone); }
+const PortValueList& fludd_trigger_list()
+{
+	static const int steps[] = { 0, 25, 50, 75, 100 };
+	if (!g_fluddTriggerList.built) {
+		init();
+		g_fluddTriggerList.build(steps, (int)(sizeof steps / sizeof steps[0]), g_fluddTrigger);
+	}
+	return g_fluddTriggerList;
+}
+int fludd_trigger_count() { return fludd_trigger_list().n; }
+const char* fludd_trigger_name(int i)
+{
+	const PortValueList& l = fludd_trigger_list();
+	return i >= 0 && i < l.n && l.v[i] == 0 ? "Off" : percent_name(l, i);
+}
+int fludd_trigger_get() { return fludd_trigger_list().indexOf(g_fluddTrigger); }
+int fludd_trigger_set(int i)
+{
+	const PortValueList& l = fludd_trigger_list();
+	if (i < 0 || i >= l.n)
+		return 0;
+	g_fluddTrigger = l.v[i];
+	return 1;
+}
+
+int deadzone_set(int i)
+{
+	const PortValueList& l = deadzone_list();
+	if (i < 0 || i >= l.n)
+		return 0;
+	g_stickDeadzone = l.v[i];
+	return 1;
+}
+
 int rumble_count() { return rumble_list().n; }
 const char* rumble_name(int i)
 {
@@ -1560,11 +1844,17 @@ const PortSetting kPadSettings[] = {
 	{ "softTrigger", PORT_SETTINGS_PAGE_CONTROLS, 10, "Soft Trigger Depth",
 	  "How far the soft L and R keys press, out of 100. Only if they are bound.", 0, NULL, soft_trigger_count,
 	  soft_trigger_name, soft_trigger_get, soft_trigger_set },
+	{ "stickDeadzone", PORT_SETTINGS_PAGE_CONTROLS, 15, "Stick Dead Zone",
+	  "How far a controller's sticks go before they move anything, out of 100. 15 is the console's.", 0, NULL,
+	  deadzone_count, deadzone_name, deadzone_get, deadzone_set },
 	{ "rumbleStrength", PORT_SETTINGS_PAGE_CONTROLS, 20, "Rumble Strength",
 	  "50 is the console's rumble, more runs it more often. Some adapters are on or off.", 0, NULL, rumble_count,
 	  rumble_name, rumble_get, rumble_set },
+	{ "fluddTrigger", PORT_SETTINGS_PAGE_CONTROLS, 25, "DualSense FLUDD Trigger",
+	  "On a DualSense, R2 gets harder to pull as you press it, while Mario has FLUDD. Off by default.", 0,
+	  NULL, fludd_trigger_count, fludd_trigger_name, fludd_trigger_get, fludd_trigger_set },
 	{ "invertCameraX", PORT_SETTINGS_PAGE_GAMEPLAY, 50, "Invert Camera X",
-	  "Flips the C-stick and mouse look left and right.", 0, NULL, off_on_count, off_on_name, invert_x_get,
+	  "Flips the C-stick left and right. The mouse turns the view the way it moves.", 0, NULL, off_on_count, off_on_name, invert_x_get,
 	  invert_x_set },
 	{ "invertCameraY", PORT_SETTINGS_PAGE_GAMEPLAY, 55, "Invert Camera Y",
 	  "Flips the C-stick and mouse look up and down.", 0, NULL, off_on_count, off_on_name, invert_y_get,
@@ -1582,7 +1872,7 @@ const PortSetting kPadSettings[] = {
 	  "How fast the C-stick turns the camera. 100 is the original speed.", 0, NULL, camera_speed_count,
 	  camera_speed_name, camera_speed_get, camera_speed_set },
 	{ "closeCameraMouse", PORT_SETTINGS_PAGE_GAMEPLAY, 82, "Mouse Aim in Mario Cam",
-	  "With mouse look on, the mouse turns the close-up view Y opens, and aims FLUDD in it.", 0, NULL,
+	  "With mouse look on, the mouse aims FLUDD in the close-up view Y opens, and when you spray in place.", 0, NULL,
 	  off_on_count, off_on_name, close_mouse_get, close_mouse_set },
 	{ "mouseSensitivity", PORT_SETTINGS_PAGE_GAMEPLAY, 85, "Mouse Sensitivity",
 	  "How fast mouse look turns the camera, when mouse look is on. 100 is normal.", 0, NULL, mouse_sens_count,

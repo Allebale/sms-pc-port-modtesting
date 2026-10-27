@@ -43,6 +43,10 @@ typedef struct PortSaveStatePortable {
 	int32_t area, episode; // TGameSequence (gpApplication.mCurrArea)
 	float pos[3], vel[3], forwardVel;
 	int16_t faceAngle[3];
+	// The file it was saved from, 1 to 3 (A to C); 0 unknown: a state saved at
+	// the title, or before states kept it (this byte was padding, always 0).
+	int8_t saveFile;
+	uint8_t reserved0;
 	uint32_t status, statusArg; // TMario::mStatus and the argument it was entered with
 	int16_t health;
 	int32_t water;                // FLUDD's tank
@@ -153,7 +157,7 @@ typedef struct PortSaveStateHint {
 } PortSaveStateHint;
 void port_savestate_hint(PortSaveStateHint* out);
 // platform/pad: SAVE_STATE's first binding as `style` names it (0 keyboard,
-// 1 Xbox, 2 PlayStation, 3 Steam Deck); the number of parts.
+// 1 Xbox, 2 PlayStation, 3 Steam Deck, 4 Nintendo); the number of parts.
 int port_pad_savestate_labels(int style, char labels[2][16]);
 
 #ifdef __cplusplus

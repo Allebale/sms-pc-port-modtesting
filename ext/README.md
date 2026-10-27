@@ -10,7 +10,9 @@ They are the start of a code-mod framework for the port: a new feature that need
 | [`coop/`](coop/README.md) | split-screen co-op: a second player on another controller, as Luigi, with a camera and half of the screen of their own |
 | [`demo/`](demo/README.md) | plays Mario from a script, as a player holds the controller, for trailers and footage |
 | [`autosave/`](autosave/README.md) | saves by itself where the game would ask to save, with an indicator and the save sound |
+| [`dualsense/`](dualsense/README.md) | a DualSense's R2 gets harder to pull while it is FLUDD's trigger |
 | [`outfit/`](outfit/README.md) | Mario always wears his Shine shirt, his sunglasses, or both (the launcher's Customize Mario) |
+| [`look/`](look/README.md) | Customize Mario's colours stay on Mario: Eclipse's Luigi and Il Piantissimo keep their own mouth |
 | [`pipelinecache/`](pipelinecache/README.md) | saves the Vulkan pipeline cache in pauses and loads, not in play |
 | [`achievements/`](achievements/README.md) | the game's achievements: unlocked as you play, kept per player, announced to the launcher |
 | [`modapi/`](modapi/README.md) | native mods: loads mods from `mods/` (shared libraries) and turns these hooks into their events ([MODDING.md](https://github.com/chasem-dev/sms-mod-sdk/blob/main/docs/MODDING.md)) |
@@ -53,6 +55,7 @@ An extension fills in a `PortExtension` with the hooks it needs, leaving the res
 | `shineModel` | a `TShine` is about to make its model (`TShine::makeMActors`) | register a model in the given keeper and return its name for the Shine to take |
 | `yoshiEgg` | whether Yoshi's egg is there (`TEggYoshi::load`, the plaza's egg event in `TMarDirector::setupObjects`; `PORT_EGG_*`) | change it |
 | `fileStarting` | a file chosen at file select is about to start (`TCardLoad`'s last step, before `setNextStage`), each frame until it does, with its file and whether it is a new game | return 1 to wait this frame (the file select stays as it is) |
+| `fileMenu` | a save file's menu at file select (START, COPY, ERASE, SCORE: `TCardLoad::selectFunction`) opened, taking the player's choice, or closed with the item chosen (-1 none), before the game acts on it; whether the file is empty (`zzzzz-ext-31`) | note it (a mod's own screen over an empty file's menu) |
 | `episodeShine` | the episode select and the pause menu ask which Shine an episode stands for | change it |
 | `fluddRefill` | FLUDD is about to fill up: from the water around (`TWaterGun::suck`), a bottle, fruit or 1-up, or a barrel's hip drop (`PORT_REFILL_*`, and the item or barrel; `zzzzz-ext-26`) | return 1 to stop it |
 | `chooseStageLoad`, `stageLoading` | a stage is about to load, its episode chosen (`TApplication`'s `APP_STATE_GAMEPLAY`: after a world's episode select, after `moveStage` picks the plaza's episode), before the movie it opens with; once a load, every `chooseStageLoad` before any `stageLoading` (given the stage the game chose) | load another (`port_ext_load_instead`) or change `mPrevArea`, where Mario comes from (multiplayer's host sends the players where its mods chose, a travelling client loads the host's) |

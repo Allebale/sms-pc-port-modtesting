@@ -233,6 +233,9 @@ void platformRequestDisplay(int index);
 bool platformMouseLook();
 void platformRequestMouseLook(bool on);
 bool platformRawMouse();
+// Why the Vulkan renderer asked for (SMS_GX_BACKEND=vulkan) is not drawing, or
+// "" when it is or was not asked for (gx_platform.cpp).
+const char* vulkanMissing();
 bool platformRawMouseMatters();
 void platformRequestRawMouse(bool on);
 // FSR 1 and NIS modes (0 native, 1 quality, 2 balanced, 3 performance, 4 ultra performance): the one
@@ -330,6 +333,12 @@ bool hiresLog();
 std::string hiresName(const uint8_t* data, uint32_t fmt, uint32_t w, uint32_t h, bool mipmapped, const uint8_t* tlut,
                       uint32_t tlutBytes, bool onlyIfPresent);
 unsigned hiresTexture(const std::string& name, int unit, uint32_t gxW, uint32_t gxH, int* scale);
+// `name`'s replacement is Mario's look's (SMS_MARIO_LOOK), not a texture pack's.
+bool hiresIsLook(const std::string& name);
+// The name of a texture pack's own image for `name`, one of Mario's look's
+// names, to show a copy kept out of the look (GXPC_SetTexturePlain); empty if
+// no pack has one.
+std::string hiresPackName(const std::string& name);
 // The share of a decoded level's texels (RGBA8) at or above alpha 128.
 float alphaCoverage(const uint8_t* rgba, size_t texels);
 // Before a replacement is asked for: alphaCoverage of each of its original's
@@ -360,6 +369,11 @@ void encodeBlock(int format, const uint8_t* rgba, uint8_t* out);
 // (0 A, 1 B, 2 X, 3 Y, 4 Z, 5 L, 6 R, 7 C-stick) in the style shown now, with
 // that style's id in *style; null to keep the game's own picture.
 const uint8_t* promptImage(int glyph, int* style);
+// SMS_NINTENDO_LAYOUT: every controller has Nintendo's letters (A right, B
+// bottom), so SDL controllers other than Switch ones (nintendoController, an
+// SDL_GameControllerType) have A and B, and X and Y, swapped as they are read.
+bool nintendoLayout();
+bool nintendoController(int sdlType);
 
 // ---------------------------------------------------------------- shaders (gx_shader.cpp)
 // The uniform values a program was last given (uploadUniforms skips the ones

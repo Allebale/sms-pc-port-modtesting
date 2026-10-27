@@ -131,6 +131,11 @@ void sms_gx_pump_events(void);
 int sms_gx_rumble(unsigned short strength);
 /* At exit: stops that thread and every controller's rumble. */
 void sms_gx_rumble_shutdown(void);
+/* The DualSense FLUDD trigger (platform/pad, SMS_FLUDD_TRIGGER): on the controller
+ * last used, if it is a DualSense, R2 gets harder to pull along its travel, up to
+ * `level` (1 to 8) at the end; 0 lets it go. Sent only when the level or the
+ * controller changes.  Returns 1 if the controller in use takes it. */
+int sms_gx_fludd_trigger(int level);
 
 /* Call once with an OpenGL 3.3 core context current (SDL, EGL, ...), before the
  * game calls GXInit.  efbScale multiplies the 640x528 EFB (1 = native; FSR 1's
@@ -321,7 +326,16 @@ const char* GXPC_KeyName(int scancode);
 // own, such as multiplayer's players, each in their own colours. Any thread:
 // the picture is copied, and uploaded the next time the texture is drawn.
 void GXPC_SetTextureOverride(const void* data, size_t bytes, const uint8_t* rgba, int w, int h);
-// Drops every such picture (a stage's memory is let go).
+// The texture whose data is at `data` drawn as it is (a texture pack's picture
+// for it too), never Mario's look (SMS_MARIO_LOOK), whose pictures would find
+// a copy of Mario's textures by their data as well: another player's, with no
+// picture of theirs. Dropped as a picture is (GXPC_SetTextureOverride with
+// NULL `rgba`, or the data changing).
+void GXPC_SetTexturePlain(const void* data, size_t bytes);
+// Whether the texture at `data` is still drawn plain (GXPC_SetTexturePlain): not
+// since dropped, or its data changed.
+int GXPC_TextureIsPlain(const void* data, size_t bytes);
+// Drops every such picture, and every plain texture (a stage's memory is let go).
 void GXPC_ClearTextureOverrides(void);
 
 /* Statistics for the current frame (reset by GXCopyDisp). */

@@ -94,6 +94,12 @@ uint32_t s_frame = 0;
 // (src/vk), on Vulkan; when Vulkan cannot start, OpenGL as usual.
 int s_wantVulkan = -1;  // -1: from the environment
 bool s_vulkan = false;  // the backend in use is Vulkan
+// Why the Vulkan asked for is not what draws ("" while it is, or OpenGL was
+// asked for). OpenGL can be much slower on the same computer (a laptop's GPU
+// on Windows), and players only see that the game got slower, so besides the
+// log it is a notice in the window for a while (showVulkanNotice) and a line in
+// the debug overlay (gx::vulkanMissing).
+std::string s_vulkanMissing;
 bool wantVulkan() {
     if (s_wantVulkan < 0) {
         const char* e = getenv("SMS_GX_BACKEND");
@@ -106,6 +112,7 @@ bool wantVulkan() {
     if (s_wantVulkan == 1 && !told) {
         told = true;
         gx::logmsg("Vulkan was asked for, but this build has no Vulkan backend; OpenGL instead");
+        s_vulkanMissing = "this build has no Vulkan backend";
     }
     return false;
 #endif
@@ -508,6 +515,27 @@ static float fsrScale(float scale, float outW, float outH) {
     return s;
 }
 
+// The notice for s_vulkanMissing, at the top of the window for its first
+// kVulkanNoticeSeconds (expireVulkanNotice takes it down), unless something else's notice
+// (multiplayer's) has replaced it by then. The overlay's font is ASCII only.
+const double kVulkanNoticeSeconds = 20.0;
+double s_vulkanNoticeUntil = 0;
+std::string s_vulkanNotice;
+void showVulkanNotice() {
+    if (s_vulkanMissing.empty() || !s_vulkanNotice.empty()) return;
+    s_vulkanNotice = s_vulkanMissing == "this build has no Vulkan backend"
+        ? "Vulkan isn't built into this game, so it is drawing with OpenGL, which can be much slower.\n"
+          "Build the game again for Vulkan: in SMS Launcher, Settings > Manage game > Rebuild game."
+        : "The game is drawing with OpenGL, which can be slower than the Vulkan you chose.\n" + s_vulkanMissing.substr(0, 160);
+    GXPC_ExtOverlaySet(GXPC_EXT_OVERLAY_NOTICE, s_vulkanNotice.c_str());
+    s_vulkanNoticeUntil = nowSeconds() + kVulkanNoticeSeconds;
+}
+void expireVulkanNotice() {
+    if (s_vulkanNoticeUntil == 0 || nowSeconds() < s_vulkanNoticeUntil) return;
+    s_vulkanNoticeUntil = 0;
+    gx::extOverlayClearIf(GXPC_EXT_OVERLAY_NOTICE, s_vulkanNotice);
+}
+
 bool openWindow(float scale, bool vulkan) {
 #ifdef SDL_HINT_WINDOWS_DPI_SCALING
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "1");
@@ -529,6 +557,8 @@ bool openWindow(float scale, bool vulkan) {
         SDL_SetHintWithPriority("SDL_HIDAPI_IGNORE_DEVICES", list, SDL_HINT_OVERRIDE);
     }
     SDL_SetHint("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
+    // Switch controllers' buttons by their letters (SDL 2's default, kept): A is the right-hand one.
+    SDL_SetHint("SDL_GAMECONTROLLER_USE_BUTTON_LABELS", "1");
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER) != 0) {
         logmsg("SDL_Init failed: %s", SDL_GetError());
         snprintf(s_windowError, sizeof s_windowError, "%s", SDL_GetError());
@@ -734,6 +764,7 @@ bool openWindow(float scale, bool vulkan) {
         logmsg("window %dx%d centered on display %d (%s), internal resolution scale %g, %s ready",
                layout.w, layout.h, display, s_videoDriver, scale, vulkan ? "Vulkan device" : "OpenGL context");
     s_windowFailure = WF_NONE;
+    if (!vulkan) showVulkanNotice();
     s_mouseCamera = !getenv("SMS_MOUSE_CAMERA") || !*getenv("SMS_MOUSE_CAMERA") || envTrue("SMS_MOUSE_CAMERA");
     s_rawMouse = !getenv("SMS_MOUSE_RAW") || !*getenv("SMS_MOUSE_RAW") || envTrue("SMS_MOUSE_RAW");
     if (!s_rawMouse)
@@ -799,6 +830,7 @@ bool openWindowAnyBackend(float scale) {
         if (openWindow(scale, true)) return true;
         if (s_windowFailure != WF_WINDOW) return false;
         logmsg("Vulkan could not start (%s); OpenGL instead", s_windowError);
+        s_vulkanMissing = std::string("Vulkan could not start: ") + s_windowError;
     }
     if (openWindow(scale, false)) return true;
 #if !defined(_WIN32) && !defined(__APPLE__)
@@ -927,6 +959,8 @@ void onDisplayCopy(const void* xfb) {
 }  // namespace
 
 namespace gx {
+const char* vulkanMissing() { return s_vulkanMissing.c_str(); }
+
 // GXPC_Shutdown: the GL thread ends and the context is current on the
 // calling thread again, so the caller may destroy it.
 void releaseGlThread() {
@@ -1258,6 +1292,7 @@ int GXPC_InitAuto(float efbScale) {
             return 1;
         }
         logmsg("headless: Vulkan could not start; OpenGL instead");
+        s_vulkanMissing = "Vulkan could not start";
     }
 #endif
 #ifdef SMS_GX_HAVE_EGL
@@ -1374,6 +1409,39 @@ static bool modKeyEvent(const SDL_Event& ev) {
 
 extern "C" void GXPC_NoteInputDevice(int controller, int sdlType, const char* name);
 
+// The controllers connected, pressed yet or not (split-screen co-op's hint, platform/pad).
+extern "C" int GXPC_ControllerCount(void) { return int(s_pads.size()); }
+
+// A multiplayer guest (SMS_MULTIPLAYER=join): the warp and cheat menus are the
+// host's, as the stage and the game's rules are (a guest's warp left the others).
+static bool multiplayerGuest() {
+    static const bool guest = [] {
+        const char* e = getenv("SMS_MULTIPLAYER");
+        return e && !strcmp(e, "join");
+    }();
+    return guest;
+}
+static void guestMenuRefused(const char* menu) {
+    static bool told[2];
+    bool& t = told[menu[0] == 'c'];
+    if (!t) logmsg("multiplayer: the %s menu is the host's; not opening it in a joined game", menu);
+    t = true;
+}
+
+// With SMS_NINTENDO_LAYOUT, a controller printed like Nintendo's that SDL reads
+// as another kind has its A and B, and X and Y, swapped here, before anything
+// reads the event, so the button marked A is A everywhere (the game, its menus).
+// Switch controllers are read by their letters already, and a Steam Deck's own
+// controls are printed like an Xbox pad's.
+static void nintendoLetters(SDL_Event& ev) {
+    if (ev.type != SDL_CONTROLLERBUTTONDOWN && ev.type != SDL_CONTROLLERBUTTONUP) return;
+    if (ev.cbutton.button > SDL_CONTROLLER_BUTTON_Y || !nintendoLayout()) return;
+    for (const Pad& p : s_pads)
+        if (p.id == ev.cbutton.which && (nintendoController(p.type) || p.name.find("Steam Deck") != std::string::npos))
+            return;
+    ev.cbutton.button ^= 1;  // A 0 <-> B 1, X 2 <-> Y 3
+}
+
 // Tell the button prompts which device the player last used: a key, mouse
 // click or mouse movement means keyboard and mouse; a button or a stick pushed
 // well off centre means that controller.
@@ -1398,6 +1466,7 @@ void sms_gx_pump_events(void) {
 #ifdef SMS_GX_HAVE_SDL2
     if (s_mode != MODE_WINDOW) return;
     applyWindowRequests();
+    expireVulkanNotice();
     // Controllers are read over SDL's joystick lock, which the rumble thread
     // holds through a send: during one, only the events already queued are
     // handled, and the rest wait for the next frame instead of the game.
@@ -1407,6 +1476,7 @@ void sms_gx_pump_events(void) {
     }
     SDL_Event ev;
     while (SDL_PeepEvents(&ev, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT) > 0) {
+        nintendoLetters(ev);
         if (!menuVisible()) noteInputDevice(ev);
         switch (ev.type) {
         case SDL_CONTROLLERDEVICEADDED:
@@ -1415,6 +1485,8 @@ void sms_gx_pump_events(void) {
                     const char* name = SDL_GameControllerName(c);
                     s_pads.push_back({c, SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(c)),
                                       int(SDL_GameControllerGetType(c)), name ? name : ""});
+                    // in the log, so one controller seen twice (a remapper's beside it) shows
+                    logmsg("controller %d connected: %s", int(s_pads.back().id), name ? name : "(no name)");
                     if (s_rumblePad < 0) s_rumblePad = s_pads.back().id;
                 }
             }
@@ -1450,7 +1522,9 @@ void sms_gx_pump_events(void) {
         }
         // F9 opens and closes the cheat menu and is kept from the pad layer
         if ((ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) && ev.key.keysym.scancode == SDL_SCANCODE_F9) {
-            if (ev.type == SDL_KEYDOWN && !ev.key.repeat) {
+            if (ev.type == SDL_KEYDOWN && !ev.key.repeat && multiplayerGuest() && !cheatMenuVisible()) {
+                guestMenuRefused("cheat");
+            } else if (ev.type == SDL_KEYDOWN && !ev.key.repeat) {
                 if (warpMenuVisible()) warpMenuToggle();
                 cheatMenuToggle();
                 syncMenuInput();
@@ -1468,7 +1542,9 @@ void sms_gx_pump_events(void) {
             bool& held = s_warpToggleHeld[warpButton];
             const bool down = ev.type == SDL_KEYDOWN || ev.type == SDL_CONTROLLERBUTTONDOWN;
             const bool repeat = warpKey && ev.key.repeat;
-            if (down && !repeat && (warpMenuVisible() || GXPC_OverlayVisible())) {
+            if (down && !repeat && !warpMenuVisible() && GXPC_OverlayVisible() && multiplayerGuest()) {
+                guestMenuRefused("warp");
+            } else if (down && !repeat && (warpMenuVisible() || GXPC_OverlayVisible())) {
                 if (cheatMenuVisible()) cheatMenuToggle();
                 warpMenuToggle();
                 syncMenuInput();
@@ -1658,8 +1734,75 @@ int sms_gx_rumble(unsigned short strength) {
 #endif
 }
 
+#ifdef SMS_GX_HAVE_SDL2
+namespace {
+// The adaptive trigger effect, through SDL's PS5 driver: SDL_GameControllerSendEffect takes the
+// output report's effect block (SDL's DS5EffectsState_t, 47 bytes; SDL fills in the report's header
+// for USB or Bluetooth). Its first byte says which parts to change (0x04: the right trigger's
+// effect), and the right trigger's effect is the 11 bytes from byte 10. Effect 0x21 ("feedback") sets
+// a resistance for each tenth of the trigger's travel, 1 to 8 (stored as 0 to 7, three bits each)
+// with a bit per tenth that has one; effect 0x05 is none.
+bool sendFluddTrigger(SDL_JoystickID pad, int level) {
+#if SDL_VERSION_ATLEAST(2, 0, 16)
+    SDL_GameController* c = nullptr;
+    for (const Pad& p : s_pads)
+        if (p.id == pad && p.type == SDL_CONTROLLER_TYPE_PS5) c = p.c;
+    if (!c) return false;
+    Uint8 effect[47] = {};
+    effect[0] = 0x04;
+    Uint8* right = effect + 10;
+    if (level <= 0) {
+        right[0] = 0x05;
+    } else {
+        // harder along the travel: a light pull is light, the end is `level`
+        Uint32 forces = 0;
+        for (int zone = 0; zone < 10; zone++) {
+            const int force = SDL_max(1, (level * (zone + 1) + 5) / 10);
+            forces |= Uint32(force - 1) << (3 * zone);
+        }
+        right[0] = 0x21;
+        right[1] = 0xFF;  // all ten tenths
+        right[2] = 0x03;
+        for (int i = 0; i < 4; i++) right[3 + i] = Uint8(forces >> (8 * i));
+    }
+    std::lock_guard<std::mutex> l(s_padLock);
+    return SDL_GameControllerSendEffect(c, effect, int(sizeof effect)) == 0;
+#else
+    (void)pad;
+    (void)level;
+    return false;
+#endif
+}
+int s_fluddTriggerLevel = 0;
+SDL_JoystickID s_fluddTriggerPad = -1;
+}  // namespace
+#endif
+
+int sms_gx_fludd_trigger(int level) {
+#ifdef SMS_GX_HAVE_SDL2
+    level = level < 0 ? 0 : level > 8 ? 8 : level;
+    const SDL_JoystickID pad = s_rumblePad;
+    static bool taken;
+    if (level == s_fluddTriggerLevel && pad == s_fluddTriggerPad) return taken;
+    // a controller put down keeps no resistance
+    if (s_fluddTriggerLevel && s_fluddTriggerPad >= 0 && s_fluddTriggerPad != pad)
+        sendFluddTrigger(s_fluddTriggerPad, 0);
+    const bool was = taken;
+    taken = pad >= 0 && sendFluddTrigger(pad, level);
+    if (level && taken && (!was || pad != s_fluddTriggerPad))
+        logmsg("DualSense FLUDD trigger on controller %d", int(pad));
+    s_fluddTriggerLevel = level;
+    s_fluddTriggerPad = pad;
+    return taken;
+#else
+    (void)level;
+    return 0;
+#endif
+}
+
 void sms_gx_rumble_shutdown(void) {
 #ifdef SMS_GX_HAVE_SDL2
+    if (s_fluddTriggerLevel) sms_gx_fludd_trigger(0);
     {
         std::lock_guard<std::mutex> l(s_rumble.lock);
         if (!s_rumble.started) return;
