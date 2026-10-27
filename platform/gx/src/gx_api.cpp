@@ -602,7 +602,7 @@ void GXSetProjection(f32 mtx[4][4], GXProjectionType type) {
     GXSetProjectionv(p);
 }
 void GXSetProjectionv(f32* ptr) {
-    // God Rays and Lens Flare: the main camera's 3D scene ends as a 2D (orthographic) projection
+    // God Rays: the main camera's 3D scene ends as a 2D (orthographic) projection
     // follows it (the HUD, the screen's overlays): onto it, before they are drawn
     if (g.sunArmed && ptr[0] != 0.0f && memcmp(g.projection, g.sunProj, sizeof g.sunProj) == 0) {
         flushBatch();

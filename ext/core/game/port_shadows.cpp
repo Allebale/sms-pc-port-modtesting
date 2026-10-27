@@ -117,21 +117,20 @@ void port_shadows_main_view(void* camera, float (*view)[4])
 	if (camera != (void*)gpCamera || !view)
 		return;
 	port_lights_view(view);  // Fire Lights, seen from the main camera
-	// God Rays and Lens Flare: the stage's sun (where its model is, while it shows), in this view
+	// God Rays: the stage's sun (where its model is, while it shows), in this view
 	{
-		static const f32 kRays[]  = {0.0f, 0.45f, 0.8f, 1.3f};
-		static const f32 kFlare[] = {0.0f, 0.4f, 0.75f, 1.2f};
-		const int rays = port_god_rays(), flare = port_lens_flare();
-		const f32 r = kRays[rays < 0 || rays > 3 ? 0 : rays], f = kFlare[flare < 0 || flare > 3 ? 0 : flare];
-		if ((r > 0.0f || f > 0.0f) && gpSunModel && gpSunMgr && gpSunMgr->unk14) {
+		static const f32 kRays[] = {0.0f, 0.45f, 0.8f, 1.3f};
+		const int rays           = port_god_rays();
+		const f32 r              = kRays[rays < 0 || rays > 3 ? 0 : rays];
+		if (r > 0.0f && gpSunModel && gpSunMgr && gpSunMgr->unk14) {
 			const JGeometry::TVec3<f32>& p = gpSunModel->mPosition;
 			f32 v[3];
 			for (int k = 0; k < 3; k++)
 				v[k] = view[k][0] * p.x + view[k][1] * p.y + view[k][2] * p.z + view[k][3];
 			static const f32 kColor[3] = {1.0f, 0.88f, 0.66f};  // warm sunlight
-			GXPC_SunFrame(v, r, f, kColor);
+			GXPC_SunFrame(v, r, kColor);
 		} else {
-			GXPC_SunFrame(0, 0.0f, 0.0f, 0);
+			GXPC_SunFrame(0, 0.0f, 0);
 		}
 	}
 	const int level = port_shadows();
