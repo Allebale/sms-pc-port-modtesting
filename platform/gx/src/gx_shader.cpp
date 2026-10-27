@@ -122,7 +122,7 @@ in vec2 a_tex0; in vec2 a_tex1; in vec2 a_tex2; in vec2 a_tex3;
 in vec2 a_tex4; in vec2 a_tex5; in vec2 a_tex6; in vec2 a_tex7;
 in uvec3 a_mtx;
 out vec4 v_c0; out vec4 v_c1;
-out vec3 v_wn; out vec3 v_wp; out vec3 v_wl; out vec3 v_wlc;
+out vec3 v_wn; out vec3 v_wp; out vec3 v_wl; out vec3 v_wlc; out vec3 v_mp;
 out vec3 v_tc0; out vec3 v_tc1; out vec3 v_tc2; out vec3 v_tc3;
 out vec3 v_tc4; out vec3 v_tc5; out vec3 v_tc6; out vec3 v_tc7;
 float X(int i) { return uintBitsToFloat(xf[i >> 2][i & 3]); }
@@ -279,7 +279,7 @@ static std::string genVS(const ShaderKey& k) {
         }
     }
     // Wet Mario: what the fragment shader needs (its normal and position in view space, its lights)
-    s += "  v_wn = N; v_wp = vpos; v_wl = wdir; v_wlc = min(wcol, vec3(1.0));\n";
+    s += "  v_wn = N; v_wp = vpos; v_wl = wdir; v_wlc = min(wcol, vec3(1.0)); v_mp = a_pos;\n";
     s += "  v_c0 = col0;\n  v_c1 = col1;\n";
 
     // texgen
@@ -351,7 +351,11 @@ static std::string genVS(const ShaderKey& k) {
 // ------------------------------------------------------------------ fragment shader
 static const char* kFsHeader = R"(#version 330 core
 in vec4 v_c0; in vec4 v_c1;
-in vec3 v_wn; in vec3 v_wp; in vec3 v_wl; in vec3 v_wlc;
+// Sandy Mario (gx_api.cpp GXPC_SetSand): [0] the plane at his feet (up, in the view); [1] his feet's
+// sand's height, and how much of his feet's, front's and back's is left; [2] the way he faces, his
+// back's height
+uniform vec4 u_sand[3];
+in vec3 v_wn; in vec3 v_wp; in vec3 v_wl; in vec3 v_wlc; in vec3 v_mp;
 uniform vec4 u_wet[2];
 uniform vec4 u_shadow[12];
 uniform sampler2DShadow u_shadowMap;
@@ -635,6 +639,35 @@ static std::string genFS(const ShaderKey& k) {
          "      color.rgb = clamp(c + w * (0.3 * sl * lc + 0.08 * ss + 0.06 * fr), 0.0, 1.0);\n"
          "    }\n"
          "  }\n"
+         // Sandy Mario (u_sand[1].yzw, 0 none): where his body touched sand, a patchy, grainy coat of
+         // it (by a hash of the point in his model, so that it stays on him): his feet up to their
+         // height, his front (facing his way) to his chest, his back (facing away) to its height;
+         // sand's colour, lit as what it covers, with darker grains
+         "  if (u_sand[1].y + u_sand[1].z + u_sand[1].w > 0.0) {\n"
+         "    float h = dot(u_sand[0].xyz, v_wp) + u_sand[0].w;\n"
+         "    float fwd = dot(normalize(v_wn), u_sand[2].xyz);\n"
+         "    float a = u_sand[1].y * (1.0 - smoothstep(u_sand[1].x * 0.6, u_sand[1].x, h));\n"
+         "    a = max(a, u_sand[1].z * smoothstep(0.05, 0.45, fwd) * (1.0 - smoothstep(110.0, 145.0, h)));\n"
+         "    a = max(a, u_sand[1].w * smoothstep(0.05, 0.45, -fwd) * (1.0 - smoothstep(u_sand[2].w * 0.75, u_sand[2].w, h)));\n"
+         "    if (a > 0.0) {\n"
+         "      vec3 q = v_mp * 0.18;\n"
+         "      vec3 c0 = floor(q), f = fract(q);\n"
+         "      f = f * f * (3.0 - 2.0 * f);\n"
+         "      float n = mix(mix(mix(fract(sin(dot(c0, vec3(12.9898, 78.233, 37.719))) * 43758.55),\n"
+         "                            fract(sin(dot(c0 + vec3(1, 0, 0), vec3(12.9898, 78.233, 37.719))) * 43758.55), f.x),\n"
+         "                        mix(fract(sin(dot(c0 + vec3(0, 1, 0), vec3(12.9898, 78.233, 37.719))) * 43758.55),\n"
+         "                            fract(sin(dot(c0 + vec3(1, 1, 0), vec3(12.9898, 78.233, 37.719))) * 43758.55), f.x), f.y),\n"
+         "                    mix(mix(fract(sin(dot(c0 + vec3(0, 0, 1), vec3(12.9898, 78.233, 37.719))) * 43758.55),\n"
+         "                            fract(sin(dot(c0 + vec3(1, 0, 1), vec3(12.9898, 78.233, 37.719))) * 43758.55), f.x),\n"
+         "                        mix(fract(sin(dot(c0 + vec3(0, 1, 1), vec3(12.9898, 78.233, 37.719))) * 43758.55),\n"
+         "                            fract(sin(dot(c0 + vec3(1, 1, 1), vec3(12.9898, 78.233, 37.719))) * 43758.55), f.x), f.y), f.z);\n"
+         "      float grain = fract(sin(dot(floor(v_mp * 1.6), vec3(41.3, 289.1, 97.7))) * 15731.7);\n"
+         "      float cover = a * smoothstep(0.35, 0.75, n + a * 0.25);\n"
+         "      float lum = dot(color.rgb, vec3(0.299, 0.587, 0.114));\n"
+         "      vec3 sandy = vec3(0.88, 0.77, 0.56) * clamp(lum * 0.7 + 0.5, 0.45, 1.0) * (grain > 0.82 ? 0.72 : 1.0);\n"
+         "      color.rgb = mix(color.rgb, sandy, clamp(cover * 0.9, 0.0, 0.9));\n"
+         "    }\n"
+         "  }\n"
          // Shadows (u_shadow[9].x, 0 off; u_shadow[10].w, 1 for the main camera's view): where the
          // sun's light is blocked, the surface darker. The face's own normal (from the position's
          // slopes, whatever the model has), turned to the camera; only faces toward the sun; the
@@ -756,6 +789,7 @@ static void setupProgram(GLuint p, ShaderProgram& sp, bool aside = false) {
     sp.uShadow = glGetUniformLocation(p, "u_shadow");
     sp.uPlight = glGetUniformLocation(p, "u_plight");
     sp.uSway = glGetUniformLocation(p, "u_sway");
+    sp.uSand = glGetUniformLocation(p, "u_sand");
     GLint shadowMap = glGetUniformLocation(p, "u_shadowMap");
     if (shadowMap >= 0) glUniform1i(shadowMap, kShadowUnit);
     GLint loc = glGetUniformLocation(p, "u_tex");

@@ -118,6 +118,8 @@ struct State {
     // God Rays (gx_render.cpp sunApply): armed for the main camera's projection each frame
     float sunProj[7];
     bool sunArmed;
+    // Sandy Mario (GXPC_SetSand): the sand on what is drawn now (u_sand; [5..7] 0: none)
+    float sand[12];
     // Moving Vegetation (GXPC_SwayFrame, GXPC_SwayRegister; gx_render.cpp): the wind and what
     // pushes plants aside, in the world (set each tick) and in the view they were last taken
     // into (u_sway: up, wind and time, the plant's shape, six pushers, their count); a plant's
@@ -400,12 +402,13 @@ struct UniformCache {
     float shadow[48];
     float plight[68];
     float sway[44];
+    float sand[12];
 };
 struct ShaderProgram {
     unsigned prog;
     int id;  // creation order; SMS_GX_DUMP_SHADERS=dir writes dir/prog<id>.vs/.fs
     int uTevReg, uKonst, uTexScale, uAlphaRef, uFog, uFogColor, uIndMtx, uTexSize, uEfb,
-        uProj, uViewport, uAmbMat, uDstAlpha, uLineWidth, uUserClip, uWet, uShadow, uPlight, uSway;
+        uProj, uViewport, uAmbMat, uDstAlpha, uLineWidth, uUserClip, uWet, uShadow, uPlight, uSway, uSand;
     mutable UniformCache uc;
 };
 bool shaderHasEarlyFragmentTests();

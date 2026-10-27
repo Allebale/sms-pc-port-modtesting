@@ -1971,6 +1971,7 @@ static void uploadUniforms(const ShaderProgram* sp, float texW[8], float texH[8]
     sway[8] = g.swayShape[0];
     sway[9] = g.swayShape[1];
     UNI(uSway, sway, sway, glUniform4fv(sp->uSway, 11, sway));
+    UNI(uSand, sand, g.sand, glUniform4fv(sp->uSand, 3, g.sand));
 #undef UNI
     uc.init = true;
 }

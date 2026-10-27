@@ -30,6 +30,14 @@ void port_lights_view(float (*view)[4]);
 // renderer's: the sun in the main camera's view this frame (null: none), their strength, its colour.
 int port_god_rays(void);
 void GXPC_SunFrame(const float* sunView, float rays, const float* color);
+// Sandy Mario (ext/core/game/port_sandy.cpp; the setting in platform/misc/port_puddle_settings.cpp:
+// 0 off, 1 light, 2 normal, 3 heavy): around Mario's own draw (port_wet_mario_draw), the sand on him.
+int port_sandy_mario(void);
+#ifdef __cplusplus
+}
+void port_sandy_mario_draw(int begin, float (*view)[4]);
+extern "C" {
+#endif
 
 // The renderer's (platform/gx/src/gx_render.cpp, gx_api.cpp).
 // half: the near map's reach either side of focus; reach: the far one's.

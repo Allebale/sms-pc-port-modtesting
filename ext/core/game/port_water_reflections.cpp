@@ -1295,6 +1295,7 @@ extern "C" void GXPC_SetWetness(float wet, const float* line);
 void port_wet_mario_draw(int begin, float (*view)[4])
 {
 	GXPC_ShadowTag(begin);  // Real Shadows' log: Mario's batches
+	port_sandy_mario_draw(begin, view);  // Sandy Mario: the sand on him
 	TMario* m = gpMarioOriginal;
 	if (!begin || !port_wet_mario() || s_wetness <= 0.0f || !m || !view) {
 		GXPC_SetWetness(0.0f, 0);

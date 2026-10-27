@@ -575,6 +575,14 @@ extern "C" void GXPC_SetUserClipPlane(int on, const float* plane) {
 
 // Wet Mario: how wet the models drawn from now are, 0 (dry) to 1, and up to which plane (view space,
 // wet below it; State::wet, wetLine). Mario's draw sets it and puts it back to 0 after.
+// Sandy Mario (ext/core/game/port_sandy.cpp), around Mario's own draw: 12 floats (u_sand), null none.
+extern "C" void GXPC_SetSand(const float* sand) {
+    float s[12] = {0};
+    if (sand) memcpy(s, sand, sizeof s);
+    if (!memcmp(s, g.sand, sizeof s)) return;
+    flushBatch();  // what is batched so far is drawn as sandy as it was
+    memcpy(g.sand, s, sizeof s);
+}
 extern "C" void GXPC_SetWetness(float wet, const float* line) {
     wet = wet < 0.0f ? 0.0f : wet > 1.0f ? 1.0f : wet;
     static const float kNone[4] = {0.0f, 0.0f, 0.0f, -1.0f};  // no plane: wet all over
