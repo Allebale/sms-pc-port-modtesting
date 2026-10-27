@@ -153,8 +153,9 @@ vec3 bounceLight(vec3 lsum, vec3 N, vec3 vp) {
   float down = clamp(-dot(N, u_bounce[1].xyz), 0.0, 1.0);
   vec3 c = mix(ring, ground, 0.25 + 0.6 * down);
   float l = max(dot(c, vec3(0.299, 0.587, 0.114)), 0.05);
-  vec3 hue = clamp(c / l, vec3(0.4), vec3(1.8));
-  return lsum * mix(vec3(1.0), hue, s) + c * (0.12 * s);
+  // its hue, made twice as strong (Sunshine's towns are pale: a white wall's warmth is faint)
+  vec3 hue = clamp(vec3(1.0) + (c / l - vec3(1.0)) * 2.0, vec3(0.35), vec3(1.9));
+  return lsum * mix(vec3(1.0), hue, s) + c * (0.3 * s);
 }
 // A plant's point moved (vp: in the view; mp, mn: its position and normal in its model). How much:
 // by how far up the plant it is (the model's own height, when the plant is a model of its own),

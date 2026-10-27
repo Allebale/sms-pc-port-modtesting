@@ -2889,8 +2889,11 @@ void bounceApply() {
         sunTarget(&s_bounceTex, &s_bounceFbo, 2, 1, GL_RGBA16F, GL_RGBA, GL_FLOAT, false);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glDisable(GL_SCISSOR_TEST);  // (the game's scissor would leave it uncleared)
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
+        glActiveTexture(GL_TEXTURE0);
         logmsg("bounce light: its colours made");
     }
     if (W != s_bounceW || H != s_bounceH) {
@@ -2947,6 +2950,7 @@ void bounceApply() {
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     glActiveTexture(GL_TEXTURE0 + kBounceUnit);
     glBindTexture(GL_TEXTURE_2D, s_bounceTex);
+    glActiveTexture(GL_TEXTURE0);  // nothing else is to bind onto the colours' unit by mistake
 
     glcInvalidate();
     static bool s_told;
