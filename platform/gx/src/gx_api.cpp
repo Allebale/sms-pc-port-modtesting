@@ -626,6 +626,12 @@ void GXSetProjectionv(f32* ptr) {
 
 // Shadows: what is drawn from now until the next projection is not the main camera's view, though
 // its projection is the same (a mirror's: TMirrorCamera::perform, port_mirror_clip).
+// What the port draws on water's surface (port_water_reflections.cpp) takes no sun shadow.
+extern "C" void GXPC_ShadowReceive(int on) {
+    if (g.shadowNoReceive == !on) return;
+    flushBatch();
+    g.shadowNoReceive = !on;
+}
 extern "C" void GXPC_ShadowNotMain(void) {
     if (!g.shadowMain) return;
     flushBatch();

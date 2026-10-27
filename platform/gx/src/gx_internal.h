@@ -114,6 +114,7 @@ struct State {
     float shadow[48];
     float shadowProj[7];
     bool shadowArmed, shadowMain, shadowTag;
+    bool shadowNoReceive;  // GXPC_ShadowReceive(0): what is drawn now takes no sun shadow
     // Fire Lights (GXPC_SetLights, GXPC_LightsView, gx_render.cpp): up to 8 point lights, in the
     // world (position, radius; colour, strength) and in the view they were last set for (u_plight:
     // 16 vec4s, then (count, ...)); lit while what is drawn is that view's (its projection).

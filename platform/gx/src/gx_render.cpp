@@ -1919,7 +1919,7 @@ static void uploadUniforms(const ShaderProgram* sp, float texW[8], float texH[8]
     // on the water's surface and on the sand below)
     const uint32_t scm = g.bp[BP_CMODE0];
     const bool seeThrough = (scm & 1) && !((g.bp[BP_ZMODE] >> 4) & 1);
-    shadow[43] = g.shadowMain && !seeThrough ? 1.0f : 0.0f;
+    shadow[43] = g.shadowMain && !seeThrough && !g.shadowNoReceive ? 1.0f : 0.0f;
     // blended: what is drawn see-through (its alpha under 0.9: water) neither receives nor casts
     shadow[45] = (scm & 1) ? 1.0f : 0.0f;
     UNI(uShadow, shadow, shadow, glUniform4fv(sp->uShadow, 12, shadow));

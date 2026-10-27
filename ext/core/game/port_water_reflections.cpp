@@ -329,6 +329,14 @@ void discPoint(int i, f32 radius, JGeometry::TVec3<f32>* out)
 	out->y = heightAt(s_plane, out->x, out->z) + kLift;
 }
 
+// Real Shadows: what the port draws on water's surface (its reflection, Water Depth's shade) takes
+// no sun shadow: the shadow is on the ground under the water, seen through it (else it shows twice).
+extern "C" void GXPC_ShadowReceive(int on);
+struct NoShadowOnWater {
+	NoShadowOnWater() { GXPC_ShadowReceive(0); }
+	~NoShadowOnWater() { GXPC_ShadowReceive(1); }
+};
+
 void drawDisc(f32 radius, u8 centre)
 {
 	JGeometry::TVec3<f32> rim[8];
@@ -712,6 +720,7 @@ bool anyGlint()
 // (colour on, alpha on, destination alpha 0); the caller puts back the rest.
 void drawReflection(MtxPtr view, const TBGCheckData* plane, f32 radius, u8 centre, int rippleKind, int rippleStrength)
 {
+	NoShadowOnWater noShadow;
 	Ripple r;
 	setUpRipple(&r, plane, rippleKind, rippleStrength, radius);
 	buildWeb(r, centre);
@@ -799,6 +808,7 @@ const u8 kDeep[3] = {16, 56, 72};
 
 void drawDepth(MtxPtr view, f32 radius, const TBGCheckData* plane, f32 fade)
 {
+	NoShadowOnWater noShadow;
 	const int level = port_water_depth();
 	if (!level || !gpMap || !plane)
 		return;
