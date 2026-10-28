@@ -146,18 +146,6 @@ vec3 sway(vec3 vp, vec3 mp, vec3 mn) {
   vec3 up = u_sway[0].xyz, wind = u_sway[1].xyz;
   float t = u_sway[1].w;
   float h = u_sway[2].y - u_sway[2].x;
-  // hanging cloth (Moving Cloth: registered top first): fixed at its top, swinging and rippling
-  // more the lower down, in the gusts
-  if (h < -1.0) {
-    float hh = -h;
-    float wc = clamp((u_sway[2].x - mp.y) / hh, 0.0, 1.0);
-    float ampc = u_sway[9].x * clamp(hh * 0.05, 2.0, 12.0);
-    float phc = dot(mp.xz, vec2(0.0021, 0.0017));
-    float gc = 0.55 + 0.3 * sin(t * 1.3 + phc) + 0.15 * sin(t * 2.9 + phc * 2.3);
-    float rip = sin(t * 8.0 + dot(mp, vec3(0.05, 0.21, 0.07))) * 0.7 + sin(t * 13.3 + dot(mp, vec3(0.17, 0.09, 0.13))) * 0.3;
-    vec3 sidec = cross(up, wind);
-    return vp + (wind * (gc * 0.8 + rip * 0.35) + sidec * (rip * 0.25)) * (ampc * wc);
-  }
   bool own = h > 1.0 && h < 1500.0;
   float w = own ? clamp((mp.y - u_sway[2].x) / h, 0.0, 1.0) : 1.0;
   w *= w;
