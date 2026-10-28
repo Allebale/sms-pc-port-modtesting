@@ -37,6 +37,8 @@ int port_depth_view(void);
 int port_ao_quality(void);
 // Ambient Occlusion Update Rate: 0 every frame, 1 every other frame
 int port_ao_half_rate(void);
+// No Halo Around Mario: 1 (at first) Mario shades nothing round him with Ambient Occlusion
+int port_ao_no_mario_halo(void);
 // The renderer's: armed for the main camera's view this frame (applied as its 3D scene ends).
 void GXPC_AOFrame(int mode, float strength, float distance, int view, int quality, int halfRate);
 // Ambient Occlusion: Mario's place this frame, in the main camera's view (from his feet to over his

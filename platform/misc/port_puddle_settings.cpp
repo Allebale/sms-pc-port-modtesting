@@ -83,6 +83,7 @@ int s_ao = 0;             // Ambient Occlusion: 0 off, 1 fine detail, 2 large sh
 int s_aoStrength = 1;     // Ambient Occlusion Strength: into kAoStrengths
 int s_aoDistance = 1;     // Ambient Occlusion Distance: into kAoDistances
 int s_aoQuality = 1;      // Ambient Occlusion Quality: 0 low, 1 medium, 2 high
+int s_aoNoMarioHalo = 1;  // No Halo Around Mario: on at first
 int s_aoHalfRate = 0;     // Ambient Occlusion Update Rate: 0 every frame, 1 every other frame
 int s_depthView = 0;      // Depth Buffer View: 0 off, 1 depth, 2 faces, 3 both, 4 the shade alone
 int s_vegetation = 0;     // Moving Vegetation: 0 off, 1 gentle, 2 breezy, 3 windy
@@ -277,6 +278,8 @@ void load() {
             s_ao = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " ambientocclusionstrength = %d", &value) == 1) {
             s_aoStrength = value < 0 ? 0 : value > 3 ? 3 : value;
+        } else if (sscanf(line, " ambientocclusionnomariohalo = %d", &value) == 1) {
+            s_aoNoMarioHalo = value != 0;
         } else if (sscanf(line, " ambientocclusionrate = %d", &value) == 1) {
             s_aoHalfRate = value != 0;
         } else if (sscanf(line, " ambientocclusionquality = %d", &value) == 1) {
@@ -406,6 +409,8 @@ void save() {
     fprintf(f, "ambientocclusionquality = %d\n", s_aoQuality);
     fprintf(f, "# ambientocclusionrate: 0 every frame, 1 every other frame (faster).\n");
     fprintf(f, "ambientocclusionrate = %d\n", s_aoHalfRate);
+    fprintf(f, "# ambientocclusionnomariohalo: 1 Mario shades nothing round him (no halo), 0 he does.\n");
+    fprintf(f, "ambientocclusionnomariohalo = %d\n", s_aoNoMarioHalo);
     fprintf(f, "# vegetation: plants sway, bend from Mario and FLUDD's water: 0 off, 1 gentle, 2 breezy, 3 windy.\n");
     fprintf(f, "vegetation = %d\n", s_vegetation);
     fprintf(f, "# sandymario: sand sticks to Mario where he touches it, falling away over 20 seconds: 0 off, 1 light, 2 normal, 3 heavy.\n");
@@ -637,6 +642,18 @@ int aoDistanceSet(int i) {
     s_aoDistance = i;
     save();
     port_log("[ao] Ambient Occlusion Distance changed: %s\n", kAoDistanceNames[i]);
+    return 1;
+}
+int aoNoHaloGet() {
+    load();
+    return s_aoNoMarioHalo;
+}
+int aoNoHaloSet(int i) {
+    if (i < 0 || i > 1) return 0;
+    load();
+    s_aoNoMarioHalo = i;
+    save();
+    port_log("[ao] No Halo Around Mario changed: %s\n", i ? "On" : "Off");
     return 1;
 }
 const char* const kAoRateNames[] = {"Every Frame", "Every Other Frame"};
@@ -1218,6 +1235,9 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 118, "Ambient Occlusion Update Rate",
      "Every Other Frame works the shade out half as often, faster. It can trail a little when the camera turns fast.", 0, nullptr,
      aoRateCount, aoRateName, aoRateGet, aoRateSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 118, "No Halo Around Mario",
+     "Ambient Occlusion leaves the ground round Mario alone (no dark ring). Only Mario, others keep theirs.", 0, nullptr,
+     offOnCount, offOnName, aoNoHaloGet, aoNoHaloSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 119, "Depth Buffer View",
      "For troubleshooting, as ReShade's DisplayDepth. Shows the depth, the normals, or the shade alone (grass in green).", 0,
      nullptr, depthViewCount, depthViewName, depthViewGet, depthViewSet},
@@ -1390,6 +1410,10 @@ float port_ao_distance(void) {
     return kAoDistances[s_aoDistance < 0 || s_aoDistance > 3 ? 1 : s_aoDistance];
 }
 int port_depth_view(void) { return s_depthView; }
+int port_ao_no_mario_halo(void) {
+    load();
+    return s_aoNoMarioHalo;
+}
 int port_ao_half_rate(void) {
     load();
     return s_aoHalfRate;
