@@ -8,7 +8,11 @@
 
 #ifdef __cplusplus
 class TMapObjTree;
+class TMapObjFlag;
 class J3DModelData;
+// From TMapObjFlagManager::perform (zzzzz-ext-33-cloth-flags), around each flag's update (before 1,
+// after 0): Moving Cloth's gusts on how fast and how far it flutters.
+void port_flag_wind(TMapObjFlag* flag, int before);
 // From TMapObjTree::perform (zzzzz-ext-32-vegetation-trees), each tick before its leaves move: the
 // wind's and the spray's push on them.
 void port_tree_sway(TMapObjTree* tree);
@@ -23,6 +27,8 @@ extern "C" {
 
 // The setting (the pause menu's Settings, Graphics): 0 off, 1 gentle, 2 breezy, 3 windy.
 int port_vegetation(void);
+// Moving Cloth (the same page): 0 off, 1 gentle, 2 breezy, 3 windy.
+int port_moving_cloth(void);
 
 #ifdef __cplusplus
 }

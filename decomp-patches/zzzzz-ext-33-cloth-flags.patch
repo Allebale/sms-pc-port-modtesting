@@ -1,0 +1,31 @@
+Reason: Moving Cloth (port_vegetation.h, the pause menu's Settings, Graphics): each flag (TMapObjFlag, waving cloth) flutters with the wind's gusts, the same that sway the plants: faster and farther as one rolls by (port_flag_wind, ext/core/game/port_vegetation.cpp, around each flag's update in TMapObjFlagManager::perform). Off, nothing changes.
+
+--- a/src/MoveBG/MapObjFlag.cpp
++++ b/src/MoveBG/MapObjFlag.cpp
+@@ -154,6 +154,7 @@
+ // as fast. At 60 step half as far, which keeps the flutter per second and the
+ // motion smooth.
+ #include "port_framerate.h"
++#include "port_vegetation.h"
+ static inline f32 FlagPortStep(f32 step)
+ {
+ 	return port_frame_scale() * step;
+@@ -301,8 +302,17 @@
+ {
+ 	if (cue & CUE_CALC_ANIM) {
+ 		for (int i = 0; i < FLAG_KIND_NUM; i++)
+-			for (int j = 0; j < mInfos[i].mNum; j++)
++			for (int j = 0; j < mInfos[i].mNum; j++) {
++#ifdef TARGET_PC
++				// port: Moving Cloth (port_vegetation.h): the wind's gusts set how
++				// fast and how far each flag flutters as it moves
++				port_flag_wind(mInfos[i].mFlags[j], 1);
++				mInfos[i].mFlags[j]->update();
++				port_flag_wind(mInfos[i].mFlags[j], 0);
++#else
+ 				mInfos[i].mFlags[j]->update();
++#endif
++			}
+ 	}
+ 
+ 	if (cue & CUE_DRAW) {

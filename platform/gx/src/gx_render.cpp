@@ -2642,17 +2642,18 @@ bool swayLookup(const void* list, uint32_t size, float* minY, float* maxY) {
 // `count` pushers (x y z, radius), at most six. amount 0: off.
 extern "C" void GXPC_SwayFrame(const float* world, const float* pushers, int count) {
     count = count < 0 ? 0 : count > 6 ? 6 : count;
-    g.swayOn = world && world[4] > 0.0f;
+    g.swayOn = world && (world[4] > 0.0f || world[7] > 0.0f);  // plants, or cloth (world[7])
     if (!g.swayOn) {
         g.swayArmed = g.swayActive = false;
         return;
     }
     memcpy(g.swayWorld, world, 8 * sizeof(float));
+    g.swayCloth = world[7];
     g.swayWorld[7] = float(count);
     if (count) memcpy(g.swayWorld + 8, pushers, size_t(count) * 4 * sizeof(float));
 }
 // u_sway: [0] up (view), on; [1] wind (view), time; [2] the plant's lowest and highest y, amount,
-// flutter; [3..8] pushers (view, radius); [9] unused; [10] count, push strength
+// flutter; [3..8] pushers (view, radius); [9] Moving Cloth's amount; [10] count, push strength
 static void swayView(const float view[3][4]) {
     if (!view || !g.swayOn) {
         g.swayArmed = g.swayActive = false;
@@ -2674,6 +2675,7 @@ static void swayView(const float view[3][4]) {
             u[12 + i * 4 + r] = view[r][0] * w[0] + view[r][1] * w[1] + view[r][2] * w[2] + view[r][3];
         u[12 + i * 4 + 3] = w[3];
     }
+    u[36] = g.swayCloth;  // Moving Cloth: hanging cloth's amount
     u[40] = float(n);
     u[41] = g.swayWorld[6];
     memcpy(g.swayProj, g.projection, sizeof g.swayProj);

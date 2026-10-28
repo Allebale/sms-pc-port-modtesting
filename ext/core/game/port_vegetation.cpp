@@ -18,6 +18,7 @@
 #include <JSystem/J3D/J3DGraphBase/J3DMaterial.hpp>
 #include <JSystem/J3D/J3DGraphBase/J3DShape.hpp>
 #include <JSystem/JUtility/JUTNameTab.hpp>
+#include <MoveBG/MapObjFlag.hpp>
 #include <MoveBG/MapObjTree.hpp>
 #include <Player/MarioAccess.hpp>
 #include <Player/ModelWaterManager.hpp>
@@ -35,6 +36,13 @@ namespace {
 
 const f32 kAmounts[] = {0.0f, 0.6f, 1.0f, 1.8f};  // Off, Gentle, Breezy, Windy
 const f32 kWind[3]   = {0.8f, 0.0f, 0.6f};        // the way the breeze blows (unit)
+const f32 kCloth[]   = {0.0f, 0.6f, 1.0f, 1.8f};  // Moving Cloth: Off, Gentle, Breezy, Windy
+
+f32 clothAmount()
+{
+	const int level = port_moving_cloth();
+	return kCloth[level < 0 || level > 3 ? 0 : level];
+}
 
 f32 amount()
 {
@@ -66,6 +74,27 @@ bool plantName(const char* name)
 			return false;
 	static const char* const kYes[] = {"leaf", "leav", "palm", "yashi", "happa", "kusa", "hana", "flower", "bush",
 	                                   "shrub", "tree", "plant", "fern", "ivy", "tuta", "vine", "potgrass", "frond", "flo_", "_flo"};
+	for (unsigned i = 0; i < sizeof kYes / sizeof kYes[0]; i++)
+		if (strstr(low, kYes[i]))
+			return true;
+	return false;
+}
+
+// Cloth that hangs (Moving Cloth): banners, flags on lines, laundry, towels, curtains, sails;
+// not the bouncy awnings (cloth Mario jumps on) or tents.
+bool clothName(const char* name)
+{
+	char low[64];
+	int n = 0;
+	for (; name && name[n] && n < 63; n++)
+		low[n] = (char)(name[n] >= 'A' && name[n] <= 'Z' ? name[n] + 32 : name[n]);
+	low[n] = 0;
+	static const char* const kNot[] = {"jump", "tent", "shadow", "kage", "pole", "bou_", "wall", "kabe"};
+	for (unsigned i = 0; i < sizeof kNot / sizeof kNot[0]; i++)
+		if (strstr(low, kNot[i]))
+			return false;
+	static const char* const kYes[] = {"flag", "hata", "nobori", "banner", "cloth", "nuno", "sentaku", "laundry",
+	                                   "towel", "noren", "curtain", "tapestry", "sail"};
 	for (unsigned i = 0; i < sizeof kYes / sizeof kYes[0]; i++)
 		if (strstr(low, kYes[i]))
 			return true;
@@ -113,7 +142,8 @@ void afterMovement()
 	if ((a > 0.0f) != s_wasOn)
 		fprintf(stderr, "[vegetation] Moving Vegetation %s (%d plant parts known)\n", a > 0.0f ? "on" : "off", s_registered);
 	s_wasOn = a > 0.0f;
-	if (a <= 0.0f || !gpMarioPos) {
+	const f32 c = clothAmount();
+	if ((a <= 0.0f && c <= 0.0f) || !gpMarioPos) {
 		s_dropCount = 0;
 		GXPC_SwayFrame(0, 0, 0);
 		return;
@@ -137,7 +167,7 @@ void afterMovement()
 		pushers[n * 4 + 3] = 85.0f;
 		n++;
 	}
-	const f32 world[8] = {kWind[0], kWind[1], kWind[2], seconds(), a, 0.35f, 0.55f, 0.0f};
+	const f32 world[8] = {kWind[0], kWind[1], kWind[2], seconds(), a, 0.35f, a > 0.0f ? 0.55f : 0.0f, c};  // c: Moving Cloth
 	GXPC_SwayFrame(world, pushers, n);
 }
 
@@ -164,6 +194,20 @@ void port_veg_model(J3DModelData* data)
 	int len = 0, found = 0;
 	for (u16 i = 0; i < data->getMaterialNum(); i++) {
 		const char* name = names->getName(i);
+		if (name && clothName(name)) {  // hanging cloth: fixed at its top (registered upside down)
+			J3DMaterial* mat = data->getMaterialNodePointer(i);
+			J3DShape* shape  = mat ? mat->getShape() : 0;
+			if (!shape)
+				continue;
+			const ShapeBounds* b = (const ShapeBounds*)shape;
+			for (u32 g = 0; g < shape->getMtxGroupNum(); g++) {
+				J3DShapeDraw* draw = shape->getShapeDraw((u16)g);
+				if (draw && draw->getDisplayList())
+					GXPC_SwayRegister(draw->getDisplayList(), draw->getDisplayListSize(), b->max.y, b->min.y);
+			}
+			fprintf(stderr, "[vegetation] hanging cloth: %s (%.0f high)\n", name, b->max.y - b->min.y);
+			continue;
+		}
 		if (!name || !plantName(name))
 			continue;
 		J3DMaterial* mat = data->getMaterialNodePointer(i);
@@ -221,6 +265,40 @@ void port_veg_model_named(J3DModelData* data, const char* path)
 	}
 	s_registered += parts;
 	fprintf(stderr, "[vegetation] %s: a plant, all %d of its parts (%.0f high)\n", base, parts, hi - lo);
+}
+
+void port_flag_wind(TMapObjFlag* flag, int before)
+{
+	static bool s_on;
+	static f32 s_amp, s_speed;
+	if (!flag)
+		return;
+	if (!before) {  // as it was
+		if (s_on) {
+			flag->mWaveAmplitude      = s_amp;
+			TMapObjFlag::mFlutterSpeed = s_speed;
+		}
+		s_on = false;
+		return;
+	}
+	const f32 c = clothAmount();
+	if (c <= 0.0f)
+		return;
+	s_on    = true;
+	s_amp   = flag->mWaveAmplitude;
+	s_speed = TMapObjFlag::mFlutterSpeed;
+	// the gusts, as the palms' and the renderer's (rolling across the stage)
+	const f32 t    = seconds();
+	const f32 x    = flag->mPosition.x, z = flag->mPosition.z;
+	const f32 ph   = x * 0.0021f + z * 0.0017f;
+	const f32 gust = 0.55f + 0.3f * sinf(t * 1.3f + ph) + 0.15f * sinf(t * 2.9f + ph * 2.3f);
+	flag->mWaveAmplitude      = s_amp * (0.4f + 0.9f * gust * c);
+	TMapObjFlag::mFlutterSpeed = s_speed * (0.5f + 0.9f * gust * c);
+	static bool s_told;
+	if (!s_told) {
+		s_told = true;
+		fprintf(stderr, "[vegetation] flags flutter with the wind\n");
+	}
 }
 
 void port_tree_sway(TMapObjTree* tree)
