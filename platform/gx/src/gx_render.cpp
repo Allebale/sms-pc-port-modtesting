@@ -2626,8 +2626,9 @@ uniform vec4 u_vm;   // the viewport: x scale, y scale, x centre, y centre (EFB 
 uniform vec2 u_es;   // the EFB's size: the picture's own mapping, widescreen and all
 uniform vec4 u_ao;   // fine strength, large strength, fade start, fade end (units from the camera)
 uniform vec4 u_q;    // x: samples for each (4 to 8: Ambient Occlusion Quality)
-uniform vec4 u_mario[2];  // Mario: from his feet (xyz, w how far round him) to over his cap (view space)
-// whether a point is within Mario (FLUDD and all): what is there shades nothing (no halo round him)
+uniform vec4 u_mario[2];  // Mario: from his feet (xyz, w how far round him) to over his cap (view
+                          // space; w how much of his shade is kept: Mario Ambient Occlusion)
+// whether a point is within Mario (FLUDD and all): what is there shades only as much as kept
 bool inMario(vec3 q) {
   if (u_mario[0].w <= 0.0) return false;
   vec3 a = u_mario[0].xyz, ab = u_mario[1].xyz - a;
@@ -2692,7 +2693,8 @@ float occlusion(vec3 P, vec3 N, vec3 T, vec3 B, float R, float jit, float ez, fl
     float d = sceneDepth(uv);
     if (d >= 0.999999) continue;
     vec3 Q = posAt(uv, d);
-    if (inMario(Q)) continue;
+    float keep = inMario(Q) ? u_mario[1].w : 1.0;
+    if (keep <= 0.0) continue;
     vec3 v = Q - P;
     float len = length(v);
     if (len >= R || len < 1e-3) continue;
@@ -2700,7 +2702,7 @@ float occlusion(vec3 P, vec3 N, vec3 T, vec3 B, float R, float jit, float ez, fl
     float near = 1.0 - len / R;
     // eased in from the threshold (no hard line where a faint shade starts)
     float r = clamp((rise - bias) / max(1.0 - bias, 0.2), 0.0, 1.0);
-    sum += r * r * (3.0 - 2.0 * r) * near * near;
+    sum += r * r * (3.0 - 2.0 * r) * near * near * keep;
   }
   return min(sum / float(n) * 2.2, 1.0);
 }
@@ -2878,7 +2880,7 @@ static const int kAoDepthUnit = 14, kAoOccUnit = 15;
 static int s_aoMode;  // 0 off, 1 fine, 2 large, 3 both
 static int s_aoView;  // Depth Buffer View: 0 off, 1 depth, 2 faces, 3 both, 4 the shade alone
 static float s_aoStrength = 0.75f, s_aoDistance = 4000.0f;
-static float s_aoMario[8];  // Mario's place (GXPC_AOMario): feet xyz, radius; over his cap xyz
+static float s_aoMario[8];  // Mario's place (GXPC_AOMario): feet xyz, radius; over his cap xyz, kept
 static int s_aoQuality = 1;  // Ambient Occlusion Quality: 0 low, 1 medium, 2 high
 // for each quality: the shade worked out at 1 in this many pixels each way, from this many samples
 static const int kAoDivs[3] = {4, 3, 2}, kAoSamples[3] = {4, 6, 8};
@@ -2886,12 +2888,13 @@ static const int kAoDivs[3] = {4, 3, 2}, kAoSamples[3] = {4, 6, 8};
 static bool s_aoHalfRate;          // Ambient Occlusion Update Rate: every other frame
 static uint32_t s_aoTracedFrame = ~0u;  // the frame the shade was last worked out in
 
-extern "C" void GXPC_AOMario(const float* bottom, const float* top, float radius) {
+extern "C" void GXPC_AOMario(const float* bottom, const float* top, float radius, float keep) {
     memset(s_aoMario, 0, sizeof s_aoMario);
-    if (!bottom || !top || radius <= 0.0f) return;
+    if (!bottom || !top || radius <= 0.0f || keep >= 1.0f) return;
     memcpy(s_aoMario, bottom, 3 * sizeof(float));
     s_aoMario[3] = radius;
     memcpy(s_aoMario + 4, top, 3 * sizeof(float));
+    s_aoMario[7] = keep > 0.0f ? keep : 0.0f;
 }
 
 extern "C" void GXPC_AOFrame(int mode, float strength, float distance, int view, int quality, int halfRate) {
