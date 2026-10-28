@@ -82,7 +82,7 @@ int s_fireReach = 2;      // Fire Light Intensity: into kFireReaches
 int s_vegetation = 0;     // Moving Vegetation: 0 off, 1 gentle, 2 breezy, 3 windy
 int s_cloth = 0;          // Moving Cloth: 0 off, 1 gentle, 2 breezy, 3 windy
 int s_sandy = 0;          // Sandy Mario: 0 off, 1 light, 2 normal, 3 heavy
-int s_clouds = 0;         // Moving Clouds: 0 off, 1 few, 2 some, 3 many
+int s_clouds = 0;         // Cloud Shadows: 0 off, 1 few, 2 some, 3 many
 int s_grassStains = 0;    // Grass Stains: 0 off, 1 light, 2 normal, 3 strong
 int s_stainTime = 4;      // Grass Stain Duration: into kStainSeconds
 int s_grassCutHeight = 2, s_grassWildHeight = 2;  // into kGrassHeights
@@ -260,7 +260,7 @@ void load() {
             s_grassCutHeight = value < 1 ? 1 : value > 5 ? 5 : value;  // no 50 percent for cut grass
         } else if (sscanf(line, " grasswildheight = %d", &value) == 1) {
             s_grassWildHeight = value < 0 ? 0 : value > 5 ? 5 : value;
-        } else if (sscanf(line, " movingclouds = %d", &value) == 1) {
+        } else if (sscanf(line, " cloudshadows = %d", &value) == 1) {
             s_clouds = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " sandymario = %d", &value) == 1) {
             s_sandy = value < 0 ? 0 : value > 3 ? 3 : value;
@@ -387,8 +387,8 @@ void save() {
     fprintf(f, "vegetation = %d\n", s_vegetation);
     fprintf(f, "# movingcloth: flags flutter with the wind's gusts, hanging cloth sways: 0 off, 1 gentle, 2 breezy, 3 windy.\n");
     fprintf(f, "movingcloth = %d\n", s_cloth);
-    fprintf(f, "# movingclouds: cartoon clouds drift across the sky of stages with a sun, their shadows below with Real Shadows: 0 off, 1 few, 2 some, 3 many.\n");
-    fprintf(f, "movingclouds = %d\n", s_clouds);
+    fprintf(f, "# cloudshadows: with Real Shadows, clouds' shadows drift over the stages with a sun: 0 off, 1 few, 2 some, 3 many.\n");
+    fprintf(f, "cloudshadows = %d\n", s_clouds);
     fprintf(f, "# sandymario: sand sticks to Mario where he touches it, falling away over 20 seconds: 0 off, 1 light, 2 normal, 3 heavy.\n");
     fprintf(f, "sandymario = %d\n", s_sandy);
     fprintf(f, "# grassstains: diving, sliding or falling on grass stains Mario's clothes: 0 off, 1 light, 2 normal, 3 strong.\n");
@@ -579,7 +579,7 @@ int cloudsSet(int i) {
     load();
     s_clouds = i;
     save();
-    port_log("[shadows] Moving Clouds changed: %s\n", kCloudNames[i]);
+    port_log("[shadows] Cloud Shadows changed: %s\n", kCloudNames[i]);
     return 1;
 }
 
@@ -1111,8 +1111,8 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 96, "Real Shadows",
      "The sun's shadows of everything, the level and characters too. Off is the original.", 0,
      nullptr, shadowsCount, shadowsName, shadowsGet, shadowsSet},
-    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 114, "Moving Clouds",
-     "Cartoon clouds drift across the sky, with their shadows on the ground when Real Shadows is on.", 0,
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 114, "Cloud Shadows",
+     "With Real Shadows, the shadows of clouds drift slowly over stages with a sun in the sky.", 0,
      nullptr, cloudsCount, cloudsName, cloudsGet, cloudsSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 97, "Round Shadows Under Characters",
      "With Real Shadows, the game's own round shadow under each character too, lighter.", 0, nullptr,
@@ -1298,7 +1298,7 @@ int port_shadows(void) {
     load();
     return s_shadows;
 }
-// Moving Clouds (ext/core/game/port_shadows.cpp): 0 off, 1 few, 2 some, 3 many.
+// Cloud Shadows (ext/core/game/port_shadows.cpp): 0 off, 1 few, 2 some, 3 many.
 int port_cloud_shadows(void) {
     load();
     return s_clouds;

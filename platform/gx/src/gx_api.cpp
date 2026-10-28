@@ -576,17 +576,12 @@ extern "C" void GXPC_SetUserClipPlane(int on, const float* plane) {
 // Wet Mario: how wet the models drawn from now are, 0 (dry) to 1, and up to which plane (view space,
 // wet below it; State::wet, wetLine). Mario's draw sets it and puts it back to 0 after.
 // Cloud Shadows (ext/core/game/port_shadows.cpp), each frame with the main camera's view.
-// The clouds themselves are drawn in the sky as the main camera's 3D scene ends (cloudApply,
-// gx_render.cpp, from GXSetProjectionv below), the same clouds as the shadows'.
 extern "C" void GXPC_CloudFrame(const float* viewToWorld, const float* params) {
     float c[16] = {0};
     if (viewToWorld && params) {
         memcpy(c, viewToWorld, 12 * sizeof(float));
         memcpy(c + 12, params, 4 * sizeof(float));
-        memcpy(g.cloudSun, params + 4, 3 * sizeof(float));
     }
-    g.cloudArmed = viewToWorld && params;
-    if (g.cloudArmed) memcpy(g.cloudProj, g.projection, sizeof g.cloudProj);
     if (!memcmp(c, g.cloud, sizeof c)) return;
     flushBatch();
     memcpy(g.cloud, c, sizeof c);
@@ -644,13 +639,6 @@ void GXSetProjection(f32 mtx[4][4], GXProjectionType type) {
     GXSetProjectionv(p);
 }
 void GXSetProjectionv(f32* ptr) {
-    // Moving Clouds: the main camera's 3D scene ends as a 2D (orthographic) projection follows it
-    // (the HUD, the screen's overlays): the clouds into its sky, before those are drawn
-    if (g.cloudArmed && ptr[0] != 0.0f && memcmp(g.projection, g.cloudProj, sizeof g.cloudProj) == 0) {
-        flushBatch();
-        g.cloudArmed = false;
-        cloudApply();
-    }
     g.userClipOn = false;  // the port's clip plane is for the camera it was set for
     traceNoteProjection(ptr);
     memcpy(g.projection, ptr, sizeof(g.projection));

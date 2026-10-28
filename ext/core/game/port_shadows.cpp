@@ -113,11 +113,9 @@ struct Register {
 
 } // namespace
 
-// Moving Clouds: under a sun in the sky, cartoon clouds drifting over the stage, high above it,
-// and with Real Shadows their shadows under them (the renderer's: the clouds into the sky as the
-// scene ends, gx_render.cpp cloudApply; their shadows, gx_shader.cpp: the same noise on a plane
-// high above, seen along the sun's light, slowly moving).
-static void clouds(float (*view)[4], bool sky, const f32* sun)
+// Cloud Shadows: under a sun in the sky, the shadows of clouds drifting over the stage (the
+// renderer's, gx_shader.cpp: noise on a high plane, seen along the sun's light, slowly moving).
+static void clouds(float (*view)[4], bool sky)
 {
 	static const f32 kCover[] = {0.0f, 0.3f, 0.45f, 0.6f}, kDark[] = {0.0f, 0.55f, 0.6f, 0.65f};
 	const int level = port_cloud_shadows();
@@ -132,11 +130,10 @@ static void clouds(float (*view)[4], bool sky, const f32* sun)
 		inv[r * 4 + 3] = -(view[0][r] * view[0][3] + view[1][r] * view[1][3] + view[2][r] * view[2][3]);
 	}
 	const s32 ms = (s32)OSTicksToMilliseconds(OSGetTime());
-	const f32 params[8] = {(f32)(((ms % 6000000) + 6000000) % 6000000) * 0.001f, kCover[level], kDark[level], 0.0f,
-	                       sun[0], sun[1], sun[2], 0.0f};
+	const f32 params[4] = {(f32)(((ms % 6000000) + 6000000) % 6000000) * 0.001f, kCover[level], kDark[level], 0.0f};
 	static int s_told = -1;
 	if (level != s_told)
-		fprintf(stderr, "[shadows] moving clouds: %s\n", level == 1 ? "few" : level == 2 ? "some" : "many");
+		fprintf(stderr, "[shadows] cloud shadows: %s\n", level == 1 ? "few" : level == 2 ? "some" : "many");
 	s_told = level;
 	GXPC_CloudFrame(inv, params);
 }
@@ -146,25 +143,6 @@ void port_shadows_main_view(void* camera, float (*view)[4])
 	if (camera != (void*)gpCamera || !view)
 		return;
 	port_lights_view(view);  // Fire Lights, seen from the main camera
-	{  // Moving Clouds: under the stage's sun in the sky (toward it from Mario), whatever the shadows
-		const bool sunUp = gpSunModel && gpSunMgr && gpSunMgr->unk14;
-		f32 to[3] = {0.0f, 1.0f, 0.0f};
-		if (sunUp) {
-			const JGeometry::TVec3<f32>& p = gpSunModel->mPosition;
-			const f32 fx = gpMarioPos ? gpMarioPos->x : 0.0f, fy = gpMarioPos ? gpMarioPos->y : 0.0f,
-			          fz = gpMarioPos ? gpMarioPos->z : 0.0f;
-			to[0] = p.x - fx, to[1] = p.y - fy, to[2] = p.z - fz;
-			const f32 l = sqrtf(to[0] * to[0] + to[1] * to[1] + to[2] * to[2]);
-			if (l > 1e-3f)
-				to[0] /= l, to[1] /= l, to[2] /= l;
-			if (to[1] < kLowest) {  // as the shadows' sun: never lower than about 25 degrees
-				const f32 h = sqrtf(to[0] * to[0] + to[2] * to[2]);
-				const f32 k = h > 1e-4f ? sqrtf(1.0f - kLowest * kLowest) / h : 0.0f;
-				to[0] *= k, to[2] *= k, to[1] = h > 1e-4f ? kLowest : 1.0f;
-			}
-		}
-		clouds(view, sunUp, to);
-	}
 	const int level = port_shadows();
 	hideBaked(level > 0);
 	if (level <= 0 || level > 2) {
@@ -227,4 +205,5 @@ void port_shadows_main_view(void* camera, float (*view)[4])
 		s_toldFar    = reach;
 	}
 	GXPC_ShadowFrame(view, sun, focus, kStrength[level], kHalf, reach);
+	clouds(view, sky);
 }
