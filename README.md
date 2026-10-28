@@ -1,3 +1,59 @@
+# Super Mario Sunshine: Remastered
+
+**Remastered** is a version of [Chase's Super Mario Sunshine PC port](https://github.com/chasem-dev/sms-pc-port) with extra visual upgrades. It's the same game you know, with water that reflects, sun that casts real shadows, grass you can run through, and a Mario who gets wet, sandy and grass-stained as he plays.
+
+Nothing is forced on you. Every addition starts **Off**, so the game looks exactly like the original until you choose otherwise. Open the pause menu, go to **Settings**, and turn on as much or as little as you like on the **Reflections** and **Graphics** pages.
+
+## 🎮 How to play it
+
+In the launcher, build this fork:
+
+- **Repository:** `https://github.com/Allebale/sms-pc-port-remastered`
+- **Branch:** `remastered`
+
+## 💧 Reflections
+
+Isle Delfino is full of water, and now it reflects the world around it.
+
+- **Puddles and water reflect** Mario, characters, enemies, buildings, trees and the sky.
+- **Ripples and waves** make reflections wobble, and **sun glints** sparkle on the surface.
+- **Deep water** turns a darker blue-green, like the real sea.
+- **Every floor reflects differently**: wet stone shines more than sand or grass.
+- **Mario gets wet** up to where the water reached. He looks darker and shinier, drips as he dries, and leaves **damp footprints** after walking through puddles.
+
+Not sure where to start? Set **Preset** to **Recommended** and everything is set up for you.
+
+## ☀️ Real Shadows
+
+The sun now casts real shadows of everything: buildings, trees, characters and Mario himself. Choose soft or strong shadows and how far they reach. You can also keep them falling straight down like the game's own shadows.
+
+## 🌿 A Living World
+
+- **3D grass**: real blades of grass that sway in the breeze, bend as Mario runs through them, and get flattened by FLUDD's spray or a belly slide.
+- **Moving vegetation**: palm trees, bushes and flowers sway in the wind and push aside when Mario or FLUDD's water hits them.
+- **Fire lights**: torches and flames light up the ground, walls and characters around them, even in reflections.
+
+## 🧢 A Messier Mario
+
+- **Sandy Mario**: sand sticks to his clothes wherever he touches the beach, then slowly falls off.
+- **Grass stains**: dive, slide or fall on grass and his overalls and shirt get green, dirty smudges. Pick how long they last, or keep them until he jumps in the water.
+
+## 🚀 Runs Smoothly
+
+All of this is built to stay light, with extra work done to keep stutters away, even on big levels.
+
+## Good to know
+
+- Built on top of **Chase's latest version**, so you get all his updates and fixes too.
+- Pairs well with the **[First Person](https://github.com/Allebale/sms-first-person-mod)** mod, available in the launcher.
+- Mod makers can switch the reflection effects on and off from their own mods.
+
+---
+
+# About the port this is built on
+
+Everything below is the original port's own README, by Chase.
+
 <p align="center">
   <a href="https://discord.gg/97sVPsbxsY"><img src="https://invidget.switchblade.xyz/97sVPsbxsY" alt="Join the Super Mario Sunshine Discord server"></a>
   <br>
