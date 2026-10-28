@@ -35,6 +35,13 @@ namespace {
 
 const f32 kAmounts[] = {0.0f, 0.6f, 1.0f, 1.8f};  // Off, Gentle, Breezy, Windy
 const f32 kWind[3]   = {0.8f, 0.0f, 0.6f};        // the way the breeze blows (unit)
+const f32 kCloth[]   = {0.0f, 0.6f, 1.0f, 1.8f};  // Swaying Hanging Things: Off, Gentle, Breezy, Windy
+
+f32 clothAmount()
+{
+	const int level = port_hanging_things();
+	return kCloth[level < 0 || level > 3 ? 0 : level];
+}
 
 f32 amount()
 {
@@ -66,6 +73,28 @@ bool plantName(const char* name)
 			return false;
 	static const char* const kYes[] = {"leaf", "leav", "palm", "yashi", "happa", "kusa", "hana", "flower", "bush",
 	                                   "shrub", "tree", "plant", "fern", "ivy", "tuta", "vine", "potgrass", "frond", "flo_", "_flo"};
+	for (unsigned i = 0; i < sizeof kYes / sizeof kYes[0]; i++)
+		if (strstr(low, kYes[i]))
+			return true;
+	return false;
+}
+
+// Swaying Hanging Things: what hangs and is still in the game (part of a stage's or a still
+// object's model): banners, flags, laundry, towels, curtains, sails; not the bouncy awnings (cloth
+// Mario jumps on) or tents. The game's own waving flags (TMapObjFlag) move already: not these.
+bool clothName(const char* name)
+{
+	char low[64];
+	int n = 0;
+	for (; name && name[n] && n < 63; n++)
+		low[n] = (char)(name[n] >= 'A' && name[n] <= 'Z' ? name[n] + 32 : name[n]);
+	low[n] = 0;
+	static const char* const kNot[] = {"jump", "tent", "shadow", "kage", "pole", "bou_", "wall", "kabe"};
+	for (unsigned i = 0; i < sizeof kNot / sizeof kNot[0]; i++)
+		if (strstr(low, kNot[i]))
+			return false;
+	static const char* const kYes[] = {"flag", "hata", "nobori", "banner", "cloth", "nuno", "sentaku", "laundry",
+	                                   "towel", "noren", "curtain", "tapestry", "sail"};
 	for (unsigned i = 0; i < sizeof kYes / sizeof kYes[0]; i++)
 		if (strstr(low, kYes[i]))
 			return true;
@@ -113,7 +142,8 @@ void afterMovement()
 	if ((a > 0.0f) != s_wasOn)
 		fprintf(stderr, "[vegetation] Moving Vegetation %s (%d plant parts known)\n", a > 0.0f ? "on" : "off", s_registered);
 	s_wasOn = a > 0.0f;
-	if (a <= 0.0f || !gpMarioPos) {
+	const f32 c = clothAmount();
+	if ((a <= 0.0f && c <= 0.0f) || !gpMarioPos) {
 		s_dropCount = 0;
 		GXPC_SwayFrame(0, 0, 0);
 		return;
@@ -137,7 +167,7 @@ void afterMovement()
 		pushers[n * 4 + 3] = 85.0f;
 		n++;
 	}
-	const f32 world[8] = {kWind[0], kWind[1], kWind[2], seconds(), a, 0.35f, 0.55f, 0.0f};
+	const f32 world[8] = {kWind[0], kWind[1], kWind[2], seconds(), a, 0.35f, a > 0.0f ? 0.55f : 0.0f, c};  // c: Swaying Hanging Things
 	GXPC_SwayFrame(world, pushers, n);
 }
 
@@ -162,8 +192,34 @@ void port_veg_model(J3DModelData* data)
 		return;
 	char line[512];
 	int len = 0, found = 0;
+	// still models only (no skin: not a character's clothes, which move with it already)
+	const bool still = data->getWEvlpMtxNum() == 0 && data->getJointNum() <= 8;
+	static int s_listed;
+	if (still && s_listed < 300) {  // the log: what still models are made of, to find more that hang
+		char all[512];
+		int at = 0;
+		for (u16 i = 0; i < data->getMaterialNum() && at < (int)sizeof all - 40; i++)
+			if (const char* nm = names->getName(i))
+				at += snprintf(all + at, sizeof all - at, " %s", nm);
+		fprintf(stderr, "[hanging] a still model's materials:%s\n", all);
+		s_listed++;
+	}
 	for (u16 i = 0; i < data->getMaterialNum(); i++) {
 		const char* name = names->getName(i);
+		if (still && name && clothName(name)) {  // hanging: fixed at its top (registered upside down)
+			J3DMaterial* mat = data->getMaterialNodePointer(i);
+			J3DShape* shape  = mat ? mat->getShape() : 0;
+			if (!shape)
+				continue;
+			const ShapeBounds* b = (const ShapeBounds*)shape;
+			for (u32 g = 0; g < shape->getMtxGroupNum(); g++) {
+				J3DShapeDraw* draw = shape->getShapeDraw((u16)g);
+				if (draw && draw->getDisplayList())
+					GXPC_SwayRegister(draw->getDisplayList(), draw->getDisplayListSize(), b->max.y, b->min.y);
+			}
+			fprintf(stderr, "[hanging] sways: %s (%.0f high)\n", name, b->max.y - b->min.y);
+			continue;
+		}
 		if (!name || !plantName(name))
 			continue;
 		J3DMaterial* mat = data->getMaterialNodePointer(i);

@@ -23,6 +23,8 @@ extern "C" {
 
 // The setting (the pause menu's Settings, Graphics): 0 off, 1 gentle, 2 breezy, 3 windy.
 int port_vegetation(void);
+// Swaying Hanging Things (the same page): 0 off, 1 gentle, 2 breezy, 3 windy.
+int port_hanging_things(void);
 
 #ifdef __cplusplus
 }

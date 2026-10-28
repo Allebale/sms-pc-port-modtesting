@@ -125,6 +125,7 @@ struct State {
     // into (u_sway: up, wind and time, the plant's shape, six pushers, their count); a plant's
     // display list drawn sways while its view's projection is the one in use
     bool swayOn, swayArmed, swayActive, swayDraw;
+    float swayCloth;       // Swaying Hanging Things' amount (0 off)
     float swayWorld[32];   // wind x y z, time; amount, flutter, push strength, pusher count; 6 x (x y z r)
     float sway[44];
     float swayProj[7];

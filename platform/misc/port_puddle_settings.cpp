@@ -80,6 +80,7 @@ int s_grassMario = 0;     // Mario Grass Flattening: 0 dives and landings, 1 alw
 int s_fireLights = 0;     // Fire Lights
 int s_fireReach = 2;      // Fire Light Intensity: into kFireReaches
 int s_vegetation = 0;     // Moving Vegetation: 0 off, 1 gentle, 2 breezy, 3 windy
+int s_hanging = 0;        // Swaying Hanging Things: 0 off, 1 gentle, 2 breezy, 3 windy
 int s_sandy = 0;          // Sandy Mario: 0 off, 1 light, 2 normal, 3 heavy
 int s_grassStains = 0;    // Grass Stains: 0 off, 1 light, 2 normal, 3 strong
 int s_stainTime = 4;      // Grass Stain Duration: into kStainSeconds
@@ -264,6 +265,8 @@ void load() {
             s_grassStains = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " grassstaintime = %d", &value) == 1) {
             s_stainTime = value < 0 ? 0 : value > 6 ? 6 : value;
+        } else if (sscanf(line, " hangingthings = %d", &value) == 1) {
+            s_hanging = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " vegetation = %d", &value) == 1) {
             s_vegetation = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " firelightreach = %d", &value) == 1) {
@@ -379,6 +382,8 @@ void save() {
     fprintf(f, "firelightreach = %d\n", s_fireReach);
     fprintf(f, "# vegetation: plants sway, bend from Mario and FLUDD's water: 0 off, 1 gentle, 2 breezy, 3 windy.\n");
     fprintf(f, "vegetation = %d\n", s_vegetation);
+    fprintf(f, "# hangingthings: still flags, banners and laundry sway in the wind: 0 off, 1 gentle, 2 breezy, 3 windy.\n");
+    fprintf(f, "hangingthings = %d\n", s_hanging);
     fprintf(f, "# sandymario: sand sticks to Mario where he touches it, falling away over 20 seconds: 0 off, 1 light, 2 normal, 3 heavy.\n");
     fprintf(f, "sandymario = %d\n", s_sandy);
     fprintf(f, "# grassstains: diving, sliding or falling on grass stains Mario's clothes: 0 off, 1 light, 2 normal, 3 strong.\n");
@@ -495,6 +500,18 @@ int fireReachSet(int i) {
 }
 
 const char* const kVegetationNames[] = {"Off", "Gentle", "Breezy", "Windy"};
+int hangingGet() {
+    load();
+    return s_hanging;
+}
+int hangingSet(int i) {
+    if (i < 0 || i > 3) return 0;
+    load();
+    s_hanging = i;
+    save();
+    port_log("[hanging] Swaying Hanging Things changed: %s\n", kVegetationNames[i]);
+    return 1;
+}
 int vegetationCount() { return 4; }
 const char* vegetationName(int i) { return kVegetationNames[i < 0 || i > 3 ? 0 : i]; }
 int vegetationGet() {
@@ -1067,6 +1084,9 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 107, "Moving Vegetation",
      "Palms, bushes and flowers sway in the wind and bend away from Mario and FLUDD's water.", 0,
      nullptr, vegetationCount, vegetationName, vegetationGet, vegetationSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 114, "Swaying Hanging Things",
+     "Flags, banners and laundry that hang still sway in the wind. The game's own waving flags stay as they are.", 0,
+     nullptr, vegetationCount, vegetationName, hangingGet, hangingSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 96, "Real Shadows",
      "The sun's shadows of everything, the level and characters too. Off is the original.", 0,
      nullptr, shadowsCount, shadowsName, shadowsGet, shadowsSet},
@@ -1211,6 +1231,11 @@ float port_grass_stain_seconds(void) {
 int port_sandy_mario(void) {
     load();
     return s_sandy;
+}
+// Swaying Hanging Things (ext/core/game/port_vegetation.cpp): 0 off, 1 gentle, 2 breezy, 3 windy.
+int port_hanging_things(void) {
+    load();
+    return s_hanging;
 }
 // Moving Vegetation (ext/core/game/port_vegetation.cpp): 0 off, 1 gentle, 2 breezy, 3 windy.
 int port_vegetation(void) {
