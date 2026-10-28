@@ -2663,12 +2663,14 @@ const vec3 K[8] = vec3[8](
 // there is in front of the sample, as before, made a second band: a character or a pillar in
 // front of the ground behind it counted at some distances and not at others.) A flat floor's own
 // samples land on the floor itself, which does not rise over it: no shade.
-float occlusion(vec3 P, vec3 N, vec3 T, vec3 B, float R, float jit) {
+// ez: how far one step of the stored depth moves a point (along its ray); tilt: how far the face
+// worked out from those steps can lean (the depth is stored in steps: without these, a floor reads
+// as slightly bumpy and shades itself in bands)
+float occlusion(vec3 P, vec3 N, vec3 T, vec3 B, float R, float jit, float ez, float tilt) {
   float sum = 0.0;
-  // the depth's steps grow with distance; surfaces seen at a slant step most
   float graze = 1.0 - abs(dot(N, normalize(-P)));
-  float bias = 0.06 + 0.25 * graze * graze;
-  float slack = -P.z * 0.002;
+  float bias = 0.1 + 0.25 * graze * graze + tilt;
+  float slack = -P.z * 0.002 + 3.0 * ez;
   for (int i = 0; i < 8; i++) {
     float f = fract(float(i) * 0.618034 + jit);
     vec3 s = P + normalize(T * K[i].x + B * K[i].y + N * K[i].z) * (R * (0.15 + 0.85 * f * f));
@@ -2682,7 +2684,9 @@ float occlusion(vec3 P, vec3 N, vec3 T, vec3 B, float R, float jit) {
     if (len >= R || len < 1e-3) continue;
     float rise = (dot(v, N) - slack) / len;   // 0 along the face, 1 straight over it
     float near = 1.0 - len / R;
-    sum += max(rise - bias, 0.0) / (1.0 - bias) * near * near;
+    // eased in from the threshold (no hard line where a faint shade starts)
+    float r = clamp((rise - bias) / max(1.0 - bias, 0.2), 0.0, 1.0);
+    sum += r * r * (3.0 - 2.0 * r) * near * near;
   }
   return min(sum / 8.0 * 2.2, 1.0);
 }
@@ -2714,8 +2718,13 @@ void main() {
   T = dot(T, T) > 1e-6 ? normalize(T) : normalize(cross(N, vec3(0.0, 1.0, 0.0)));
   vec3 B = cross(N, T);
   float ao = 1.0;
-  if (u_ao.x > 0.0) ao *= 1.0 - u_ao.x * occlusion(P, N, T, B, 40.0, jit);
-  if (u_ao.y > 0.0) ao *= 1.0 - u_ao.y * occlusion(P, N, T, B, 200.0, jit);
+  // one step of the depth here, in units along the ray (z^2 / x, from viewZ), and so how far the
+  // face (from points 3 pixels apart) can lean
+  float ez = P.z * P.z / abs(u_lin.x) * length(P) / max(-P.z, 1e-3);
+  float span = max(min(length(dx), length(dy)), 1e-3);
+  float tilt = clamp(3.0 * ez / span, 0.0, 0.6);
+  if (u_ao.x > 0.0) ao *= 1.0 - u_ao.x * occlusion(P, N, T, B, 40.0, jit, ez, tilt);
+  if (u_ao.y > 0.0) ao *= 1.0 - u_ao.y * occlusion(P, N, T, B, 200.0, jit, ez, tilt);
   float fade = 1.0 - smoothstep(u_ao.z, u_ao.w, dist);
   o_color = vec4(clamp(mix(1.0, ao, fade), 0.0, 1.0));
 }
@@ -2768,6 +2777,9 @@ void main() {
       wsum += w;
     }
   float ao = wsum > 1e-4 ? sum / wsum : 1.0;
+  // dithered (the picture keeps 256 steps of each colour: a slow fade would show them as bands)
+  float n = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  ao = clamp(ao + (n - 0.5) / 255.0 * step(ao, 0.999), 0.0, 1.0);
   o_color = vec4(ao, ao, ao, 1.0);
 }
 )";
@@ -2970,7 +2982,8 @@ void aoApply() {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
         glActiveTexture(GL_TEXTURE0 + kAoOccUnit);
         glBindTexture(GL_TEXTURE_2D, s_aoTex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, (W + 1) / 2, (H + 1) / 2, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+        // 16-bit: a faint shade fading over a wide floor in 256 steps showed each step as a band
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R16F, (W + 1) / 2, (H + 1) / 2, 0, GL_RED, GL_HALF_FLOAT, nullptr);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
