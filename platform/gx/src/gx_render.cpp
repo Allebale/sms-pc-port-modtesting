@@ -2655,13 +2655,16 @@ const vec3 K[8] = vec3[8](
   vec3( 0.36,  0.00, 0.21), vec3(-0.17,  0.38, 0.27), vec3(-0.30, -0.36, 0.33),
   vec3( 0.47, -0.37, 0.40), vec3( 0.12,  0.68, 0.37), vec3(-0.71,  0.10, 0.45),
   vec3(-0.05, -0.79, 0.45), vec3( 0.73,  0.33, 0.55));
-float occlusion(vec3 P, vec3 N, vec3 T, vec3 B, float R) {
+// jit (0 to 1, each pixel of the 4 by 4 tile its own): how far out each sample reaches, so that
+// the 8 samples' fixed reaches do not draw rings (a second, fainter band beside every edge)
+float occlusion(vec3 P, vec3 N, vec3 T, vec3 B, float R, float jit) {
   float sum = 0.0;
   // surfaces seen at a slant: a wider margin (their depth changes fast from pixel to pixel)
   float graze = 1.0 - abs(dot(N, normalize(-P)));
   float margin = R * (0.04 + 0.25 * graze * graze) - P.z * 0.004;
   for (int i = 0; i < 8; i++) {
-    vec3 s = P + (T * K[i].x + B * K[i].y + N * K[i].z) * R;
+    float f = fract(float(i) * 0.618034 + jit);
+    vec3 s = P + normalize(T * K[i].x + B * K[i].y + N * K[i].z) * (R * (0.12 + 0.88 * f * f));
     if (s.z > -1.0) continue;
     vec2 uv = toUV(s);
     if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) continue;
@@ -2699,13 +2702,14 @@ void main() {
   const float bayer[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0,
                                     3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
   float ang = (bayer[ip.y * 4 + ip.x] + 0.5) / 16.0 * 6.2831853;
+  float jit = fract((bayer[ip.y * 4 + ip.x] + 0.5) * 0.3125 + 0.17);
   vec3 rv = vec3(cos(ang), sin(ang), 0.37);
   vec3 T = rv - N * dot(rv, N);
   T = dot(T, T) > 1e-6 ? normalize(T) : normalize(cross(N, vec3(0.0, 1.0, 0.0)));
   vec3 B = cross(N, T);
   float ao = 1.0;
-  if (u_ao.x > 0.0) ao *= 1.0 - u_ao.x * occlusion(P, N, T, B, 40.0);
-  if (u_ao.y > 0.0) ao *= 1.0 - u_ao.y * occlusion(P, N, T, B, 200.0);
+  if (u_ao.x > 0.0) ao *= 1.0 - u_ao.x * occlusion(P, N, T, B, 40.0, jit);
+  if (u_ao.y > 0.0) ao *= 1.0 - u_ao.y * occlusion(P, N, T, B, 200.0, jit);
   float fade = 1.0 - smoothstep(u_ao.z, u_ao.w, dist);
   o_color = vec4(clamp(mix(1.0, ao, fade), 0.0, 1.0));
 }
