@@ -26,6 +26,15 @@ void port_shadows_main_view(void* camera, float (*view)[4]);
 // projection was just set (the main camera's, from port_shadows_main_view; a mirror's, from
 // port_mirror_clip), lit in what it draws.
 void port_lights_view(float (*view)[4]);
+// Ambient Occlusion (platform/misc/port_puddle_settings.cpp): 0 off, 1 fine detail, 2 large
+// shapes, 3 both; its strength; its reach from the camera, in units; Depth Buffer View (0 off,
+// 1 depth, 2 faces, 3 both, 4 the shade alone).
+int port_ao(void);
+float port_ao_strength(void);
+float port_ao_distance(void);
+int port_depth_view(void);
+// The renderer's: armed for the main camera's view this frame (applied as its 3D scene ends).
+void GXPC_AOFrame(int mode, float strength, float distance, int view);
 // Sandy Mario (ext/core/game/port_sandy.cpp; the setting in platform/misc/port_puddle_settings.cpp:
 // 0 off, 1 light, 2 normal, 3 heavy): around Mario's own draw (port_wet_mario_draw), the sand on him.
 int port_sandy_mario(void);

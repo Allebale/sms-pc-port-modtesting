@@ -116,6 +116,9 @@ struct State {
     float shadowProj[7];
     bool shadowArmed, shadowMain, shadowTag;
     bool shadowNoReceive;  // GXPC_ShadowReceive(0): what is drawn now takes no sun shadow
+    // Ambient Occlusion (gx_render.cpp aoApply): armed for the main camera's projection each frame
+    float aoProj[7];
+    bool aoArmed;
     // Sandy Mario (GXPC_SetSand): the sand on what is drawn now (u_sand; [5..7] 0: none)
     float sand[12];
     // Grass Stains (GXPC_SetGrassStains): the stains on what is drawn now (u_gstain; [4..6] 0: none)
@@ -431,6 +434,8 @@ const int kGrassColorUnit = 11, kGrassDepthUnit = 12, kGrassFlatUnit = 13;
 const ShaderProgram* shaderForCurrentState(int depthOnly = 0, bool lines = false);
 // Moving Vegetation: whether a display list is a plant's (registered as its model loaded), and its
 // model-space height (gx_render.cpp, from callDisplayList).
+// Ambient Occlusion: onto the main camera's scene, as it ends (gx_render.cpp, from GXSetProjectionv).
+void aoApply();
 bool swayLookup(const void* list, uint32_t size, float* minY, float* maxY);
 // The texture unit the sun's shadow map is bound on (gx_render.cpp), past the game's eight.
 const int kShadowUnit = 10;

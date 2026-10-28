@@ -117,6 +117,7 @@ void port_shadows_main_view(void* camera, float (*view)[4])
 	if (camera != (void*)gpCamera || !view)
 		return;
 	port_lights_view(view);  // Fire Lights, seen from the main camera
+	GXPC_AOFrame(port_ao(), port_ao_strength(), port_ao_distance(), port_depth_view());  // Ambient Occlusion
 	const int level = port_shadows();
 	hideBaked(level > 0);
 	if (level <= 0 || level > 2) {

@@ -79,6 +79,10 @@ int s_grassFlatten = 2;   // Grass Flattening: 0 low .. 4 insane
 int s_grassMario = 0;     // Mario Grass Flattening: 0 dives and landings, 1 always, 2 never
 int s_fireLights = 0;     // Fire Lights
 int s_fireReach = 2;      // Fire Light Intensity: into kFireReaches
+int s_ao = 0;             // Ambient Occlusion: 0 off, 1 fine detail, 2 large shapes, 3 both
+int s_aoStrength = 1;     // Ambient Occlusion Strength: into kAoStrengths
+int s_aoDistance = 1;     // Ambient Occlusion Distance: into kAoDistances
+int s_depthView = 0;      // Depth Buffer View: 0 off, 1 depth, 2 faces, 3 both, 4 the shade alone
 int s_vegetation = 0;     // Moving Vegetation: 0 off, 1 gentle, 2 breezy, 3 windy
 int s_sandy = 0;          // Sandy Mario: 0 off, 1 light, 2 normal, 3 heavy
 int s_grassStains = 0;    // Grass Stains: 0 off, 1 light, 2 normal, 3 strong
@@ -266,6 +270,12 @@ void load() {
             s_stainTime = value < 0 ? 0 : value > 6 ? 6 : value;
         } else if (sscanf(line, " vegetation = %d", &value) == 1) {
             s_vegetation = value < 0 ? 0 : value > 3 ? 3 : value;
+        } else if (sscanf(line, " ambientocclusion = %d", &value) == 1) {
+            s_ao = value < 0 ? 0 : value > 3 ? 3 : value;
+        } else if (sscanf(line, " ambientocclusionstrength = %d", &value) == 1) {
+            s_aoStrength = value < 0 ? 0 : value > 3 ? 3 : value;
+        } else if (sscanf(line, " ambientocclusiondistance = %d", &value) == 1) {
+            s_aoDistance = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " firelightreach = %d", &value) == 1) {
             s_fireReach = value < 0 ? 0 : value > 4 ? 4 : value;
         } else if (sscanf(line, " firelights = %d", &value) == 1) {
@@ -377,6 +387,12 @@ void save() {
     fprintf(f, "firelights = %d\n", s_fireLights);
     fprintf(f, "# firelightreach: how far a fire's light goes: 0 very short, 1 short, 2 normal, 3 far, 4 very far.\n");
     fprintf(f, "firelightreach = %d\n", s_fireReach);
+    fprintf(f, "# ambientocclusion: shade where surfaces close in: 0 off, 1 fine detail, 2 large shapes, 3 both.\n");
+    fprintf(f, "ambientocclusion = %d\n", s_ao);
+    fprintf(f, "# ambientocclusionstrength: 0 low, 1 medium, 2 high, 3 very high.\n");
+    fprintf(f, "ambientocclusionstrength = %d\n", s_aoStrength);
+    fprintf(f, "# ambientocclusiondistance: how far from the camera: 0 short, 1 medium, 2 long, 3 very long.\n");
+    fprintf(f, "ambientocclusiondistance = %d\n", s_aoDistance);
     fprintf(f, "# vegetation: plants sway, bend from Mario and FLUDD's water: 0 off, 1 gentle, 2 breezy, 3 windy.\n");
     fprintf(f, "vegetation = %d\n", s_vegetation);
     fprintf(f, "# sandymario: sand sticks to Mario where he touches it, falling away over 20 seconds: 0 off, 1 light, 2 normal, 3 heavy.\n");
@@ -558,6 +574,65 @@ int sandySet(int i) {
     s_sandy = i;
     save();
     port_log("[sandy] Sandy Mario changed: %s\n", kSandyNames[i]);
+    return 1;
+}
+
+const char* const kAoNames[] = {"Off", "Fine Detail", "Large Shapes", "Both"};
+int aoCount() { return 4; }
+const char* aoName(int i) { return kAoNames[i < 0 || i > 3 ? 0 : i]; }
+int aoGet() {
+    load();
+    return s_ao;
+}
+int aoSet(int i) {
+    if (i < 0 || i > 3) return 0;
+    load();
+    s_ao = i;
+    save();
+    port_log("[ao] Ambient Occlusion changed: %s\n", kAoNames[i]);
+    return 1;
+}
+const char* const kAoStrengthNames[] = {"Low", "Medium", "High", "Very High"};
+const float kAoStrengths[] = {0.45f, 0.7f, 1.0f, 1.4f};
+int aoStrengthCount() { return 4; }
+const char* aoStrengthName(int i) { return kAoStrengthNames[i < 0 || i > 3 ? 1 : i]; }
+int aoStrengthGet() {
+    load();
+    return s_aoStrength;
+}
+int aoStrengthSet(int i) {
+    if (i < 0 || i > 3) return 0;
+    load();
+    s_aoStrength = i;
+    save();
+    port_log("[ao] Ambient Occlusion Strength changed: %s\n", kAoStrengthNames[i]);
+    return 1;
+}
+const char* const kAoDistanceNames[] = {"Short", "Medium", "Long", "Very Long"};
+const float kAoDistances[] = {2000.0f, 4000.0f, 8000.0f, 16000.0f};
+int aoDistanceCount() { return 4; }
+const char* aoDistanceName(int i) { return kAoDistanceNames[i < 0 || i > 3 ? 1 : i]; }
+int aoDistanceGet() {
+    load();
+    return s_aoDistance;
+}
+int aoDistanceSet(int i) {
+    if (i < 0 || i > 3) return 0;
+    load();
+    s_aoDistance = i;
+    save();
+    port_log("[ao] Ambient Occlusion Distance changed: %s\n", kAoDistanceNames[i]);
+    return 1;
+}
+// Depth Buffer View: for troubleshooting, not kept (back to Off each time the game starts)
+const char* const kDepthViewNames[] = {"Off", "Depth", "Normals", "Normals and Depth", "Ambient Occlusion Only"};
+int depthViewCount() { return 5; }
+const char* depthViewName(int i) { return kDepthViewNames[i < 0 || i > 4 ? 0 : i]; }
+int depthViewGet() { return s_depthView; }
+int depthViewSet(int i) {
+    if (i < 0 || i > 4) return 0;
+    s_depthView = i;
+    port_log("[ao] Depth Buffer View changed: %s\n", kDepthViewNames[i]);
     return 1;
 }
 
@@ -1067,6 +1142,18 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 107, "Moving Vegetation",
      "Palms, bushes and flowers sway in the wind and bend away from Mario and FLUDD's water.", 0,
      nullptr, vegetationCount, vegetationName, vegetationGet, vegetationSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 114, "Ambient Occlusion",
+     "Soft shade where surfaces close in (corners, creases, under things). Never on 3D Grass. Off is the original.", 0,
+     nullptr, aoCount, aoName, aoGet, aoSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 115, "Ambient Occlusion Strength",
+     "How dark Ambient Occlusion's shade is.", 0, nullptr, aoStrengthCount, aoStrengthName,
+     aoStrengthGet, aoStrengthSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 116, "Ambient Occlusion Distance",
+     "How far from the camera Ambient Occlusion reaches. Farther costs a little more.", 0, nullptr,
+     aoDistanceCount, aoDistanceName, aoDistanceGet, aoDistanceSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 117, "Depth Buffer View",
+     "For troubleshooting, as ReShade's DisplayDepth. Shows the depth, the normals, or the shade alone (grass in green).", 0,
+     nullptr, depthViewCount, depthViewName, depthViewGet, depthViewSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 96, "Real Shadows",
      "The sun's shadows of everything, the level and characters too. Off is the original.", 0,
      nullptr, shadowsCount, shadowsName, shadowsGet, shadowsSet},
@@ -1217,6 +1304,22 @@ int port_vegetation(void) {
     load();
     return s_vegetation;
 }
+// Ambient Occlusion (the renderer's, each frame from port_shadows_main_view): 0 off, 1 fine detail,
+// 2 large shapes, 3 both; its strength; how far from the camera it reaches, in units; Depth Buffer
+// View (0 off, 1 depth, 2 normals, 3 both, 4 the shade alone).
+int port_ao(void) {
+    load();
+    return s_ao;
+}
+float port_ao_strength(void) {
+    load();
+    return kAoStrengths[s_aoStrength < 0 || s_aoStrength > 3 ? 1 : s_aoStrength];
+}
+float port_ao_distance(void) {
+    load();
+    return kAoDistances[s_aoDistance < 0 || s_aoDistance > 3 ? 1 : s_aoDistance];
+}
+int port_depth_view(void) { return s_depthView; }
 // Fire Light Intensity: how far a fire's light reaches, times the normal reach.
 float port_fire_light_reach(void) {
     load();

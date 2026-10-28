@@ -2427,6 +2427,8 @@ static GLuint s_grassFlatTex;          // the flattened grass's map (GXPC_GrassF
 static int s_grassFlatSize;
 static float s_grassFlatArea[4];
 static int s_grassCopyW, s_grassCopyH;
+static uint32_t s_grassCopyFrame = ~0u;  // the frame the ground's copy was last made (Ambient Occlusion)
+extern "C" uint32_t GXPC_FrameCount(void);
 static GLuint efbReadFbo(int x0, int y0, int x1, int y1, GLbitfield bits);
 
 static void grassCopyGround() {
@@ -2468,6 +2470,7 @@ static void grassCopyGround() {
     glBindFramebuffer(GL_READ_FRAMEBUFFER, src);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_grassCopyFbo);
     glBlitFramebuffer(0, 0, W, H, 0, 0, W, H, GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    s_grassCopyFrame = GXPC_FrameCount();
     glActiveTexture(GL_TEXTURE0 + kGrassColorUnit);
     glBindTexture(GL_TEXTURE_2D, s_grassCopyColor);
     glGenerateMipmap(GL_TEXTURE_2D);
@@ -2558,7 +2561,12 @@ extern "C" void GXPC_GrassDraw(unsigned buf, int blades, int segments, int press
     s_drawGen++;
 }
 
-extern "C" void GXPC_GrassEnd(void) { s_grassSp = nullptr; }
+static void grassCopyAfter();
+extern "C" void GXPC_GrassEnd(void) {
+    s_grassSp = nullptr;
+    flushBatch();
+    grassCopyAfter();  // Ambient Occlusion: where the blades are
+}
 
 // The flattened grass (ext/core/game/port_grass.cpp): a map round Mario, how flat each cell is and
 // which way it lies, read by the blades (u_gflat, on kGrassFlatUnit). rgba null: none.
@@ -2587,6 +2595,441 @@ extern "C" void GXPC_GrassFlatMap(const unsigned char* rgba, int size, float x0,
     s_grassFlatArea[1] = z0;
     s_grassFlatArea[2] = 1.0f;
     s_grassFlatArea[3] = 1.0f / span;
+}
+
+// ------------------------------------------------------------------ Ambient Occlusion
+// Screen-space ambient occlusion (the port's own): where surfaces close in on a point (a corner,
+// a crease, the ground under a character, a doorway), less of the sky's light reaches it, so it is
+// darker. Once a frame, as the main camera's 3D scene is done (the first orthographic projection
+// after it, before the HUD: gx_api.cpp), from the scene's depth:
+//   1. the depth copied (resolved) into a texture of its own;
+//   2. at half size, each point's position and face (from the depth around it), and how much of
+//      a hemisphere over it is taken by what is in front: within 40 units (fine: creases, contact)
+//      and within 280 (large: walls, overhangs, the space under things), 8 samples each, turned
+//      for each pixel of a 4 by 4 tile;
+//   3. at full size, the 4 by 4 around each pixel averaged (by depth, edges kept: the tile's
+//      turns cancel out) and multiplied onto the scene. It fades out with distance (Ambient
+//      Occlusion Distance) and is never on the sky.
+// 3D Grass's blades take none (on them it only looks wrong): which pixels are blades is known from
+// the depth before the blades (the grass's own copy of the ground) and right after them (copied
+// as the grass is done, GXPC_GrassEnd): a pixel the blades drew nearer, that nothing drew over
+// since. They neither shade nor are shaded; the ground among them is shaded as ground.
+// Depth Buffer View (for troubleshooting, as ReShade's DisplayDepth): the depth as the effect sees
+// it (near black, far white), the faces' directions from it (colours), both side by side, or the
+// shade alone (white, with 3D Grass's blades green: those it leaves alone).
+static const char* kAoTraceFs = R"(#version 330 core
+uniform sampler2D u_depth;
+uniform vec4 u_lin;  // view z = x / (depth * y + z)
+uniform vec4 u_f;    // x, y: the projection's scale (y signed: the EFB's rows run down); z, w: a texel
+uniform vec4 u_ao;   // fine strength, large strength, fade start, fade end (units from the camera)
+uniform sampler2D u_ground;  // 3D Grass: the depth before the blades and right after them
+uniform sampler2D u_after;   // (u_g.x 1 while both are this frame's)
+uniform vec4 u_g;
+in vec2 v_uv;
+out vec4 o_color;
+float viewZ(float d) { return u_lin.x / (d * u_lin.y + u_lin.z); }
+// The depth with the grass's blades left out: where a blade is (drawn nearer than the ground was,
+// nothing over it since), the ground's
+float sceneDepth(vec2 uv) {
+  float d = textureLod(u_depth, uv, 0.0).r;
+  if (u_g.x > 0.5) {
+    float g = textureLod(u_ground, uv, 0.0).r, a = textureLod(u_after, uv, 0.0).r;
+    if (a < g && abs(d - a) < 1e-7) d = g;
+  }
+  return d;
+}
+vec3 posAt(vec2 uv, float d) {
+  float z = viewZ(d);
+  vec2 n = uv * 2.0 - 1.0;
+  return vec3(n.x * -z / u_f.x, n.y * -z / u_f.y, z);
+}
+vec3 posUV(vec2 uv) { return posAt(uv, sceneDepth(uv)); }
+vec2 toUV(vec3 p) { return vec2(p.x * u_f.x, p.y * u_f.y) / -p.z * 0.5 + 0.5; }
+const vec3 K[8] = vec3[8](
+  vec3( 0.36,  0.00, 0.21), vec3(-0.17,  0.38, 0.27), vec3(-0.30, -0.36, 0.33),
+  vec3( 0.47, -0.37, 0.40), vec3( 0.12,  0.68, 0.37), vec3(-0.71,  0.10, 0.45),
+  vec3(-0.05, -0.79, 0.45), vec3( 0.73,  0.33, 0.55));
+float occlusion(vec3 P, vec3 N, vec3 T, vec3 B, float R) {
+  float sum = 0.0;
+  for (int i = 0; i < 8; i++) {
+    vec3 s = P + (T * K[i].x + B * K[i].y + N * K[i].z) * R;
+    if (s.z > -1.0) continue;
+    vec2 uv = toUV(s);
+    if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) continue;
+    float d = sceneDepth(uv);
+    if (d >= 0.999999) continue;
+    float sz = viewZ(d);
+    // a margin growing with distance (the depth's steps grow), so that no surface shades itself
+    if (sz >= s.z + R * 0.04 - P.z * 0.004) sum += smoothstep(0.0, 1.0, R / abs(P.z - sz));
+  }
+  return sum / 8.0;
+}
+void main() {
+  float d = sceneDepth(v_uv);
+  if (d >= 0.999999) { o_color = vec4(1.0); return; }
+  vec3 P = posAt(v_uv, d);
+  float dist = -P.z;
+  if (dist <= 0.0 || dist >= u_ao.w) { o_color = vec4(1.0); return; }
+  vec2 t = u_f.zw;
+  vec3 px = posUV(v_uv + vec2(t.x, 0.0)), nx = posUV(v_uv - vec2(t.x, 0.0));
+  vec3 py = posUV(v_uv + vec2(0.0, t.y)), ny = posUV(v_uv - vec2(0.0, t.y));
+  vec3 dx = abs(px.z - P.z) < abs(P.z - nx.z) ? px - P : P - nx;
+  vec3 dy = abs(py.z - P.z) < abs(P.z - ny.z) ? py - P : P - ny;
+  vec3 N = cross(dx, dy);
+  if (dot(N, N) < 1e-12) { o_color = vec4(1.0); return; }
+  N = normalize(N);
+  if (dot(N, P) > 0.0) N = -N;
+  // a turn for each pixel of a 4 by 4 tile (the blur's 4 by 4 averages them out)
+  ivec2 ip = ivec2(gl_FragCoord.xy) & 3;
+  const float bayer[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0,
+                                    3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+  float ang = (bayer[ip.y * 4 + ip.x] + 0.5) / 16.0 * 6.2831853;
+  vec3 rv = vec3(cos(ang), sin(ang), 0.37);
+  vec3 T = rv - N * dot(rv, N);
+  T = dot(T, T) > 1e-6 ? normalize(T) : normalize(cross(N, vec3(0.0, 1.0, 0.0)));
+  vec3 B = cross(N, T);
+  float ao = 1.0;
+  if (u_ao.x > 0.0) ao *= 1.0 - u_ao.x * occlusion(P, N, T, B, 40.0);
+  if (u_ao.y > 0.0) ao *= 1.0 - u_ao.y * occlusion(P, N, T, B, 280.0);
+  float fade = 1.0 - smoothstep(u_ao.z, u_ao.w, dist);
+  o_color = vec4(clamp(mix(1.0, ao, fade), 0.0, 1.0));
+}
+)";
+static const char* kAoApplyFs = R"(#version 330 core
+uniform sampler2D u_depth;
+uniform sampler2D u_occ;
+uniform sampler2D u_ground;
+uniform sampler2D u_after;
+uniform vec4 u_lin;
+uniform vec4 u_half;  // x, y: a half-size texel; z, w: a full-size one
+uniform vec4 u_g;
+in vec2 v_uv;
+out vec4 o_color;
+float viewZ(float d) { return u_lin.x / (d * u_lin.y + u_lin.z); }
+bool blade(vec2 uv, float d) {
+  if (u_g.x < 0.5) return false;
+  float g = textureLod(u_ground, uv, 0.0).r, a = textureLod(u_after, uv, 0.0).r;
+  return a < g && abs(d - a) < 1e-7;
+}
+float sceneZ(vec2 uv) {
+  float d = textureLod(u_depth, uv, 0.0).r;
+  if (blade(uv, d)) d = textureLod(u_ground, uv, 0.0).r;
+  return d >= 0.999999 ? 1e9 : viewZ(d);
+}
+void main() {
+  // 3D Grass's blades: none
+  if (blade(v_uv, textureLod(u_depth, v_uv, 0.0).r)) { o_color = vec4(1.0); return; }
+  float z0 = sceneZ(v_uv);
+  if (z0 > 1e8) { o_color = vec4(1.0); return; }
+  // the surface's slope across the screen (the side nearer in depth, so as not to cross an edge):
+  // the samples are weighed by how far each is from that plane, not from the centre's depth, so
+  // that surfaces seen at a slant (walls along the view) are averaged as smoothly as any other
+  float zr = sceneZ(v_uv + vec2(u_half.z, 0.0)) - z0, zl = z0 - sceneZ(v_uv - vec2(u_half.z, 0.0));
+  float zu = sceneZ(v_uv + vec2(0.0, u_half.w)) - z0, zd = z0 - sceneZ(v_uv - vec2(0.0, u_half.w));
+  float gx = abs(zr) < abs(zl) ? zr : zl, gy = abs(zu) < abs(zd) ? zu : zd;
+  float sum = 0.0, wsum = 0.0;
+  for (int y = -2; y < 2; y++)
+    for (int x = -2; x < 2; x++) {
+      vec2 o = vec2(x, y) + 0.5;
+      vec2 uv = v_uv + o * u_half.xy;
+      vec2 px = o * u_half.xy / u_half.zw;  // in full-size pixels
+      float z = sceneZ(uv);
+      float off = abs(z - (z0 + gx * px.x + gy * px.y));
+      float w = 1.0 / (1.0 + off / (abs(z0) * 0.01 + 2.0));
+      w *= w;
+      sum += textureLod(u_occ, uv, 0.0).r * w;
+      wsum += w;
+    }
+  float ao = wsum > 1e-4 ? sum / wsum : 1.0;
+  o_color = vec4(ao, ao, ao, 1.0);
+}
+)";
+// Depth Buffer View: u_view.x 1 the depth, 2 the faces, 3 both (faces left, depth right), 4 the
+// shade alone (drawn white here, the shade multiplied on after; blades green)
+static const char* kAoViewFs = R"(#version 330 core
+uniform sampler2D u_depth;
+uniform sampler2D u_ground;
+uniform sampler2D u_after;
+uniform vec4 u_lin;
+uniform vec4 u_f;     // as the trace's
+uniform vec4 u_view;  // which; the far end (units)
+uniform vec4 u_g;
+in vec2 v_uv;
+out vec4 o_color;
+float viewZ(float d) { return u_lin.x / (d * u_lin.y + u_lin.z); }
+vec3 posUV(vec2 uv) {
+  float z = viewZ(textureLod(u_depth, uv, 0.0).r);
+  vec2 n = uv * 2.0 - 1.0;
+  return vec3(n.x * -z / u_f.x, n.y * -z / u_f.y, z);
+}
+void main() {
+  float d = textureLod(u_depth, v_uv, 0.0).r;
+  bool sky = d >= 0.999999;
+  bool isBlade = false;
+  if (u_g.x > 0.5) {
+    float g = textureLod(u_ground, v_uv, 0.0).r, a = textureLod(u_after, v_uv, 0.0).r;
+    isBlade = a < g && abs(d - a) < 1e-7;
+  }
+  int mode = int(u_view.x + 0.5);
+  if (mode == 4) { o_color = vec4(isBlade ? vec3(0.55, 1.0, 0.55) : vec3(1.0), 1.0); return; }
+  if (mode == 3) mode = v_uv.x < 0.5 ? 2 : 1;
+  if (mode == 1) {
+    // near black, far white (spread evenly by the log of the distance)
+    float dist = sky ? u_view.y : -viewZ(d);
+    float v = clamp(log(1.0 + dist / 40.0) / log(1.0 + u_view.y / 40.0), 0.0, 1.0);
+    o_color = vec4(vec3(v), 1.0);
+    return;
+  }
+  if (sky) { o_color = vec4(0.5, 0.5, 1.0, 1.0); return; }
+  vec2 t = u_f.zw;
+  vec3 P = posUV(v_uv);
+  vec3 px = posUV(v_uv + vec2(t.x, 0.0)), nx = posUV(v_uv - vec2(t.x, 0.0));
+  vec3 py = posUV(v_uv + vec2(0.0, t.y)), ny = posUV(v_uv - vec2(0.0, t.y));
+  vec3 dx = abs(px.z - P.z) < abs(P.z - nx.z) ? px - P : P - nx;
+  vec3 dy = abs(py.z - P.z) < abs(P.z - ny.z) ? py - P : P - ny;
+  vec3 N = cross(dx, dy);
+  N = dot(N, N) > 1e-12 ? normalize(N) : vec3(0.0, 0.0, 1.0);
+  if (dot(N, P) > 0.0) N = -N;
+  o_color = vec4(N * 0.5 + 0.5, 1.0);
+}
+)";
+static GLuint s_aoTraceProg, s_aoApplyProg, s_aoViewProg, s_aoVao;
+static GLint s_aoTLin, s_aoTF, s_aoTAo, s_aoTG, s_aoALin, s_aoAHalf, s_aoAG, s_aoVLin, s_aoVF, s_aoVView, s_aoVG;
+
+static GLuint s_aoDepthTex, s_aoDepthFbo, s_aoTex, s_aoFbo;
+static int s_aoW, s_aoH;
+static const int kAoDepthUnit = 14, kAoOccUnit = 15;
+
+// The settings for this frame (GXPC_AOFrame, from the main camera's view: port_shadows.cpp).
+static int s_aoMode;  // 0 off, 1 fine, 2 large, 3 both
+static int s_aoView;  // Depth Buffer View: 0 off, 1 depth, 2 faces, 3 both, 4 the shade alone
+static float s_aoStrength = 0.75f, s_aoDistance = 4000.0f;
+
+extern "C" void GXPC_AOFrame(int mode, float strength, float distance, int view) {
+    s_aoMode     = mode;
+    s_aoView     = view;
+    s_aoStrength = strength;
+    s_aoDistance = distance;
+    g.aoArmed    = (mode > 0 || view > 0) && s_ready;
+    if (g.aoArmed) memcpy(g.aoProj, g.projection, sizeof g.aoProj);
+}
+
+// 3D Grass, as its blades are done: the depth right after them (Ambient Occlusion leaves blades
+// alone: where they are is where this is nearer than the ground was)
+static GLuint s_grassAfterTex, s_grassAfterFbo;
+static int s_grassAfterW, s_grassAfterH;
+static uint32_t s_grassAfterFrame = ~0u;
+static const int kGrassAfterUnit = 9;
+static void grassCopyAfter() {
+    if (s_aoMode <= 0 && s_aoView <= 0) return;
+    const int W = scaled(s_efbW), H = scaled(EFB_H);
+    if (W != s_grassAfterW || H != s_grassAfterH) {
+        if (s_grassAfterFbo) {
+            glDeleteFramebuffers(1, &s_grassAfterFbo);
+            glDeleteTextures(1, &s_grassAfterTex);
+        }
+        s_grassAfterW = W, s_grassAfterH = H;
+        glGenTextures(1, &s_grassAfterTex);
+        glGenFramebuffers(1, &s_grassAfterFbo);
+        glActiveTexture(GL_TEXTURE0 + kGrassAfterUnit);
+        glBindTexture(GL_TEXTURE_2D, s_grassAfterTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, W, H, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+        glBindFramebuffer(GL_FRAMEBUFFER, s_grassAfterFbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, s_grassAfterTex, 0);
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+    }
+    const GLuint src = efbReadFbo(0, 0, W, H, GL_DEPTH_BUFFER_BIT);
+    glDisable(GL_SCISSOR_TEST);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, src);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_grassAfterFbo);
+    glBlitFramebuffer(0, 0, W, H, 0, 0, W, H, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    s_grassAfterFrame = GXPC_FrameCount();
+    glcInvalidate();
+}
+
+void aoApply() {
+    if (!s_ready || (s_aoMode <= 0 && s_aoView <= 0)) return;
+    // the main view's projection and depth range (the XF's, still the main camera's)
+    if (g.xfReg[XFR_PROJ + 6] & 1) return;  // orthographic: not a 3D view
+    const float fy = xff(XFR_PROJ + 2), A = xff(XFR_PROJ + 4), B = xff(XFR_PROJ + 5);
+    const float vz0 = xff(XFR_VIEWPORT + 2), vz1 = xff(XFR_VIEWPORT + 5);
+    if (fy == 0.0f || vz0 == 0.0f) return;
+    const int W = scaled(s_efbW), H = scaled(EFB_H);
+    if (!s_aoTraceProg) {
+        s_aoTraceProg = compileProgram(kPostVs, kAoTraceFs);
+        s_aoApplyProg = compileProgram(kPostVs, kAoApplyFs);
+        glUseProgram(s_aoTraceProg);
+        glUniform1i(glGetUniformLocation(s_aoTraceProg, "u_flip"), 0);
+        glUniform1i(glGetUniformLocation(s_aoTraceProg, "u_depth"), kAoDepthUnit);
+        s_aoTLin = glGetUniformLocation(s_aoTraceProg, "u_lin");
+        s_aoTF   = glGetUniformLocation(s_aoTraceProg, "u_f");
+        s_aoTAo  = glGetUniformLocation(s_aoTraceProg, "u_ao");
+        s_aoTG   = glGetUniformLocation(s_aoTraceProg, "u_g");
+        glUniform1i(glGetUniformLocation(s_aoTraceProg, "u_ground"), kGrassDepthUnit);
+        glUniform1i(glGetUniformLocation(s_aoTraceProg, "u_after"), kGrassAfterUnit);
+        glUseProgram(s_aoApplyProg);
+        glUniform1i(glGetUniformLocation(s_aoApplyProg, "u_flip"), 0);
+        glUniform1i(glGetUniformLocation(s_aoApplyProg, "u_depth"), kAoDepthUnit);
+        glUniform1i(glGetUniformLocation(s_aoApplyProg, "u_occ"), kAoOccUnit);
+        s_aoALin  = glGetUniformLocation(s_aoApplyProg, "u_lin");
+        s_aoAHalf = glGetUniformLocation(s_aoApplyProg, "u_half");
+        s_aoAG    = glGetUniformLocation(s_aoApplyProg, "u_g");
+        glUniform1i(glGetUniformLocation(s_aoApplyProg, "u_ground"), kGrassDepthUnit);
+        glUniform1i(glGetUniformLocation(s_aoApplyProg, "u_after"), kGrassAfterUnit);
+        s_aoViewProg = compileProgram(kPostVs, kAoViewFs);
+        glUseProgram(s_aoViewProg);
+        glUniform1i(glGetUniformLocation(s_aoViewProg, "u_flip"), 0);
+        glUniform1i(glGetUniformLocation(s_aoViewProg, "u_depth"), kAoDepthUnit);
+        glUniform1i(glGetUniformLocation(s_aoViewProg, "u_ground"), kGrassDepthUnit);
+        glUniform1i(glGetUniformLocation(s_aoViewProg, "u_after"), kGrassAfterUnit);
+        s_aoVLin  = glGetUniformLocation(s_aoViewProg, "u_lin");
+        s_aoVF    = glGetUniformLocation(s_aoViewProg, "u_f");
+        s_aoVView = glGetUniformLocation(s_aoViewProg, "u_view");
+        s_aoVG    = glGetUniformLocation(s_aoViewProg, "u_g");
+        glGenVertexArrays(1, &s_aoVao);
+        g_glc.prog = ~0u;
+    }
+    if (W != s_aoW || H != s_aoH) {
+        if (s_aoDepthFbo) {
+            glDeleteFramebuffers(1, &s_aoDepthFbo);
+            glDeleteFramebuffers(1, &s_aoFbo);
+            glDeleteTextures(1, &s_aoDepthTex);
+            glDeleteTextures(1, &s_aoTex);
+        }
+        s_aoW = W, s_aoH = H;
+        glGenTextures(1, &s_aoDepthTex);
+        glGenTextures(1, &s_aoTex);
+        glGenFramebuffers(1, &s_aoDepthFbo);
+        glGenFramebuffers(1, &s_aoFbo);
+        glActiveTexture(GL_TEXTURE0 + kAoDepthUnit);
+        glBindTexture(GL_TEXTURE_2D, s_aoDepthTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, W, H, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+        glActiveTexture(GL_TEXTURE0 + kAoOccUnit);
+        glBindTexture(GL_TEXTURE_2D, s_aoTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, (W + 1) / 2, (H + 1) / 2, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindFramebuffer(GL_FRAMEBUFFER, s_aoDepthFbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, s_aoDepthTex, 0);
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+        GLenum st1 = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        glBindFramebuffer(GL_FRAMEBUFFER, s_aoFbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_aoTex, 0);
+        GLenum st2 = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (st1 != GL_FRAMEBUFFER_COMPLETE || st2 != GL_FRAMEBUFFER_COMPLETE)
+            logmsg("ambient occlusion: its buffers are not complete (0x%x, 0x%x)", st1, st2);
+        logmsg("ambient occlusion: buffers made (%dx%d, worked at %dx%d)", W, H, (W + 1) / 2, (H + 1) / 2);
+    }
+    // 1. the depth, resolved
+    const GLuint src = efbReadFbo(0, 0, W, H, GL_DEPTH_BUFFER_BIT);
+    glDisable(GL_SCISSOR_TEST);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, src);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_aoDepthFbo);
+    glBlitFramebuffer(0, 0, W, H, 0, 0, W, H, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+
+    // what both passes share: no tests, no blending, no clip planes, all colour
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_COLOR_LOGIC_OP);
+    glDisable(GL_CLIP_DISTANCE0);
+    glDisable(GL_CLIP_DISTANCE0 + 1);
+    glDisable(GL_CLIP_DISTANCE0 + 2);
+    glDepthMask(GL_FALSE);
+    glActiveTexture(GL_TEXTURE0 + kAoDepthUnit);
+    glBindTexture(GL_TEXTURE_2D, s_aoDepthTex);
+    glBindSampler(kAoDepthUnit, 0);
+    glActiveTexture(GL_TEXTURE0 + kAoOccUnit);
+    glBindTexture(GL_TEXTURE_2D, s_aoTex);
+    glBindSampler(kAoOccUnit, 0);
+    // 3D Grass's depth before the blades and right after them, when both made this frame at this size
+    const uint32_t frame = GXPC_FrameCount();
+    const bool grass = s_grassCopyFrame == frame && s_grassAfterFrame == frame && s_grassCopyW == W &&
+                       s_grassCopyH == H && s_grassAfterW == W && s_grassAfterH == H;
+    glActiveTexture(GL_TEXTURE0 + kGrassDepthUnit);
+    glBindTexture(GL_TEXTURE_2D, s_grassCopyDepth);
+    glBindSampler(kGrassDepthUnit, 0);
+    glActiveTexture(GL_TEXTURE0 + kGrassAfterUnit);
+    glBindTexture(GL_TEXTURE_2D, s_grassAfterTex);
+    glBindSampler(kGrassAfterUnit, 0);
+    const float gu[4] = {grass ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
+    glBindVertexArray(s_aoVao);
+    // view z from the depth: d * 16777215 = vz1 - vz0 * A - vz0 * B / z (gx_shader.cpp's mapping)
+    const float lin[4] = {-vz0 * B, 16777215.0f, vz0 * A - vz1, 0.0f};
+    const float hw = float((W + 1) / 2), hh = float((H + 1) / 2);
+
+    const float f[4] = {fabsf(fy) * float(H) / float(W), -fabsf(fy), 1.0f / float(W), 1.0f / float(H)};
+    // Depth Buffer View: the depth or the faces over the whole picture (no shade), or white for
+    // the shade alone, multiplied on below
+    if (s_aoView > 0) {
+        glBindFramebuffer(GL_FRAMEBUFFER, s_efbFbo);
+        glViewport(0, 0, W, H);
+        glDisable(GL_BLEND);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+        glUseProgram(s_aoViewProg);
+        const float view[4] = {float(s_aoView), 20000.0f, 0.0f, 0.0f};
+        glUniform4fv(s_aoVLin, 1, lin);
+        glUniform4fv(s_aoVF, 1, f);
+        glUniform4fv(s_aoVView, 1, view);
+        glUniform4fv(s_aoVG, 1, gu);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        s_drawGen++;
+        if (s_aoView != 4 || s_aoMode <= 0) {
+            glcInvalidate();
+            return;
+        }
+    }
+    // 2. the occlusion, at half size
+    glBindFramebuffer(GL_FRAMEBUFFER, s_aoFbo);
+    glViewport(0, 0, int(hw), int(hh));
+    glDisable(GL_BLEND);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glUseProgram(s_aoTraceProg);
+    const float fine  = (s_aoMode & 1) ? s_aoStrength : 0.0f;
+    const float large = (s_aoMode & 2) ? s_aoStrength * 0.8f : 0.0f;
+    const float ao[4] = {fine, large, s_aoDistance * 0.6f, s_aoDistance};
+    glUniform4fv(s_aoTLin, 1, lin);
+    glUniform4fv(s_aoTF, 1, f);
+    glUniform4fv(s_aoTAo, 1, ao);
+    glUniform4fv(s_aoTG, 1, gu);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    // 3. averaged and multiplied onto the scene (its alpha kept)
+    glBindFramebuffer(GL_FRAMEBUFFER, s_efbFbo);
+    glViewport(0, 0, W, H);
+    glEnable(GL_BLEND);
+    glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+    glBlendFuncSeparate(GL_ZERO, GL_SRC_COLOR, GL_ZERO, GL_ONE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+    glUseProgram(s_aoApplyProg);
+    const float half[4] = {1.0f / hw, 1.0f / hh, 1.0f / float(W), 1.0f / float(H)};
+    glUniform4fv(s_aoALin, 1, lin);
+    glUniform4fv(s_aoAG, 1, gu);
+    glUniform4fv(s_aoAHalf, 1, half);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    s_drawGen++;
+
+    // the cache knows none of this: everything is set again by the next draw
+    glcInvalidate();
+    static bool s_told;
+    if (!s_told) {
+        s_told = true;
+        logmsg("ambient occlusion: on the scene as the 3D view ends (%s)",
+               s_aoMode == 1 ? "fine" : s_aoMode == 2 ? "large" : "fine and large");
+    }
 }
 
 // ------------------------------------------------------------------ Fire Lights
