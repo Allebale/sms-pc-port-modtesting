@@ -1278,7 +1278,8 @@ static void callDisplayListInner(const uint8_t* data, uint32_t size) {
         const bool arena = arenaEnabled() && !traceFile();  // traces list the batch's own vertices
         for (DlRun& r : e.runs) {
             const uint32_t nidx = uint32_t(r.idx.size());
-            if (arena && nidx &&
+            // lines widened on the CPU need their indices there, as streamed vertices
+            if (arena && nidx && (r.cls != PRIM_LINES || platformGeometryShaders()) &&
                 (r.arena.gen == arenaGeneration() ||
                  arenaUpload(r.verts.data(), r.nverts, r.stride, r.idx.data(), nidx, r.arena)))
                 appendArena(r.cls, r.fmt, r.stride, r.arena, r.nverts, nidx, r.verts.data());
