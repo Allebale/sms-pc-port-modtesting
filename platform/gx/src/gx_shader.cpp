@@ -369,7 +369,6 @@ in vec3 v_wn; in vec3 v_wp; in vec3 v_wl; in vec3 v_wlc; in vec3 v_mp;
 uniform vec4 u_wet[2];
 uniform vec4 u_shadow[12];
 uniform sampler2DShadow u_shadowMap;
-uniform sampler2D u_shadowRaw;  // the same map, its depths as they are (Soft Shadow Edges' Realistic)
 uniform vec4 u_plight[17];
 // Shadows: how lit a point is in a cascade's map (c: its clip space; tile 0 near, 1 far; the two
 // side by side in the texture), 3 by 3 taps (each comparing 4 texels), kept to the cascade's half.
@@ -379,38 +378,16 @@ uniform vec4 u_plight[17];
 // depth the surface itself has there (g: how its depth runs across the map), not the centre's:
 // else a wide disc on ground that slopes away from the sun finds the ground itself in front, and
 // the ground shades itself round every shadow's edge.
-// Realistic (u_shadow[11].w below 0, its size the widest edge): as real shadows, sharp where the
-// shadow's caster is near what it falls on (a foot on the ground) and softer the farther above it
-// is (a roof, a tree's leaves, Mario in the air): first, round the point, how far above it what
-// casts is (the map's own depths, the surface itself left out), then the edge as wide as that calls for
 float shadowLit(vec3 c, float tile, vec2 g) {
   vec2 uv = c.xy * 0.5 + 0.5;
   float zr = c.z * 0.5 + 0.5;
   float t = u_shadow[9].w;
   float lit = 0.0;
-  if (u_shadow[11].w != 0.0) {
+  if (u_shadow[11].w > 0.0) {
     float unitsUV = 1.5 * t / (tile < 0.5 ? u_shadow[9].y : u_shadow[9].z);  // a unit, in the map
-    // the map's depth runs over 8000 units near, 8000 and 1.25 of the far one's reach far
-    float span = tile < 0.5 ? 8000.0 : 8000.0 + 1.25 * u_shadow[9].z * 4096.0 / 3.0;
     float ang = 6.2831853 * fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
     vec2 cs = vec2(cos(ang), sin(ang));
     float width = u_shadow[11].w;
-    if (width < 0.0) {
-      float search = -width * unitsUV;
-      float zb = 0.0, nb = 0.0;
-      for (int i = 0; i < 16; i++) {
-        float th = float(i) * 2.3999632;
-        vec2 o = vec2(cos(th), sin(th)) * sqrt((float(i) + 0.5) / 16.0) * search;
-        o = vec2(o.x * cs.x - o.y * cs.y, o.x * cs.y + o.y * cs.x);
-        vec2 q = clamp(uv + o, vec2(t), vec2(1.0 - t));
-        float d = textureLod(u_shadowRaw, vec2((q.x + tile) * 0.5, q.y), 0.0).r;
-        float here = zr + dot(g, q - uv);  // the surface's own depth there
-        if (d < here - 3.0 / span) { zb += here - d; nb += 1.0; }
-      }
-      if (nb < 0.5) return 1.0;  // nothing above round here: lit
-      float above = zb / nb * span;  // units
-      width = clamp(above * 0.03, 1.0, -width);
-    }
     float r = max(width * unitsUV, t);
     for (int i = 0; i < 16; i++) {
       float th = float(i) * 2.3999632;
@@ -800,7 +777,7 @@ static std::string genFS(const ShaderKey& k) {
          "    if (nl > 0.0) {\n"
          "      float lean = 1.0 + 2.0 * (1.0 - nl);\n"
          "      vec3 sp0 = v_wp + u_shadow[10].xyz * u_shadow[11].z;\n"
-         "      float sb = min(abs(u_shadow[11].w), 5.0) * 0.15;\n"  // Soft Shadow Edges: pushed out a little more
+         "      float sb = min(u_shadow[11].w, 5.0) * 0.15;\n"  // Soft Shadow Edges: pushed out a little more
          "      vec4 p0 = vec4(sp0 + fn * (u_shadow[9].y + sb) * lean, 1.0);\n"
          "      vec4 p1 = vec4(sp0 + fn * (u_shadow[9].z + sb) * lean, 1.0);\n"
          "      vec3 a = vec3(dot(u_shadow[0], p0), dot(u_shadow[1], p0), dot(u_shadow[2], p0));\n"
@@ -808,7 +785,7 @@ static std::string genFS(const ShaderKey& k) {
          "      float ea = max(abs(a.x), abs(a.y)), eb = max(abs(b.x), abs(b.y));\n"
          "      float wn = a.z < 1.0 ? 1.0 - smoothstep(0.8, 0.95, ea) : 0.0;\n"
          "      float dark = 0.0;\n"
-         "      bool soft = u_shadow[11].w != 0.0;\n"
+         "      bool soft = u_shadow[11].w > 0.0;\n"
          "      if (wn > 0.0) dark = wn * (1.0 - shadowLit(a, 0.0, soft ? shadowSlope(fn, u_shadow[0], u_shadow[1], u_shadow[2]) : vec2(0.0)));\n"
          "      if (wn < 1.0 && eb < 1.0 && b.z < 1.0)\n"
          "        dark += (1.0 - wn) * (1.0 - shadowLit(b, 1.0, soft ? shadowSlope(fn, u_shadow[3], u_shadow[4], u_shadow[5]) : vec2(0.0))) * (1.0 - smoothstep(0.75, 1.0, eb));\n"
@@ -915,8 +892,6 @@ static void setupProgram(GLuint p, ShaderProgram& sp, bool aside = false) {
     sp.uGStain = glGetUniformLocation(p, "u_gstain");
     GLint shadowMap = glGetUniformLocation(p, "u_shadowMap");
     if (shadowMap >= 0) glUniform1i(shadowMap, kShadowUnit);
-    GLint shadowRaw = glGetUniformLocation(p, "u_shadowRaw");
-    if (shadowRaw >= 0) glUniform1i(shadowRaw, kShadowRawUnit);
     GLint loc = glGetUniformLocation(p, "u_tex");
     if (loc >= 0) glUniform1iv(loc, 8, units);
     sp.uTevReg = glGetUniformLocation(p, "u_tevreg");

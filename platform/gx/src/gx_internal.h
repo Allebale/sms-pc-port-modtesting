@@ -439,8 +439,6 @@ void aoApply();
 bool swayLookup(const void* list, uint32_t size, float* minY, float* maxY);
 // The texture unit the sun's shadow map is bound on (gx_render.cpp), past the game's eight.
 const int kShadowUnit = 10;
-// the same map, its depths read as they are, not compared (Soft Shadow Edges' Realistic)
-const int kShadowRawUnit = 8;
 void shaderPrepareStage(int stage);  // while a stage loads: its programs (the warm-up)
 
 // ---------------------------------------------------------------- overlay panels
