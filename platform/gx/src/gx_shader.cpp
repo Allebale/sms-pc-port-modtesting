@@ -371,11 +371,27 @@ uniform vec4 u_shadow[12];
 uniform sampler2DShadow u_shadowMap;
 uniform vec4 u_plight[17];
 // Shadows: how lit a point is in a cascade's map (c: its clip space; tile 0 near, 1 far; the two
-// side by side in the texture), 3 by 3 taps (each comparing 4 texels), kept to the cascade's half
+// side by side in the texture), 3 by 3 taps (each comparing 4 texels), kept to the cascade's half.
+// Soft Shadow Edges (u_shadow[11].w: how wide the soft edge is, in units): 16 taps over a disc
+// that wide (the same in both maps: a map's texel is u_shadow[9].y / 1.5 units, halved), turned
+// for each pixel so that they blend into one smooth edge, not 16 copies
 float shadowLit(vec3 c, float tile) {
   vec2 uv = c.xy * 0.5 + 0.5;
   float t = u_shadow[9].w;
   float lit = 0.0;
+  if (u_shadow[11].w > 0.0) {
+    float r = max(u_shadow[11].w * 1.5 * t / (tile < 0.5 ? u_shadow[9].y : u_shadow[9].z), t);
+    float ang = 6.2831853 * fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+    vec2 cs = vec2(cos(ang), sin(ang));
+    for (int i = 0; i < 16; i++) {
+      float th = float(i) * 2.3999632;
+      vec2 o = vec2(cos(th), sin(th)) * sqrt((float(i) + 0.5) / 16.0);
+      o = vec2(o.x * cs.x - o.y * cs.y, o.x * cs.y + o.y * cs.x);
+      vec2 q = clamp(uv + o * r, vec2(t), vec2(1.0 - t));
+      lit += textureLod(u_shadowMap, vec3((q.x + tile) * 0.5, q.y, c.z * 0.5 + 0.5), 0.0);
+    }
+    return lit / 16.0;
+  }
   for (int sy = -1; sy <= 1; sy++)
     for (int sx = -1; sx <= 1; sx++) {
       vec2 q = clamp(uv + vec2(sx, sy) * t, vec2(t), vec2(1.0 - t));
@@ -742,8 +758,9 @@ static std::string genFS(const ShaderKey& k) {
          "    if (nl > 0.0) {\n"
          "      float lean = 1.0 + 2.0 * (1.0 - nl);\n"
          "      vec3 sp0 = v_wp + u_shadow[10].xyz * u_shadow[11].z;\n"
-         "      vec4 p0 = vec4(sp0 + fn * u_shadow[9].y * lean, 1.0);\n"
-         "      vec4 p1 = vec4(sp0 + fn * u_shadow[9].z * lean, 1.0);\n"
+         "      float sb = u_shadow[11].w * 0.3;\n"  // Soft Shadow Edges: pushed out a little more
+         "      vec4 p0 = vec4(sp0 + fn * (u_shadow[9].y + sb) * lean, 1.0);\n"
+         "      vec4 p1 = vec4(sp0 + fn * (u_shadow[9].z + sb) * lean, 1.0);\n"
          "      vec3 a = vec3(dot(u_shadow[0], p0), dot(u_shadow[1], p0), dot(u_shadow[2], p0));\n"
          "      vec3 b = vec3(dot(u_shadow[3], p1), dot(u_shadow[4], p1), dot(u_shadow[5], p1));\n"
          "      float ea = max(abs(a.x), abs(a.y)), eb = max(abs(b.x), abs(b.y));\n"

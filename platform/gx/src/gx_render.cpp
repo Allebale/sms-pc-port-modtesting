@@ -3341,6 +3341,10 @@ extern "C" void GXPC_ShadowTag(int on) {
     g.shadowTag = on != 0;
 }
 
+// Soft Shadow Edges: how wide a shadow's soft edge is, in units (0: as sharp as the maps allow)
+static float s_shadowSoft;
+extern "C" void GXPC_ShadowSoftness(float units) { s_shadowSoft = units > 0.0f ? units : 0.0f; }
+
 extern "C" void GXPC_ShadowFrame(const float view[3][4], const float sun[3], const float focus[3], float strength,
                                  float half, float reach) {
     flushBatch();
@@ -3392,6 +3396,7 @@ extern "C" void GXPC_ShadowFrame(const float view[3][4], const float sun[3], con
     g.shadow[37] = 1.5f * 2.0f * half / float(kShadowSize);  // normal biases: a texel and a half
     g.shadow[38] = 1.5f * 2.0f * reach / float(kShadowSize);
     g.shadow[39] = 1.0f / float(kShadowSize);
+    g.shadow[47] = s_shadowSoft;
     for (int r = 0; r < 3; r++) g.shadow[40 + r] = view[r][0] * sun[0] + view[r][1] * sun[1] + view[r][2] * sun[2];
     g.shadow[43] = 0.0f;
     g.shadow[44] = 0.0f;

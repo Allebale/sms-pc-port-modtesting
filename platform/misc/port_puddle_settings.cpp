@@ -93,6 +93,7 @@ int s_grassCutHeight = 2, s_grassWildHeight = 2;  // into kGrassHeights
 int s_shadows = 0;        // Real Shadows: 0 off (the game's own), 1 soft, 2 strong
 int s_shadowsRound = 0;   // Round Shadows Under Characters, with Real Shadows: 1 kept (lighter)
 int s_shadowsDistance = 2;  // Shadow Distance: into kShadowDistances
+int s_shadowsSoft = 0;      // Soft Shadow Edges: into kShadowSofts (0 off: sharp)
 int s_shadowsOriginal = 0;  // Keep the Original Shadow Direction
 int s_level = 0;          // Reflect the Level: 0 off (as the game has it), 1 the stage itself too
 int s_water;       // Water Reflections: 0 none (as the game has it), 1 in the stage's water and wet ground
@@ -298,6 +299,8 @@ void load() {
             s_grass = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " characterroundshadows = %d", &value) == 1) {
             s_shadowsRound = value != 0;
+        } else if (sscanf(line, " shadowsoftedges = %d", &value) == 1) {
+            s_shadowsSoft = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " shadowdistance = %d", &value) == 1) {
             s_shadowsDistance = value < 0 ? 0 : value > 4 ? 4 : value;
         } else if (sscanf(line, " shadoworiginaldirection = %d", &value) == 1) {
@@ -420,6 +423,8 @@ void save() {
     fprintf(f, "characterroundshadows = %d\n", s_shadowsRound);
     fprintf(f, "# shadowdistance: how far the shadows reach: 0 short, 1 medium, 2 long, 3 very long, 4 max.\n");
     fprintf(f, "shadowdistance = %d\n", s_shadowsDistance);
+    fprintf(f, "# shadowsoftedges: the shadows' edges: 0 sharp (as before), 1 soft, 2 softer, 3 very soft.\n");
+    fprintf(f, "shadowsoftedges = %d\n", s_shadowsSoft);
     fprintf(f, "# shadoworiginaldirection: 1 the shadows fall where the game's own did, 0 from the sun in the sky.\n");
     fprintf(f, "shadoworiginaldirection = %d\n", s_shadowsOriginal);
     fprintf(f, "# level: 1 the stage itself (ground, buildings, sky) in puddles and water too, 0 not.\n");
@@ -764,6 +769,22 @@ int shadowDistanceSet(int i) {
     s_shadowsDistance = i;
     save();
     port_log("[shadows] Shadow Distance changed: %s\n", kShadowDistanceNames[i]);
+    return 1;
+}
+const char* const kShadowSoftNames[] = {"Off", "Soft", "Softer", "Very Soft"};
+const float kShadowSofts[] = {0.0f, 5.0f, 10.0f, 18.0f};  // the edge's width, in units
+int shadowSoftCount() { return 4; }
+const char* shadowSoftName(int i) { return kShadowSoftNames[i < 0 || i > 3 ? 0 : i]; }
+int shadowSoftGet() {
+    load();
+    return s_shadowsSoft;
+}
+int shadowSoftSet(int i) {
+    if (i < 0 || i > 3) return 0;
+    load();
+    s_shadowsSoft = i;
+    save();
+    port_log("[shadows] Soft Shadow Edges changed: %s\n", kShadowSoftNames[i]);
     return 1;
 }
 int originalGet() {
@@ -1212,6 +1233,9 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 99, "Keep the Original Shadow Direction",
      "Real Shadows fall exactly where the game's own did. Off, from the sun in the sky.", 0, nullptr,
      offOnCount, offOnName, originalGet, originalSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 99, "Soft Shadow Edges",
+     "Real Shadows' edges blend softly into the light, as real shadows do. Off keeps them sharp.", 0, nullptr,
+     shadowSoftCount, shadowSoftName, shadowSoftGet, shadowSoftSet},
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 0, "Preset",
      "The original game, or the recommended look. Some apply from the next area.", 1, nullptr, presetCount,
      presetName, presetGet, presetSet},
@@ -1413,6 +1437,10 @@ int port_shadows_round(void) {
 float port_shadows_distance(void) {
     load();
     return kShadowDistances[s_shadowsDistance < 0 || s_shadowsDistance > 4 ? 2 : s_shadowsDistance];
+}
+float port_shadows_softness(void) {
+    load();
+    return kShadowSofts[s_shadowsSoft < 0 || s_shadowsSoft > 3 ? 0 : s_shadowsSoft];
 }
 int port_shadows_original_direction(void) {
     load();

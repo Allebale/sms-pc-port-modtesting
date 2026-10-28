@@ -179,5 +179,6 @@ void port_shadows_main_view(void* camera, float (*view)[4])
 		s_toldSource = source;
 		s_toldFar    = reach;
 	}
+	GXPC_ShadowSoftness(port_shadows_softness());  // Soft Shadow Edges
 	GXPC_ShadowFrame(view, sun, focus, kStrength[level], kHalf, reach);
 }

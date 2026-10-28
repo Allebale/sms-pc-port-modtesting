@@ -59,6 +59,9 @@ extern "C" {
 void GXPC_ShadowFrame(const float view[3][4], const float sun[3], const float focus[3], float strength,
                       float half, float reach);
 void GXPC_ShadowNotMain(void);
+// Soft Shadow Edges: how wide a shadow's soft edge is, in units (0 sharp)
+void GXPC_ShadowSoftness(float units);
+float port_shadows_softness(void);
 // Around Mario's own draw (port_wet_mario_draw): for the log, whether his batches cast.
 void GXPC_ShadowTag(int on);
 
