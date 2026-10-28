@@ -300,7 +300,7 @@ void load() {
         } else if (sscanf(line, " characterroundshadows = %d", &value) == 1) {
             s_shadowsRound = value != 0;
         } else if (sscanf(line, " shadowsoftedges = %d", &value) == 1) {
-            s_shadowsSoft = value < 0 ? 0 : value > 4 ? 4 : value;
+            s_shadowsSoft = value < 0 ? 0 : value > 4 ? 4 : value;  // (4: Realistic, as before)
         } else if (sscanf(line, " shadowdistance = %d", &value) == 1) {
             s_shadowsDistance = value < 0 ? 0 : value > 4 ? 4 : value;
         } else if (sscanf(line, " shadoworiginaldirection = %d", &value) == 1) {
@@ -423,7 +423,7 @@ void save() {
     fprintf(f, "characterroundshadows = %d\n", s_shadowsRound);
     fprintf(f, "# shadowdistance: how far the shadows reach: 0 short, 1 medium, 2 long, 3 very long, 4 max.\n");
     fprintf(f, "shadowdistance = %d\n", s_shadowsDistance);
-    fprintf(f, "# shadowsoftedges: the shadows' edges: 0 sharp (as before), 1 soft, 2 softer, 3 very soft, 4 realistic (sharp near what casts them, softer farther).\n");
+    fprintf(f, "# shadowsoftedges: the shadows' edges: 0 sharp (as before), 1 subtle, 2 light, 3 soft, 4 realistic (sharp near what casts them, softer farther).\n");
     fprintf(f, "shadowsoftedges = %d\n", s_shadowsSoft);
     fprintf(f, "# shadoworiginaldirection: 1 the shadows fall where the game's own did, 0 from the sun in the sky.\n");
     fprintf(f, "shadoworiginaldirection = %d\n", s_shadowsOriginal);
@@ -771,9 +771,9 @@ int shadowDistanceSet(int i) {
     port_log("[shadows] Shadow Distance changed: %s\n", kShadowDistanceNames[i]);
     return 1;
 }
-const char* const kShadowSoftNames[] = {"Off", "Soft", "Softer", "Very Soft", "Realistic"};
+const char* const kShadowSoftNames[] = {"Off", "Subtle", "Light", "Soft", "Realistic"};
 // the edge's width, in units; Realistic (below 0): sharp near what casts, up to this wide
-const float kShadowSofts[] = {0.0f, 5.0f, 10.0f, 18.0f, -30.0f};
+const float kShadowSofts[] = {0.0f, 1.5f, 3.0f, 5.0f, -20.0f};
 int shadowSoftCount() { return 5; }
 const char* shadowSoftName(int i) { return kShadowSoftNames[i < 0 || i > 4 ? 0 : i]; }
 int shadowSoftGet() {
