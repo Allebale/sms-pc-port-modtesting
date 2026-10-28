@@ -83,6 +83,7 @@ int s_ao = 0;             // Ambient Occlusion: 0 off, 1 fine detail, 2 large sh
 int s_aoStrength = 1;     // Ambient Occlusion Strength: into kAoStrengths
 int s_aoDistance = 1;     // Ambient Occlusion Distance: into kAoDistances
 int s_aoQuality = 1;      // Ambient Occlusion Quality: 0 low, 1 medium, 2 high
+int s_aoHalfRate = 0;     // Ambient Occlusion Update Rate: 0 every frame, 1 every other frame
 int s_depthView = 0;      // Depth Buffer View: 0 off, 1 depth, 2 faces, 3 both, 4 the shade alone
 int s_vegetation = 0;     // Moving Vegetation: 0 off, 1 gentle, 2 breezy, 3 windy
 int s_sandy = 0;          // Sandy Mario: 0 off, 1 light, 2 normal, 3 heavy
@@ -275,6 +276,8 @@ void load() {
             s_ao = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " ambientocclusionstrength = %d", &value) == 1) {
             s_aoStrength = value < 0 ? 0 : value > 3 ? 3 : value;
+        } else if (sscanf(line, " ambientocclusionrate = %d", &value) == 1) {
+            s_aoHalfRate = value != 0;
         } else if (sscanf(line, " ambientocclusionquality = %d", &value) == 1) {
             s_aoQuality = value < 0 ? 0 : value > 2 ? 2 : value;
         } else if (sscanf(line, " ambientocclusiondistance = %d", &value) == 1) {
@@ -398,6 +401,8 @@ void save() {
     fprintf(f, "ambientocclusiondistance = %d\n", s_aoDistance);
     fprintf(f, "# ambientocclusionquality: 0 low (fastest), 1 medium, 2 high.\n");
     fprintf(f, "ambientocclusionquality = %d\n", s_aoQuality);
+    fprintf(f, "# ambientocclusionrate: 0 every frame, 1 every other frame (faster).\n");
+    fprintf(f, "ambientocclusionrate = %d\n", s_aoHalfRate);
     fprintf(f, "# vegetation: plants sway, bend from Mario and FLUDD's water: 0 off, 1 gentle, 2 breezy, 3 windy.\n");
     fprintf(f, "vegetation = %d\n", s_vegetation);
     fprintf(f, "# sandymario: sand sticks to Mario where he touches it, falling away over 20 seconds: 0 off, 1 light, 2 normal, 3 heavy.\n");
@@ -627,6 +632,21 @@ int aoDistanceSet(int i) {
     s_aoDistance = i;
     save();
     port_log("[ao] Ambient Occlusion Distance changed: %s\n", kAoDistanceNames[i]);
+    return 1;
+}
+const char* const kAoRateNames[] = {"Every Frame", "Every Other Frame"};
+int aoRateCount() { return 2; }
+const char* aoRateName(int i) { return kAoRateNames[i == 1 ? 1 : 0]; }
+int aoRateGet() {
+    load();
+    return s_aoHalfRate;
+}
+int aoRateSet(int i) {
+    if (i < 0 || i > 1) return 0;
+    load();
+    s_aoHalfRate = i;
+    save();
+    port_log("[ao] Ambient Occlusion Update Rate changed: %s\n", kAoRateNames[i]);
     return 1;
 }
 const char* const kAoQualityNames[] = {"Low", "Medium", "High"};
@@ -1174,7 +1194,10 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 117, "Ambient Occlusion Quality",
      "How finely Ambient Occlusion is worked out. Lower is faster and a little softer.", 0, nullptr,
      aoQualityCount, aoQualityName, aoQualityGet, aoQualitySet},
-    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 118, "Depth Buffer View",
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 118, "Ambient Occlusion Update Rate",
+     "Every Other Frame works the shade out half as often, faster. It can trail a little when the camera turns fast.", 0, nullptr,
+     aoRateCount, aoRateName, aoRateGet, aoRateSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 119, "Depth Buffer View",
      "For troubleshooting, as ReShade's DisplayDepth. Shows the depth, the normals, or the shade alone (grass in green).", 0,
      nullptr, depthViewCount, depthViewName, depthViewGet, depthViewSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 96, "Real Shadows",
@@ -1343,6 +1366,10 @@ float port_ao_distance(void) {
     return kAoDistances[s_aoDistance < 0 || s_aoDistance > 3 ? 1 : s_aoDistance];
 }
 int port_depth_view(void) { return s_depthView; }
+int port_ao_half_rate(void) {
+    load();
+    return s_aoHalfRate;
+}
 int port_ao_quality(void) {
     load();
     return s_aoQuality;

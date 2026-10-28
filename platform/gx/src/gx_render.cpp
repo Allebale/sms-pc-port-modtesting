@@ -2871,7 +2871,11 @@ static int s_aoQuality = 1;  // Ambient Occlusion Quality: 0 low, 1 medium, 2 hi
 // for each quality: the shade worked out at 1 in this many pixels each way, from this many samples
 static const int kAoDivs[3] = {4, 3, 2}, kAoSamples[3] = {4, 6, 8};
 
-extern "C" void GXPC_AOFrame(int mode, float strength, float distance, int view, int quality) {
+static bool s_aoHalfRate;          // Ambient Occlusion Update Rate: every other frame
+static uint32_t s_aoTracedFrame = ~0u;  // the frame the shade was last worked out in
+
+extern "C" void GXPC_AOFrame(int mode, float strength, float distance, int view, int quality, int halfRate) {
+    s_aoHalfRate = halfRate != 0;
     s_aoQuality  = quality < 0 ? 0 : quality > 2 ? 2 : quality;
     s_aoMode     = mode;
     s_aoView     = view;
@@ -2979,6 +2983,7 @@ void aoApply() {
             glDeleteTextures(1, &s_aoTex);
         }
         s_aoW = W, s_aoH = H, s_aoDiv = div;
+        s_aoTracedFrame = ~0u;
         glGenTextures(1, &s_aoDepthTex);
         glGenTextures(1, &s_aoTex);
         glGenFramebuffers(1, &s_aoDepthFbo);
@@ -3080,7 +3085,11 @@ void aoApply() {
             return;
         }
     }
-    // 2. the occlusion, at half size
+    // 2. the occlusion, at half size (or a third, a quarter: Ambient Occlusion Quality); every
+    // other frame only, with Ambient Occlusion Update Rate so (the frame between keeps the last one's)
+    const bool reuse = s_aoHalfRate && s_aoTracedFrame + 1 == frame;
+    if (!reuse) {
+    s_aoTracedFrame = frame;
     glBindFramebuffer(GL_FRAMEBUFFER, s_aoFbo);
     glViewport(0, 0, int(hw), int(hh));
     glDisable(GL_BLEND);
@@ -3099,6 +3108,7 @@ void aoApply() {
     glUniform4fv(s_aoTQ, 1, q);
     glUniform4fv(s_aoTG, 1, gu);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    }
 
     // 3. averaged and multiplied onto the scene (its alpha kept)
     glBindFramebuffer(GL_FRAMEBUFFER, s_efbFbo);
