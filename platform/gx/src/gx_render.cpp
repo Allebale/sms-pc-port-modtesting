@@ -2754,7 +2754,8 @@ void main() {
 }
 )";
 // Depth Buffer View: u_view.x 1 the depth, 2 the faces, 3 both (faces left, depth right), 4 the
-// shade alone (drawn white here, the shade multiplied on after; blades green)
+// shade alone (drawn white here, the shade multiplied on after; blades green), 5 the depth's edges
+// (where it jumps: red across, green up and down)
 static const char* kAoViewFs = R"(#version 330 core
 uniform sampler2D u_depth;
 uniform sampler2D u_ground;
@@ -2785,6 +2786,19 @@ void main() {
   int mode = int(u_view.x + 0.5);
   if (mode == 4) { o_color = vec4(isBlade ? vec3(0.55, 1.0, 0.55) : vec3(1.0), 1.0); return; }
   if (mode == 3) mode = v_uv.x < 0.5 ? 2 : 1;
+  if (mode == 5) {
+    // depth edges: how much the distance jumps to the next pixel, past what the surface's own slope
+    // gives (a layer just in front of another shows as lines; flat or sloped surfaces stay black)
+    if (sky) { o_color = vec4(0.0, 0.0, 0.2, 1.0); return; }
+    vec2 t = u_f.zw;
+    float z0 = viewZ(d);
+    float zl = viewZ(textureLod(u_depth, v_uv - vec2(t.x, 0.0), 0.0).r), zr = viewZ(textureLod(u_depth, v_uv + vec2(t.x, 0.0), 0.0).r);
+    float zd = viewZ(textureLod(u_depth, v_uv - vec2(0.0, t.y), 0.0).r), zu = viewZ(textureLod(u_depth, v_uv + vec2(0.0, t.y), 0.0).r);
+    float ex = abs(zl + zr - 2.0 * z0), ey = abs(zd + zu - 2.0 * z0);  // the change in slope
+    float e = max(ex, ey) / max(-z0 * 0.002, 0.05);
+    o_color = vec4(clamp(vec3(ex, ey, 0.0) / max(-z0 * 0.002, 0.05), 0.0, 1.0) + vec3(0.0, 0.0, clamp(e * 0.1, 0.0, 1.0)), 1.0);
+    return;
+  }
   if (mode == 1) {
     // near black, far white (spread evenly by the log of the distance)
     float dist = sky ? u_view.y : -viewZ(d);

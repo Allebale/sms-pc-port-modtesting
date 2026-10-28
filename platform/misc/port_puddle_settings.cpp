@@ -625,12 +625,12 @@ int aoDistanceSet(int i) {
     return 1;
 }
 // Depth Buffer View: for troubleshooting, not kept (back to Off each time the game starts)
-const char* const kDepthViewNames[] = {"Off", "Depth", "Normals", "Normals and Depth", "Ambient Occlusion Only"};
-int depthViewCount() { return 5; }
-const char* depthViewName(int i) { return kDepthViewNames[i < 0 || i > 4 ? 0 : i]; }
+const char* const kDepthViewNames[] = {"Off", "Depth", "Normals", "Normals and Depth", "Ambient Occlusion Only", "Depth Edges"};
+int depthViewCount() { return 6; }
+const char* depthViewName(int i) { return kDepthViewNames[i < 0 || i > 5 ? 0 : i]; }
 int depthViewGet() { return s_depthView; }
 int depthViewSet(int i) {
-    if (i < 0 || i > 4) return 0;
+    if (i < 0 || i > 5) return 0;
     s_depthView = i;
     port_log("[ao] Depth Buffer View changed: %s\n", kDepthViewNames[i]);
     return 1;
