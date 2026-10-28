@@ -2625,6 +2625,7 @@ uniform vec4 u_pm;   // the projection: x scale, x offset, y scale, y offset (as
 uniform vec4 u_vm;   // the viewport: x scale, y scale, x centre, y centre (EFB pixels); and
 uniform vec2 u_es;   // the EFB's size: the picture's own mapping, widescreen and all
 uniform vec4 u_ao;   // fine strength, large strength, fade start, fade end (units from the camera)
+uniform vec4 u_q;    // x: samples for each (4 to 8: Ambient Occlusion Quality)
 uniform sampler2D u_ground;  // 3D Grass: the depth before the blades and right after them
 uniform sampler2D u_after;   // (u_g.x 1 while both are this frame's)
 uniform vec4 u_g;
@@ -2671,7 +2672,9 @@ float occlusion(vec3 P, vec3 N, vec3 T, vec3 B, float R, float jit, float ez, fl
   float graze = 1.0 - abs(dot(N, normalize(-P)));
   float bias = 0.1 + 0.25 * graze * graze + tilt;
   float slack = -P.z * 0.002 + 3.0 * ez;
+  int n = int(u_q.x + 0.5);
   for (int i = 0; i < 8; i++) {
+    if (i >= n) break;
     float f = fract(float(i) * 0.618034 + jit);
     vec3 s = P + normalize(T * K[i].x + B * K[i].y + N * K[i].z) * (R * (0.15 + 0.85 * f * f));
     if (s.z > -1.0) continue;
@@ -2688,7 +2691,7 @@ float occlusion(vec3 P, vec3 N, vec3 T, vec3 B, float R, float jit, float ez, fl
     float r = clamp((rise - bias) / max(1.0 - bias, 0.2), 0.0, 1.0);
     sum += r * r * (3.0 - 2.0 * r) * near * near;
   }
-  return min(sum / 8.0 * 2.2, 1.0);
+  return min(sum / float(n) * 2.2, 1.0);
 }
 void main() {
   float d = sceneDepth(v_uv);
@@ -2769,7 +2772,8 @@ void main() {
       vec2 o = vec2(x, y) + 0.5;
       vec2 uv = v_uv + o * u_half.xy;
       vec2 px = o * u_half.xy / u_half.zw;  // in full-size pixels
-      float z = sceneZ(uv);
+      float dn = textureLod(u_depth, uv, 0.0).r;
+      float z = dn >= 0.999999 ? 1e9 : viewZ(dn);
       float off = abs(z - (z0 + gx * px.x + gy * px.y));
       float w = 1.0 / (1.0 + off / (abs(z0) * 0.01 + 2.0));
       w *= w;
@@ -2853,18 +2857,22 @@ void main() {
 )";
 static GLuint s_aoTraceProg, s_aoApplyProg, s_aoViewProg, s_aoVao;
 static GLint s_aoTLin, s_aoTF, s_aoTAo, s_aoTG, s_aoALin, s_aoAHalf, s_aoAG, s_aoVLin, s_aoVF, s_aoVView, s_aoVG;
-static GLint s_aoTPm, s_aoTVm, s_aoTEs, s_aoVPm, s_aoVVm, s_aoVEs;
+static GLint s_aoTPm, s_aoTVm, s_aoTEs, s_aoVPm, s_aoVVm, s_aoVEs, s_aoTQ;
 
 static GLuint s_aoDepthTex, s_aoDepthFbo, s_aoTex, s_aoFbo;
-static int s_aoW, s_aoH;
+static int s_aoW, s_aoH, s_aoDiv;
 static const int kAoDepthUnit = 14, kAoOccUnit = 15;
 
 // The settings for this frame (GXPC_AOFrame, from the main camera's view: port_shadows.cpp).
 static int s_aoMode;  // 0 off, 1 fine, 2 large, 3 both
 static int s_aoView;  // Depth Buffer View: 0 off, 1 depth, 2 faces, 3 both, 4 the shade alone
 static float s_aoStrength = 0.75f, s_aoDistance = 4000.0f;
+static int s_aoQuality = 1;  // Ambient Occlusion Quality: 0 low, 1 medium, 2 high
+// for each quality: the shade worked out at 1 in this many pixels each way, from this many samples
+static const int kAoDivs[3] = {4, 3, 2}, kAoSamples[3] = {4, 6, 8};
 
-extern "C" void GXPC_AOFrame(int mode, float strength, float distance, int view) {
+extern "C" void GXPC_AOFrame(int mode, float strength, float distance, int view, int quality) {
+    s_aoQuality  = quality < 0 ? 0 : quality > 2 ? 2 : quality;
     s_aoMode     = mode;
     s_aoView     = view;
     s_aoStrength = strength;
@@ -2933,6 +2941,7 @@ void aoApply() {
         s_aoTPm  = glGetUniformLocation(s_aoTraceProg, "u_pm");
         s_aoTVm  = glGetUniformLocation(s_aoTraceProg, "u_vm");
         s_aoTEs  = glGetUniformLocation(s_aoTraceProg, "u_es");
+        s_aoTQ   = glGetUniformLocation(s_aoTraceProg, "u_q");
         glUniform1i(glGetUniformLocation(s_aoTraceProg, "u_ground"), kGrassDepthUnit);
         glUniform1i(glGetUniformLocation(s_aoTraceProg, "u_after"), kGrassAfterUnit);
         glUseProgram(s_aoApplyProg);
@@ -2960,14 +2969,16 @@ void aoApply() {
         glGenVertexArrays(1, &s_aoVao);
         g_glc.prog = ~0u;
     }
-    if (W != s_aoW || H != s_aoH) {
+    const int div = kAoDivs[s_aoQuality];
+    const int aw = (W + div - 1) / div, ah = (H + div - 1) / div;
+    if (W != s_aoW || H != s_aoH || div != s_aoDiv) {
         if (s_aoDepthFbo) {
             glDeleteFramebuffers(1, &s_aoDepthFbo);
             glDeleteFramebuffers(1, &s_aoFbo);
             glDeleteTextures(1, &s_aoDepthTex);
             glDeleteTextures(1, &s_aoTex);
         }
-        s_aoW = W, s_aoH = H;
+        s_aoW = W, s_aoH = H, s_aoDiv = div;
         glGenTextures(1, &s_aoDepthTex);
         glGenTextures(1, &s_aoTex);
         glGenFramebuffers(1, &s_aoDepthFbo);
@@ -2983,7 +2994,7 @@ void aoApply() {
         glActiveTexture(GL_TEXTURE0 + kAoOccUnit);
         glBindTexture(GL_TEXTURE_2D, s_aoTex);
         // 16-bit: a faint shade fading over a wide floor in 256 steps showed each step as a band
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_R16F, (W + 1) / 2, (H + 1) / 2, 0, GL_RED, GL_HALF_FLOAT, nullptr);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R16F, aw, ah, 0, GL_RED, GL_HALF_FLOAT, nullptr);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -2998,7 +3009,7 @@ void aoApply() {
         GLenum st2 = glCheckFramebufferStatus(GL_FRAMEBUFFER);
         if (st1 != GL_FRAMEBUFFER_COMPLETE || st2 != GL_FRAMEBUFFER_COMPLETE)
             logmsg("ambient occlusion: its buffers are not complete (0x%x, 0x%x)", st1, st2);
-        logmsg("ambient occlusion: buffers made (%dx%d, worked at %dx%d)", W, H, (W + 1) / 2, (H + 1) / 2);
+        logmsg("ambient occlusion: buffers made (%dx%d, worked at %dx%d)", W, H, aw, ah);
     }
     // 1. the depth, resolved
     const GLuint src = efbReadFbo(0, 0, W, H, GL_DEPTH_BUFFER_BIT);
@@ -3035,7 +3046,7 @@ void aoApply() {
     glBindVertexArray(s_aoVao);
     // view z from the depth: d * 16777215 = vz1 - vz0 * A - vz0 * B / z (gx_shader.cpp's mapping)
     const float lin[4] = {-vz0 * B, 16777215.0f, vz0 * A - vz1, 0.0f};
-    const float hw = float((W + 1) / 2), hh = float((H + 1) / 2);
+    const float hw = float(aw), hh = float(ah);
 
     const float f[4] = {0.0f, 0.0f, 1.0f / float(W), 1.0f / float(H)};
     // the picture's own mapping from the view (the projection, the viewport, widescreen's), as the
@@ -3084,6 +3095,8 @@ void aoApply() {
     glUniform4fv(s_aoTVm, 1, vm);
     glUniform2fv(s_aoTEs, 1, es);
     glUniform4fv(s_aoTAo, 1, ao);
+    const float q[4] = {float(kAoSamples[s_aoQuality]), 0.0f, 0.0f, 0.0f};
+    glUniform4fv(s_aoTQ, 1, q);
     glUniform4fv(s_aoTG, 1, gu);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
