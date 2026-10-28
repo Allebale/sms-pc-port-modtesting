@@ -3343,7 +3343,7 @@ extern "C" void GXPC_ShadowTag(int on) {
 
 // Soft Shadow Edges: how wide a shadow's soft edge is, in units (0: as sharp as the maps allow)
 static float s_shadowSoft;
-extern "C" void GXPC_ShadowSoftness(float units) { s_shadowSoft = units > 0.0f ? units : 0.0f; }
+extern "C" void GXPC_ShadowSoftness(float units) { s_shadowSoft = units; }  // below 0: Realistic
 
 extern "C" void GXPC_ShadowFrame(const float view[3][4], const float sun[3], const float focus[3], float strength,
                                  float half, float reach) {
@@ -3372,6 +3372,19 @@ extern "C" void GXPC_ShadowFrame(const float view[3][4], const float sun[3], con
         s_shadowFilled[s_shadowWrite] = false;
         glActiveTexture(GL_TEXTURE0 + kShadowUnit);
         glBindTexture(GL_TEXTURE_2D, s_shadowTex[s_shadowWrite ^ 1]);
+        // and on its own unit as plain depths (a sampler that does not compare, nearest)
+        static GLuint s_rawSampler;
+        if (!s_rawSampler) {
+            glGenSamplers(1, &s_rawSampler);
+            glSamplerParameteri(s_rawSampler, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glSamplerParameteri(s_rawSampler, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glSamplerParameteri(s_rawSampler, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glSamplerParameteri(s_rawSampler, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glSamplerParameteri(s_rawSampler, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+        }
+        glActiveTexture(GL_TEXTURE0 + kShadowRawUnit);
+        glBindTexture(GL_TEXTURE_2D, s_shadowTex[s_shadowWrite ^ 1]);
+        glBindSampler(kShadowRawUnit, s_rawSampler);
         g_glc.activeUnit = -1;
         glBindFramebuffer(GL_FRAMEBUFFER, s_efbFbo);  // the EFB's again, as the copies expect
         g_glc.fbo = s_efbFbo;

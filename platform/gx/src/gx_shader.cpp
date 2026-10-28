@@ -369,20 +369,45 @@ in vec3 v_wn; in vec3 v_wp; in vec3 v_wl; in vec3 v_wlc; in vec3 v_mp;
 uniform vec4 u_wet[2];
 uniform vec4 u_shadow[12];
 uniform sampler2DShadow u_shadowMap;
+uniform sampler2D u_shadowRaw;  // the same map, its depths as they are (Soft Shadow Edges' Realistic)
 uniform vec4 u_plight[17];
 // Shadows: how lit a point is in a cascade's map (c: its clip space; tile 0 near, 1 far; the two
 // side by side in the texture), 3 by 3 taps (each comparing 4 texels), kept to the cascade's half.
 // Soft Shadow Edges (u_shadow[11].w: how wide the soft edge is, in units): 16 taps over a disc
 // that wide (the same in both maps: a map's texel is u_shadow[9].y / 1.5 units, halved), turned
 // for each pixel so that they blend into one smooth edge, not 16 copies
+// Realistic (u_shadow[11].w below 0, its size the widest edge): as real shadows, sharp where the
+// shadow's caster is near what it falls on (a foot on the ground) and softer the farther above it
+// is (a tree's leaves, Mario in the air): first, round the point, how far above it what casts is
+// on average (the map's own depths), then the edge as wide as that calls for
 float shadowLit(vec3 c, float tile) {
   vec2 uv = c.xy * 0.5 + 0.5;
   float t = u_shadow[9].w;
   float lit = 0.0;
-  if (u_shadow[11].w > 0.0) {
-    float r = max(u_shadow[11].w * 1.5 * t / (tile < 0.5 ? u_shadow[9].y : u_shadow[9].z), t);
+  if (u_shadow[11].w != 0.0) {
+    float unitsUV = 1.5 * t / (tile < 0.5 ? u_shadow[9].y : u_shadow[9].z);  // a unit, in the map
     float ang = 6.2831853 * fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
     vec2 cs = vec2(cos(ang), sin(ang));
+    float width = u_shadow[11].w;
+    if (width < 0.0) {
+      float zr = c.z * 0.5 + 0.5;
+      // the map's depth runs over 8000 units near, 8000 and 1.25 of the far one's reach far
+      float span = tile < 0.5 ? 8000.0 : 8000.0 + 1.25 * u_shadow[9].z * 4096.0 / 3.0;
+      float search = -width * unitsUV;
+      float zb = 0.0, nb = 0.0;
+      for (int i = 0; i < 12; i++) {
+        float th = float(i) * 2.3999632;
+        vec2 o = vec2(cos(th), sin(th)) * sqrt((float(i) + 0.5) / 12.0);
+        o = vec2(o.x * cs.x - o.y * cs.y, o.x * cs.y + o.y * cs.x);
+        vec2 q = clamp(uv + o * search, vec2(t), vec2(1.0 - t));
+        float d = textureLod(u_shadowRaw, vec2((q.x + tile) * 0.5, q.y), 0.0).r;
+        if (d < zr - 2.0 / span) { zb += d; nb += 1.0; }
+      }
+      if (nb < 0.5) return 1.0;  // nothing above: lit
+      float above = (zr - zb / nb) * span;  // units
+      width = clamp(above * 0.06, 1.5, -width);
+    }
+    float r = max(width * unitsUV, t);
     for (int i = 0; i < 16; i++) {
       float th = float(i) * 2.3999632;
       vec2 o = vec2(cos(th), sin(th)) * sqrt((float(i) + 0.5) / 16.0);
@@ -758,7 +783,7 @@ static std::string genFS(const ShaderKey& k) {
          "    if (nl > 0.0) {\n"
          "      float lean = 1.0 + 2.0 * (1.0 - nl);\n"
          "      vec3 sp0 = v_wp + u_shadow[10].xyz * u_shadow[11].z;\n"
-         "      float sb = u_shadow[11].w * 0.3;\n"  // Soft Shadow Edges: pushed out a little more
+         "      float sb = (u_shadow[11].w < 0.0 ? 4.0 : u_shadow[11].w) * 0.3;\n"  // Soft Shadow Edges: pushed out a little more
          "      vec4 p0 = vec4(sp0 + fn * (u_shadow[9].y + sb) * lean, 1.0);\n"
          "      vec4 p1 = vec4(sp0 + fn * (u_shadow[9].z + sb) * lean, 1.0);\n"
          "      vec3 a = vec3(dot(u_shadow[0], p0), dot(u_shadow[1], p0), dot(u_shadow[2], p0));\n"
@@ -872,6 +897,8 @@ static void setupProgram(GLuint p, ShaderProgram& sp, bool aside = false) {
     sp.uGStain = glGetUniformLocation(p, "u_gstain");
     GLint shadowMap = glGetUniformLocation(p, "u_shadowMap");
     if (shadowMap >= 0) glUniform1i(shadowMap, kShadowUnit);
+    GLint shadowRaw = glGetUniformLocation(p, "u_shadowRaw");
+    if (shadowRaw >= 0) glUniform1i(shadowRaw, kShadowRawUnit);
     GLint loc = glGetUniformLocation(p, "u_tex");
     if (loc >= 0) glUniform1iv(loc, 8, units);
     sp.uTevReg = glGetUniformLocation(p, "u_tevreg");
