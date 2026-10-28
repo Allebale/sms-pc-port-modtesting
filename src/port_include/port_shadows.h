@@ -18,8 +18,9 @@ float port_shadows_distance(void);
 // Keep the Original Shadow Direction: 1 the sun's shadows fall exactly where the game's own fell
 // (straight below what casts them, as TMBindShadowManager puts them); 0 from the stage's sun.
 int port_shadows_original_direction(void);
-// Cloud Shadows (the setting: 0 off, 1 few, 2 some, 3 many); and the renderer's, each frame with
-// the main camera's: view to world (3 rows of 4), (time in seconds, cover, darkness, 0); null none.
+// Moving Clouds (the setting: 0 off, 1 few, 2 some, 3 many); and the renderer's, each frame with
+// the main camera's: view to world (3 rows of 4), (time in seconds, cover, darkness, 0, toward the
+// sun in the world x y z, 0); null none.
 int port_cloud_shadows(void);
 void GXPC_CloudFrame(const float* viewToWorld, const float* params);
 // From CPolarSubCamera::perform (zzzzz-ext-31-shadows), the main camera's projection just set:

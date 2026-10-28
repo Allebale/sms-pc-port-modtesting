@@ -120,6 +120,9 @@ struct State {
     float sand[12];
     // Cloud Shadows (GXPC_CloudFrame): view to world (3 rows), (time, cover, darkness, 0); cover 0: none
     float cloud[16];
+    float cloudProj[7];
+    float cloudSun[3];  // toward the sun, in the world
+    bool cloudArmed;  // the clouds drawn into the sky as the main camera's scene ends
     // Grass Stains (GXPC_SetGrassStains): the stains on what is drawn now (u_gstain; [4..6] 0: none)
     float gstain[12];
     // Moving Vegetation (GXPC_SwayFrame, GXPC_SwayRegister; gx_render.cpp): the wind and what
@@ -435,6 +438,8 @@ const int kGrassColorUnit = 11, kGrassDepthUnit = 12, kGrassFlatUnit = 13;
 const ShaderProgram* shaderForCurrentState(int depthOnly = 0, bool lines = false);
 // Moving Vegetation: whether a display list is a plant's (registered as its model loaded), and its
 // model-space height (gx_render.cpp, from callDisplayList).
+// Moving Clouds: into the main camera's sky, as its scene ends (gx_render.cpp, from GXSetProjectionv).
+void cloudApply();
 bool swayLookup(const void* list, uint32_t size, float* minY, float* maxY);
 // The texture unit the sun's shadow map is bound on (gx_render.cpp), past the game's eight.
 const int kShadowUnit = 10;

@@ -2590,6 +2590,173 @@ extern "C" void GXPC_GrassFlatMap(const unsigned char* rgba, int size, float x0,
     s_grassFlatArea[3] = 1.0f / span;
 }
 
+// ------------------------------------------------------------------ Moving Clouds
+// Cartoon clouds in the sky (ext/core/game/port_shadows.cpp hands the main camera's view to world,
+// the time, how many and toward the sun each frame, GXPC_CloudFrame). Once a frame, as the main
+// camera's 3D scene ends (the first orthographic projection after it, before the HUD: gx_api.cpp),
+// each pixel's ray from the camera up to a plane of clouds high above (y 6000): there the same
+// drifting noise as the cloud shadows (gx_shader.cpp), so each cloud is right above its shadow
+// (along the sun's light). Drawn only where nothing nearer is (the sky, far hills), fading toward
+// the horizon. Cartoony: puffy round lobes round a solid middle, flat white with a cool grey-blue
+// for the shaded parts (the middle, each lobe's rim away from the sun).
+static const char* kCloudFs = R"(#version 330 core
+uniform sampler2D u_depth;
+uniform vec4 u_lin;     // view z = x / (depth * y + z); w: the projection's fx
+uniform vec4 u_proj;    // fy (abs), the time, how many (cover), 0
+uniform vec4 u_rows[3]; // view to world
+uniform vec4 u_sun;     // toward the sun (world)
+in vec2 v_uv;
+out vec4 o_color;
+float cloudHash(vec2 c) { return fract(sin(dot(c, vec2(127.1, 311.7))) * 43758.55); }
+float cloudNoise(vec2 q) {
+  vec2 c = floor(q), f = fract(q);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(cloudHash(c), cloudHash(c + vec2(1, 0)), f.x), mix(cloudHash(c + vec2(0, 1)), cloudHash(c + vec2(1, 1)), f.x), f.y);
+}
+// the clouds' noise (the shadows' too, gx_shader.cpp): where clouds are, drifting with the wind
+float cloudAt(vec2 xz) {
+  vec2 q = xz * 0.00022 + vec2(0.012, 0.007) * u_proj.y;
+  return cloudNoise(q) * 0.65 + cloudNoise(q * 2.3 + vec2(5.1, 1.7)) * 0.35;
+}
+float h2(vec2 c, vec2 k) { return fract(sin(dot(c, k)) * 43758.55); }
+void main() {
+  // the ray through this pixel (view space, z -1), then in the world
+  vec3 rv = vec3((v_uv.x - 0.5) * 2.0 / u_lin.w, -(v_uv.y - 0.5) * 2.0 / u_proj.x, -1.0);
+  vec3 rw = vec3(dot(u_rows[0].xyz, rv), dot(u_rows[1].xyz, rv), dot(u_rows[2].xyz, rv));
+  vec3 cam = vec3(u_rows[0].w, u_rows[1].w, u_rows[2].w);
+  if (rw.y <= 0.0 || cam.y >= 6000.0) discard;
+  float t = (6000.0 - cam.y) / rw.y;  // the view distance (z) to the cloud plane
+  float d = textureLod(u_depth, v_uv, 0.0).r;
+  float dist = d >= 0.999999 ? 1e9 : -(u_lin.x / (d * u_lin.y + u_lin.z));
+  if (dist < t) discard;  // something nearer
+  vec2 hit = (cam + rw * t).xz;
+  float th = 1.0 - u_proj.z + 0.04;
+  // puffs: round lobes, one in some cells of a grid that drifts with the wind, where the noise
+  // says there are clouds; the cloud's middle solid
+  vec2 wind = vec2(0.012, 0.007) / 0.00022 * u_proj.y;
+  vec2 p = hit + wind;
+  const float cell = 1400.0;
+  vec2 g = floor(p / cell);
+  vec2 sun2 = normalize(u_sun.xz + vec2(1e-4));
+  float best = -1.0, shade = 0.0;
+  for (int dy = -1; dy <= 1; dy++)
+    for (int dx = -1; dx <= 1; dx++) {
+      vec2 c = g + vec2(dx, dy);
+      vec2 ctr = (c + 0.2 + 0.6 * vec2(h2(c, vec2(12.9, 78.2)), h2(c, vec2(39.3, 11.7)))) * cell;
+      float r = cell * (0.55 + 0.4 * h2(c, vec2(63.7, 27.1)));
+      r *= smoothstep(th - 0.04, th + 0.06, cloudAt(ctr - wind));
+      if (r < 1.0) continue;
+      vec2 rel = (p - ctr) / r;
+      float f = 1.0 - length(rel);
+      if (f > best) {
+        best = f;
+        shade = -dot(rel, sun2) * smoothstep(0.45, 0.6, length(rel));  // its rim away from the sun
+      }
+    }
+  float fb = (cloudAt(hit) - (th + 0.05)) * 6.0;
+  float sh = fb > best ? 0.3 : smoothstep(0.15, 0.25, shade) * 0.5;
+  best = max(best, fb);
+  float a = smoothstep(0.0, 0.05, best);
+  if (a <= 0.0) discard;
+  // white, the shaded parts a cool grey-blue (two flat tones, as a cartoon's)
+  vec3 col = mix(vec3(1.0), vec3(0.74, 0.81, 0.94), sh);
+  float fade = 1.0 - smoothstep(18000.0, 45000.0, t * length(rw));
+  o_color = vec4(col, a * fade * 0.97);
+}
+)";
+static GLuint s_cloudProg, s_cloudVao, s_cloudDepthTex, s_cloudDepthFbo;
+static GLint s_cloudLin, s_cloudProjU, s_cloudRows, s_cloudSunU;
+static int s_cloudW, s_cloudH;
+static const int kCloudUnit = 14;
+
+void cloudApply() {
+    if (!s_ready || g.xfReg[XFR_PROJ + 6] & 1) return;  // orthographic: not a 3D view
+    if (g.cloud[13] <= 0.0f) return;
+    const float fy = xff(XFR_PROJ + 2), A = xff(XFR_PROJ + 4), B = xff(XFR_PROJ + 5);
+    const float vz0 = xff(XFR_VIEWPORT + 2), vz1 = xff(XFR_VIEWPORT + 5);
+    if (fy == 0.0f || vz0 == 0.0f) return;
+    const int W = scaled(s_efbW), H = scaled(EFB_H);
+    if (!s_cloudProg) {
+        s_cloudProg = compileProgram(kPostVs, kCloudFs);
+        glUseProgram(s_cloudProg);
+        glUniform1i(glGetUniformLocation(s_cloudProg, "u_flip"), 0);
+        glUniform1i(glGetUniformLocation(s_cloudProg, "u_depth"), kCloudUnit);
+        s_cloudLin   = glGetUniformLocation(s_cloudProg, "u_lin");
+        s_cloudProjU = glGetUniformLocation(s_cloudProg, "u_proj");
+        s_cloudRows  = glGetUniformLocation(s_cloudProg, "u_rows");
+        s_cloudSunU  = glGetUniformLocation(s_cloudProg, "u_sun");
+        glGenVertexArrays(1, &s_cloudVao);
+    }
+    if (W != s_cloudW || H != s_cloudH) {
+        if (s_cloudDepthFbo) {
+            glDeleteTextures(1, &s_cloudDepthTex);
+            glDeleteFramebuffers(1, &s_cloudDepthFbo);
+        }
+        s_cloudW = W, s_cloudH = H;
+        glActiveTexture(GL_TEXTURE0 + kCloudUnit);
+        glGenTextures(1, &s_cloudDepthTex);
+        glGenFramebuffers(1, &s_cloudDepthFbo);
+        glBindTexture(GL_TEXTURE_2D, s_cloudDepthTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, W, H, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+        glBindFramebuffer(GL_FRAMEBUFFER, s_cloudDepthFbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, s_cloudDepthTex, 0);
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+        const GLenum st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (st != GL_FRAMEBUFFER_COMPLETE) logmsg("clouds: the depth copy is not complete (0x%x)", st);
+        logmsg("clouds: the depth copy made (%dx%d)", W, H);
+    }
+    // the scene's depth
+    const GLuint src = efbReadFbo(0, 0, W, H, GL_DEPTH_BUFFER_BIT);
+    glDisable(GL_SCISSOR_TEST);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, src);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_cloudDepthFbo);
+    glBlitFramebuffer(0, 0, W, H, 0, 0, W, H, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_COLOR_LOGIC_OP);
+    glDisable(GL_CLIP_DISTANCE0);
+    glDisable(GL_CLIP_DISTANCE0 + 1);
+    glDisable(GL_CLIP_DISTANCE0 + 2);
+    glDepthMask(GL_FALSE);
+    glBindSampler(kCloudUnit, 0);
+    glBindVertexArray(s_cloudVao);
+    // over the scene, its alpha kept
+    glBindFramebuffer(GL_FRAMEBUFFER, s_efbFbo);
+    glViewport(0, 0, W, H);
+    glEnable(GL_BLEND);
+    glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+    glUseProgram(s_cloudProg);
+    glActiveTexture(GL_TEXTURE0 + kCloudUnit);
+    glBindTexture(GL_TEXTURE_2D, s_cloudDepthTex);
+    const float fx = fabsf(fy) * float(H) / float(W);
+    const float lin[4] = {-vz0 * B, 16777215.0f, vz0 * A - vz1, fx};
+    const float proj[4] = {fabsf(fy), g.cloud[12], g.cloud[13], 0.0f};
+    const float sun[4] = {g.cloudSun[0], g.cloudSun[1], g.cloudSun[2], 0.0f};
+    glUniform4fv(s_cloudLin, 1, lin);
+    glUniform4fv(s_cloudProjU, 1, proj);
+    glUniform4fv(s_cloudRows, 3, g.cloud);
+    glUniform4fv(s_cloudSunU, 1, sun);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    s_drawGen++;
+
+    // the cache knows none of this: everything is set again by the next draw
+    glcInvalidate();
+    static bool s_told;
+    if (!s_told) {
+        s_told = true;
+        logmsg("clouds: drawn into the sky as the 3D view ends (cover %.2f)", g.cloud[13]);
+    }
+}
+
 // ------------------------------------------------------------------ Fire Lights
 // Point lights (ext/core/game/port_lights.cpp: the fires burning near Mario): set in the world
 // each tick (GXPC_SetLights: 8 floats a light: x, y, z, radius, r, g, b, strength), taken into a
