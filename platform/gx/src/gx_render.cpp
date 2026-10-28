@@ -2605,7 +2605,7 @@ extern "C" void GXPC_GrassFlatMap(const unsigned char* rgba, int size, float x0,
 //   1. the depth copied (resolved) into a texture of its own;
 //   2. at half size, each point's position and face (from the depth around it), and how much of
 //      a hemisphere over it is taken by what is in front: within 40 units (fine: creases, contact)
-//      and within 280 (large: walls, overhangs, the space under things), 8 samples each, turned
+//      and within 200 (large: walls, overhangs, the space under things), 8 samples each, turned
 //      for each pixel of a 4 by 4 tile;
 //   3. at full size, the 4 by 4 around each pixel averaged (by depth, edges kept: the tile's
 //      turns cancel out) and multiplied onto the scene. It fades out with distance (Ambient
@@ -2669,7 +2669,11 @@ float occlusion(vec3 P, vec3 N, vec3 T, vec3 B, float R) {
     if (d >= 0.999999) continue;
     float sz = viewZ(d);
     // a margin growing with distance (the depth's steps grow), so that no surface shades itself
-    if (sz >= s.z + margin) sum += smoothstep(0.0, 1.0, R / abs(P.z - sz));
+    // only what is near the sample shades it: something far in front (a character between the
+    // camera and the ground behind it) hides the sample but does not close in on it (else a dark
+    // halo round characters on the ground behind them)
+    float dz = sz - s.z;
+    if (dz >= margin) sum += 1.0 - smoothstep(R * 0.5, R, dz);
   }
   return sum / 8.0;
 }
@@ -2701,7 +2705,7 @@ void main() {
   vec3 B = cross(N, T);
   float ao = 1.0;
   if (u_ao.x > 0.0) ao *= 1.0 - u_ao.x * occlusion(P, N, T, B, 40.0);
-  if (u_ao.y > 0.0) ao *= 1.0 - u_ao.y * occlusion(P, N, T, B, 280.0);
+  if (u_ao.y > 0.0) ao *= 1.0 - u_ao.y * occlusion(P, N, T, B, 200.0);
   float fade = 1.0 - smoothstep(u_ao.z, u_ao.w, dist);
   o_color = vec4(clamp(mix(1.0, ao, fade), 0.0, 1.0));
 }
