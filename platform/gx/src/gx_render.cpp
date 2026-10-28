@@ -2679,7 +2679,9 @@ void main() {
   vec3 P = posAt(v_uv, d);
   float dist = -P.z;
   if (dist <= 0.0 || dist >= u_ao.w) { o_color = vec4(1.0); return; }
-  vec2 t = u_f.zw;
+  // the face from the depth 3 pixels away (the depth is stored in steps: from the next pixel, a
+  // surface turned away from the view reads as flat, then a step, in columns)
+  vec2 t = u_f.zw * 3.0;
   vec3 px = posUV(v_uv + vec2(t.x, 0.0)), nx = posUV(v_uv - vec2(t.x, 0.0));
   vec3 py = posUV(v_uv + vec2(0.0, t.y)), ny = posUV(v_uv - vec2(0.0, t.y));
   vec3 dx = abs(px.z - P.z) < abs(P.z - nx.z) ? px - P : P - nx;
@@ -2733,8 +2735,10 @@ void main() {
   // the surface's slope across the screen (the side nearer in depth, so as not to cross an edge):
   // the samples are weighed by how far each is from that plane, not from the centre's depth, so
   // that surfaces seen at a slant (walls along the view) are averaged as smoothly as any other
-  float zr = sceneZ(v_uv + vec2(u_half.z, 0.0)) - z0, zl = z0 - sceneZ(v_uv - vec2(u_half.z, 0.0));
-  float zu = sceneZ(v_uv + vec2(0.0, u_half.w)) - z0, zd = z0 - sceneZ(v_uv - vec2(0.0, u_half.w));
+  // (over 3 pixels: the depth is stored in steps, so from the next pixel a slope reads as flat or
+  // as a jump, and the average would follow the columns)
+  float zr = (sceneZ(v_uv + vec2(u_half.z * 3.0, 0.0)) - z0) / 3.0, zl = (z0 - sceneZ(v_uv - vec2(u_half.z * 3.0, 0.0))) / 3.0;
+  float zu = (sceneZ(v_uv + vec2(0.0, u_half.w * 3.0)) - z0) / 3.0, zd = (z0 - sceneZ(v_uv - vec2(0.0, u_half.w * 3.0))) / 3.0;
   float gx = abs(zr) < abs(zl) ? zr : zl, gy = abs(zu) < abs(zd) ? zu : zd;
   float sum = 0.0, wsum = 0.0;
   for (int y = -2; y < 2; y++)
@@ -2795,8 +2799,10 @@ void main() {
     float zl = viewZ(textureLod(u_depth, v_uv - vec2(t.x, 0.0), 0.0).r), zr = viewZ(textureLod(u_depth, v_uv + vec2(t.x, 0.0), 0.0).r);
     float zd = viewZ(textureLod(u_depth, v_uv - vec2(0.0, t.y), 0.0).r), zu = viewZ(textureLod(u_depth, v_uv + vec2(0.0, t.y), 0.0).r);
     float ex = abs(zl + zr - 2.0 * z0), ey = abs(zd + zu - 2.0 * z0);  // the change in slope
-    float e = max(ex, ey) / max(-z0 * 0.002, 0.05);
-    o_color = vec4(clamp(vec3(ex, ey, 0.0) / max(-z0 * 0.002, 0.05), 0.0, 1.0) + vec3(0.0, 0.0, clamp(e * 0.1, 0.0, 1.0)), 1.0);
+    // fine: a tenth of a percent of the distance lights it fully (the depth's own steps show too)
+    float k = max(-z0 * 0.0002, 0.01);
+    float e = max(ex, ey) / k;
+    o_color = vec4(clamp(vec3(ex, ey, 0.0) / k, 0.0, 1.0) + vec3(0.0, 0.0, clamp(e * 0.02, 0.0, 1.0)), 1.0);
     return;
   }
   if (mode == 1) {
@@ -2807,7 +2813,7 @@ void main() {
     return;
   }
   if (sky) { o_color = vec4(0.5, 0.5, 1.0, 1.0); return; }
-  vec2 t = u_f.zw;
+  vec2 t = u_f.zw * 3.0;  // as the trace's
   vec3 P = posUV(v_uv);
   vec3 px = posUV(v_uv + vec2(t.x, 0.0)), nx = posUV(v_uv - vec2(t.x, 0.0));
   vec3 py = posUV(v_uv + vec2(0.0, t.y)), ny = posUV(v_uv - vec2(0.0, t.y));
