@@ -368,6 +368,14 @@ float gsNoise(vec3 q) {
 in vec3 v_wn; in vec3 v_wp; in vec3 v_wl; in vec3 v_wlc; in vec3 v_mp;
 uniform vec4 u_wet[2];
 uniform vec4 u_shadow[12];
+// Cloud Shadows (GXPC_CloudFrame): view to world (rows 0-2), (time, cover, darkness, 0)
+uniform vec4 u_cloud[4];
+float cloudHash(vec2 c) { return fract(sin(dot(c, vec2(127.1, 311.7))) * 43758.55); }
+float cloudNoise(vec2 q) {
+  vec2 c = floor(q), f = fract(q);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(cloudHash(c), cloudHash(c + vec2(1, 0)), f.x), mix(cloudHash(c + vec2(0, 1)), cloudHash(c + vec2(1, 1)), f.x), f.y);
+}
 uniform sampler2DShadow u_shadowMap;
 uniform vec4 u_plight[17];
 // Shadows: how lit a point is in a cascade's map (c: its clip space; tile 0 near, 1 far; the two
@@ -752,6 +760,18 @@ static std::string genFS(const ShaderKey& k) {
          "      if (wn > 0.0) dark = wn * (1.0 - shadowLit(a, 0.0));\n"
          "      if (wn < 1.0 && eb < 1.0 && b.z < 1.0)\n"
          "        dark += (1.0 - wn) * (1.0 - shadowLit(b, 1.0)) * (1.0 - smoothstep(0.75, 1.0, eb));\n"
+         // Cloud Shadows: the point seen along the sun's light up to a plane of clouds high above
+         // it (the world's), there soft-edged clouds of noise drifting with the wind; under one,
+         // in its shade
+         "      if (u_cloud[3].y > 0.0) {\n"
+         "        vec4 vh = vec4(v_wp, 1.0);\n"
+         "        vec3 wp = vec3(dot(u_cloud[0], vh), dot(u_cloud[1], vh), dot(u_cloud[2], vh));\n"
+         "        vec3 ws = vec3(dot(u_cloud[0].xyz, u_shadow[10].xyz), dot(u_cloud[1].xyz, u_shadow[10].xyz), dot(u_cloud[2].xyz, u_shadow[10].xyz));\n"
+         "        vec2 q = (wp.xz + ws.xz / max(ws.y, 0.3) * (6000.0 - wp.y)) * 0.00022 + vec2(0.012, 0.007) * u_cloud[3].x;\n"
+         "        float cn = cloudNoise(q) * 0.65 + cloudNoise(q * 2.3 + vec2(5.1, 1.7)) * 0.35;\n"
+         "        float cl = smoothstep(1.0 - u_cloud[3].y, 1.0 - u_cloud[3].y + 0.25, cn) * u_cloud[3].z;\n"
+         "        dark = 1.0 - (1.0 - dark) * (1.0 - cl);\n"
+         "      }\n"
          // a little blue, as shade lit by the sky is
          "      color.rgb *= 1.0 - u_shadow[9].x * dark * smoothstep(0.0, 0.2, nl) * vec3(1.0, 0.94, 0.8);\n"
          "    }\n"
@@ -852,6 +872,7 @@ static void setupProgram(GLuint p, ShaderProgram& sp, bool aside = false) {
     sp.uPlight = glGetUniformLocation(p, "u_plight");
     sp.uSway = glGetUniformLocation(p, "u_sway");
     sp.uSand = glGetUniformLocation(p, "u_sand");
+    sp.uCloud = glGetUniformLocation(p, "u_cloud");
     sp.uGStain = glGetUniformLocation(p, "u_gstain");
     GLint shadowMap = glGetUniformLocation(p, "u_shadowMap");
     if (shadowMap >= 0) glUniform1i(shadowMap, kShadowUnit);

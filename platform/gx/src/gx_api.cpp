@@ -575,6 +575,17 @@ extern "C" void GXPC_SetUserClipPlane(int on, const float* plane) {
 
 // Wet Mario: how wet the models drawn from now are, 0 (dry) to 1, and up to which plane (view space,
 // wet below it; State::wet, wetLine). Mario's draw sets it and puts it back to 0 after.
+// Cloud Shadows (ext/core/game/port_shadows.cpp), each frame with the main camera's view.
+extern "C" void GXPC_CloudFrame(const float* viewToWorld, const float* params) {
+    float c[16] = {0};
+    if (viewToWorld && params) {
+        memcpy(c, viewToWorld, 12 * sizeof(float));
+        memcpy(c + 12, params, 4 * sizeof(float));
+    }
+    if (!memcmp(c, g.cloud, sizeof c)) return;
+    flushBatch();
+    memcpy(g.cloud, c, sizeof c);
+}
 // Sandy Mario (ext/core/game/port_sandy.cpp), around Mario's own draw: 12 floats (u_sand), null none.
 extern "C" void GXPC_SetSand(const float* sand) {
     float s[12] = {0};
