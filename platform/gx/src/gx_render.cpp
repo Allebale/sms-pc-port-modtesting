@@ -2626,6 +2626,15 @@ uniform vec4 u_vm;   // the viewport: x scale, y scale, x centre, y centre (EFB 
 uniform vec2 u_es;   // the EFB's size: the picture's own mapping, widescreen and all
 uniform vec4 u_ao;   // fine strength, large strength, fade start, fade end (units from the camera)
 uniform vec4 u_q;    // x: samples for each (4 to 8: Ambient Occlusion Quality)
+uniform vec4 u_mario[2];  // Mario: from his feet (xyz, w how far round him) to over his cap (view space)
+// whether a point is within Mario (FLUDD and all): what is there shades nothing (no halo round him)
+bool inMario(vec3 q) {
+  if (u_mario[0].w <= 0.0) return false;
+  vec3 a = u_mario[0].xyz, ab = u_mario[1].xyz - a;
+  float h = clamp(dot(q - a, ab) / dot(ab, ab), 0.0, 1.0);
+  vec3 d = q - (a + ab * h);
+  return dot(d, d) < u_mario[0].w * u_mario[0].w;
+}
 uniform sampler2D u_ground;  // 3D Grass: the depth before the blades and right after them
 uniform sampler2D u_after;   // (u_g.x 1 while both are this frame's)
 uniform vec4 u_g;
@@ -2682,7 +2691,9 @@ float occlusion(vec3 P, vec3 N, vec3 T, vec3 B, float R, float jit, float ez, fl
     if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) continue;
     float d = sceneDepth(uv);
     if (d >= 0.999999) continue;
-    vec3 v = posAt(uv, d) - P;
+    vec3 Q = posAt(uv, d);
+    if (inMario(Q)) continue;
+    vec3 v = Q - P;
     float len = length(v);
     if (len >= R || len < 1e-3) continue;
     float rise = (dot(v, N) - slack) / len;   // 0 along the face, 1 straight over it
@@ -2857,7 +2868,7 @@ void main() {
 )";
 static GLuint s_aoTraceProg, s_aoApplyProg, s_aoViewProg, s_aoVao;
 static GLint s_aoTLin, s_aoTF, s_aoTAo, s_aoTG, s_aoALin, s_aoAHalf, s_aoAG, s_aoVLin, s_aoVF, s_aoVView, s_aoVG;
-static GLint s_aoTPm, s_aoTVm, s_aoTEs, s_aoVPm, s_aoVVm, s_aoVEs, s_aoTQ;
+static GLint s_aoTPm, s_aoTVm, s_aoTEs, s_aoVPm, s_aoVVm, s_aoVEs, s_aoTQ, s_aoTMario;
 
 static GLuint s_aoDepthTex, s_aoDepthFbo, s_aoTex, s_aoFbo;
 static int s_aoW, s_aoH, s_aoDiv;
@@ -2867,12 +2878,21 @@ static const int kAoDepthUnit = 14, kAoOccUnit = 15;
 static int s_aoMode;  // 0 off, 1 fine, 2 large, 3 both
 static int s_aoView;  // Depth Buffer View: 0 off, 1 depth, 2 faces, 3 both, 4 the shade alone
 static float s_aoStrength = 0.75f, s_aoDistance = 4000.0f;
+static float s_aoMario[8];  // Mario's place (GXPC_AOMario): feet xyz, radius; over his cap xyz
 static int s_aoQuality = 1;  // Ambient Occlusion Quality: 0 low, 1 medium, 2 high
 // for each quality: the shade worked out at 1 in this many pixels each way, from this many samples
 static const int kAoDivs[3] = {4, 3, 2}, kAoSamples[3] = {4, 6, 8};
 
 static bool s_aoHalfRate;          // Ambient Occlusion Update Rate: every other frame
 static uint32_t s_aoTracedFrame = ~0u;  // the frame the shade was last worked out in
+
+extern "C" void GXPC_AOMario(const float* bottom, const float* top, float radius) {
+    memset(s_aoMario, 0, sizeof s_aoMario);
+    if (!bottom || !top || radius <= 0.0f) return;
+    memcpy(s_aoMario, bottom, 3 * sizeof(float));
+    s_aoMario[3] = radius;
+    memcpy(s_aoMario + 4, top, 3 * sizeof(float));
+}
 
 extern "C" void GXPC_AOFrame(int mode, float strength, float distance, int view, int quality, int halfRate) {
     s_aoHalfRate = halfRate != 0;
@@ -2946,6 +2966,7 @@ void aoApply() {
         s_aoTVm  = glGetUniformLocation(s_aoTraceProg, "u_vm");
         s_aoTEs  = glGetUniformLocation(s_aoTraceProg, "u_es");
         s_aoTQ   = glGetUniformLocation(s_aoTraceProg, "u_q");
+        s_aoTMario = glGetUniformLocation(s_aoTraceProg, "u_mario");
         glUniform1i(glGetUniformLocation(s_aoTraceProg, "u_ground"), kGrassDepthUnit);
         glUniform1i(glGetUniformLocation(s_aoTraceProg, "u_after"), kGrassAfterUnit);
         glUseProgram(s_aoApplyProg);
@@ -3106,6 +3127,7 @@ void aoApply() {
     glUniform4fv(s_aoTAo, 1, ao);
     const float q[4] = {float(kAoSamples[s_aoQuality]), 0.0f, 0.0f, 0.0f};
     glUniform4fv(s_aoTQ, 1, q);
+    glUniform4fv(s_aoTMario, 2, s_aoMario);
     glUniform4fv(s_aoTG, 1, gu);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }

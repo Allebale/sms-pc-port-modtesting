@@ -20,6 +20,7 @@
 #include <JSystem/J3D/J3DGraphBase/J3DMaterial.hpp>
 #include <JSystem/J3D/J3DGraphBase/J3DShape.hpp>
 #include <JSystem/JUtility/JUTNameTab.hpp>
+#include <Player/Mario.hpp>
 #include <Player/MarioAccess.hpp>
 
 #include <math.h>
@@ -118,6 +119,18 @@ void port_shadows_main_view(void* camera, float (*view)[4])
 		return;
 	port_lights_view(view);  // Fire Lights, seen from the main camera
 	GXPC_AOFrame(port_ao(), port_ao_strength(), port_ao_distance(), port_depth_view(), port_ao_quality(), port_ao_half_rate());  // Ambient Occlusion
+	// Ambient Occlusion: Mario (and FLUDD on his back) shades nothing round him, no halo: where he
+	// stands, from his feet to over his cap, in the camera's view
+	if (TMario* m = gpMarioOriginal) {
+		float c[2][3];
+		const f32 h[2] = {-10.0f, 175.0f};
+		for (int e = 0; e < 2; e++)
+			for (int r = 0; r < 3; r++)
+				c[e][r] = view[r][0] * m->mPosition.x + view[r][1] * (m->mPosition.y + h[e]) +
+				          view[r][2] * m->mPosition.z + view[r][3];
+		GXPC_AOMario(c[0], c[1], 65.0f);
+	} else
+		GXPC_AOMario(0, 0, 0.0f);
 	const int level = port_shadows();
 	hideBaked(level > 0);
 	if (level <= 0 || level > 2) {
