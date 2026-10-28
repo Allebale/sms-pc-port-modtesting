@@ -21,7 +21,6 @@
 #include <JSystem/J3D/J3DGraphBase/J3DShape.hpp>
 #include <JSystem/JUtility/JUTNameTab.hpp>
 #include <Player/MarioAccess.hpp>
-#include <dolphin/os.h>
 
 #include <math.h>
 #include <stdio.h>
@@ -113,31 +112,6 @@ struct Register {
 
 } // namespace
 
-// Cloud Shadows: under a sun in the sky, the shadows of clouds drifting over the stage (the
-// renderer's, gx_shader.cpp: noise on a high plane, seen along the sun's light, slowly moving).
-static void clouds(float (*view)[4], bool sky)
-{
-	static const f32 kCover[] = {0.0f, 0.3f, 0.45f, 0.6f}, kDark[] = {0.0f, 0.55f, 0.6f, 0.65f};
-	const int level = port_cloud_shadows();
-	if (level <= 0 || level > 3 || !sky) {
-		GXPC_CloudFrame(0, 0);
-		return;
-	}
-	f32 inv[12];
-	for (int r = 0; r < 3; r++) {
-		for (int c = 0; c < 3; c++)
-			inv[r * 4 + c] = view[c][r];
-		inv[r * 4 + 3] = -(view[0][r] * view[0][3] + view[1][r] * view[1][3] + view[2][r] * view[2][3]);
-	}
-	const s32 ms = (s32)OSTicksToMilliseconds(OSGetTime());
-	const f32 params[4] = {(f32)(((ms % 6000000) + 6000000) % 6000000) * 0.001f, kCover[level], kDark[level], 0.0f};
-	static int s_told = -1;
-	if (level != s_told)
-		fprintf(stderr, "[shadows] cloud shadows: %s\n", level == 1 ? "few" : level == 2 ? "some" : "many");
-	s_told = level;
-	GXPC_CloudFrame(inv, params);
-}
-
 void port_shadows_main_view(void* camera, float (*view)[4])
 {
 	if (camera != (void*)gpCamera || !view)
@@ -205,5 +179,4 @@ void port_shadows_main_view(void* camera, float (*view)[4])
 		s_toldFar    = reach;
 	}
 	GXPC_ShadowFrame(view, sun, focus, kStrength[level], kHalf, reach);
-	clouds(view, sky);
 }

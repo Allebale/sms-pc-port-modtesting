@@ -118,8 +118,6 @@ struct State {
     bool shadowNoReceive;  // GXPC_ShadowReceive(0): what is drawn now takes no sun shadow
     // Sandy Mario (GXPC_SetSand): the sand on what is drawn now (u_sand; [5..7] 0: none)
     float sand[12];
-    // Cloud Shadows (GXPC_CloudFrame): view to world (3 rows), (time, cover, darkness, 0); cover 0: none
-    float cloud[16];
     // Grass Stains (GXPC_SetGrassStains): the stains on what is drawn now (u_gstain; [4..6] 0: none)
     float gstain[12];
     // Moving Vegetation (GXPC_SwayFrame, GXPC_SwayRegister; gx_render.cpp): the wind and what
@@ -410,13 +408,12 @@ struct UniformCache {
     float sway[44];
     float sand[12];
     float gstain[12];
-    float cloud[16];
 };
 struct ShaderProgram {
     unsigned prog;
     int id;  // creation order; SMS_GX_DUMP_SHADERS=dir writes dir/prog<id>.vs/.fs
     int uTevReg, uKonst, uTexScale, uAlphaRef, uFog, uFogColor, uIndMtx, uTexSize, uEfb,
-        uProj, uViewport, uAmbMat, uDstAlpha, uLineWidth, uUserClip, uWet, uShadow, uPlight, uSway, uSand, uGStain, uCloud;
+        uProj, uViewport, uAmbMat, uDstAlpha, uLineWidth, uUserClip, uWet, uShadow, uPlight, uSway, uSand, uGStain;
     mutable UniformCache uc;
 };
 bool shaderHasEarlyFragmentTests();
