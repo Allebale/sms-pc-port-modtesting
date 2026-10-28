@@ -2656,29 +2656,35 @@ const vec3 K[8] = vec3[8](
   vec3( 0.47, -0.37, 0.40), vec3( 0.12,  0.68, 0.37), vec3(-0.71,  0.10, 0.45),
   vec3(-0.05, -0.79, 0.45), vec3( 0.73,  0.33, 0.55));
 // jit (0 to 1, each pixel of the 4 by 4 tile its own): how far out each sample reaches, so that
-// the 8 samples' fixed reaches do not draw rings (a second, fainter band beside every edge)
+// the 8 samples' fixed reaches do not draw rings
+// Each sample looks up what is really drawn there (Q, from the depth) and asks how much it rises
+// over the point's face, and how near it is: a wall beside the point closes in on it fully, the
+// same wall farther off less and less, smoothly, to nothing at R. (Asking only whether the depth
+// there is in front of the sample, as before, made a second band: a character or a pillar in
+// front of the ground behind it counted at some distances and not at others.) A flat floor's own
+// samples land on the floor itself, which does not rise over it: no shade.
 float occlusion(vec3 P, vec3 N, vec3 T, vec3 B, float R, float jit) {
   float sum = 0.0;
-  // surfaces seen at a slant: a wider margin (their depth changes fast from pixel to pixel)
+  // the depth's steps grow with distance; surfaces seen at a slant step most
   float graze = 1.0 - abs(dot(N, normalize(-P)));
-  float margin = R * (0.04 + 0.25 * graze * graze) - P.z * 0.004;
+  float bias = 0.06 + 0.25 * graze * graze;
+  float slack = -P.z * 0.002;
   for (int i = 0; i < 8; i++) {
     float f = fract(float(i) * 0.618034 + jit);
-    vec3 s = P + normalize(T * K[i].x + B * K[i].y + N * K[i].z) * (R * (0.12 + 0.88 * f * f));
+    vec3 s = P + normalize(T * K[i].x + B * K[i].y + N * K[i].z) * (R * (0.15 + 0.85 * f * f));
     if (s.z > -1.0) continue;
     vec2 uv = toUV(s);
     if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) continue;
     float d = sceneDepth(uv);
     if (d >= 0.999999) continue;
-    float sz = viewZ(d);
-    // a margin growing with distance (the depth's steps grow), so that no surface shades itself
-    // only what is near the sample shades it: something far in front (a character between the
-    // camera and the ground behind it) hides the sample but does not close in on it (else a dark
-    // halo round characters on the ground behind them)
-    float dz = sz - s.z;
-    if (dz >= margin) sum += 1.0 - smoothstep(R * 0.5, R, dz);
+    vec3 v = posAt(uv, d) - P;
+    float len = length(v);
+    if (len >= R || len < 1e-3) continue;
+    float rise = (dot(v, N) - slack) / len;   // 0 along the face, 1 straight over it
+    float near = 1.0 - len / R;
+    sum += max(rise - bias, 0.0) / (1.0 - bias) * near * near;
   }
-  return sum / 8.0;
+  return min(sum / 8.0 * 2.2, 1.0);
 }
 void main() {
   float d = sceneDepth(v_uv);
