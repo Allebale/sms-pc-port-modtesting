@@ -14,8 +14,6 @@ extern "C" {
 int port_grass(void);
 // Grass Distance: how far from Mario the blades go, times each kind's own reach (Low 1 to Max 12).
 float port_grass_distance(void);
-// Thinned Far Away: 1 fewer (wider) blades far from Mario, cheaper; 0 every blade all the way.
-int port_grass_thin(void);
 // Cut Grass Height and Wild Grass Height: times the kind's own (wild: 1; cut and tended: 0).
 float port_grass_height(int wild);
 // Grass Flattening: how wide and how long FLUDD's spray (and Mario, as Mario Grass Flattening allows) press the blades flat: 0 low, 1 medium,

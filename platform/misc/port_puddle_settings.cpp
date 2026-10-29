@@ -74,7 +74,6 @@ int s_wetDark = 2;        // Wet Mario's darkness, while on: 1 light, 2 normal, 
 int s_wetShine = 2;       // Wet Mario Shine: 0 off, 1 light, 2 normal, 3 strong
 int s_grass = 0;          // 3D Grass: 0 off, 1 by location, 2 always cut, 3 always wild
 int s_grassDistance = 2;  // Grass Distance: into kGrassDistances
-int s_grassThin = 0;      // Thinned Far Away
 int s_grassFlatten = 2;   // Grass Flattening: 0 low .. 4 insane
 int s_grassMario = 0;     // Mario Grass Flattening: 0 dives and landings, 1 always, 2 never
 int s_fireLights = 0;     // Fire Lights
@@ -296,8 +295,6 @@ void load() {
             s_grassMario = value < 0 ? 0 : value > 2 ? 2 : value;
         } else if (sscanf(line, " grassflatten = %d", &value) == 1) {
             s_grassFlatten = value < 0 ? 0 : value > 4 ? 4 : value;
-        } else if (sscanf(line, " grassthin = %d", &value) == 1) {
-            s_grassThin = value != 0;
         } else if (sscanf(line, " grassdistance = %d", &value) == 1) {
             s_grassDistance = value < 0 ? 0 : value > 4 ? 4 : value;
         } else if (sscanf(line, " grassblades = %d", &value) == 1) {
@@ -391,8 +388,6 @@ void save() {
     fprintf(f, "grassblades = %d\n", s_grass);
     fprintf(f, "# grassdistance: how far the blades go: 0 low, 1 medium, 2 high, 3 very high, 4 max.\n");
     fprintf(f, "grassdistance = %d\n", s_grassDistance);
-    fprintf(f, "# grassthin: 1 fewer, wider blades far from Mario (faster), 0 every blade all the way.\n");
-    fprintf(f, "grassthin = %d\n", s_grassThin);
     fprintf(f, "# grassflatten: how wide and long FLUDD's spray and Mario flatten the grass: 0 low, 1 medium, 2 high, 3 very high, 4 insane.\n");
     fprintf(f, "grassflatten = %d\n", s_grassFlatten);
     fprintf(f, "# grassmario: Mario flattens grass: 0 where he lands, dives, slides or skids, 1 always (his steps too), 2 never.\n");
@@ -746,19 +741,6 @@ int grassMarioSet(int i) {
     s_grassMario = i;
     save();
     port_log("[grass] Mario Grass Flattening changed: %s\n", kGrassMarioNames[i]);
-    return 1;
-}
-
-int grassThinGet() {
-    load();
-    return s_grassThin;
-}
-int grassThinSet(int i) {
-    if (i < 0 || i > 1) return 0;
-    load();
-    s_grassThin = i;
-    save();
-    port_log("[grass] Thinned Far Away changed: %s\n", i ? "on" : "off");
     return 1;
 }
 
@@ -1132,7 +1114,6 @@ const EffectValue kEffects[] = {
     {"HD Textures", "On", "On"},
     {"3D Grass", "Off", "By Location"},
     {"Grass Distance", "High", "Very High"},
-    {"Grass Thinned Far Away", "Off", "Off"},
     {"Cut Grass Height", "Normal", "Twice"},
     {"Wild Grass Height", "Normal", "Twice"},
     {"Grass Flattening", "High", "Very High"},
@@ -1274,9 +1255,6 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 101, "Grass Distance",
      "How far from Mario the blades of grass go. Farther costs a little more.", 0, nullptr,
      grassDistanceCount, grassDistanceName, grassDistanceGet, grassDistanceSet},
-    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 102, "Grass Thinned Far Away",
-     "Fewer, wider blades far from Mario, faster, but they show as you come near.", 0, nullptr,
-     offOnCount, offOnName, grassThinGet, grassThinSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 103, "Cut Grass Height",
      "How tall the cut and tended grass grows (town lawns, parks).", 0, nullptr, grassHeightCount<0>,
      grassHeightName<0>, grassHeightGet<0>, grassHeightSet<0>},
@@ -1332,7 +1310,7 @@ const PortSetting kPuddleSettings[] = {
      "The sun's shadows of everything, the level and characters too. Off is the original.", 0,
      nullptr, shadowsCount, shadowsName, shadowsGet, shadowsSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 97, "Round Shadows Under Characters",
-     "With Real Shadows, the game's own round shadow under each character too, lighter.", 0, nullptr,
+     "With Real Shadows, Mario and characters get the game's round shadow instead.", 0, nullptr,
      offOnCount, offOnName, roundGet, roundSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 98, "Shadow Distance",
      "How far from Mario Real Shadows reach. Farther is a little softer far away.", 0, nullptr,
@@ -1529,10 +1507,6 @@ int port_grass_mario(void) {
 int port_grass_flatten(void) {
     load();
     return s_grassFlatten;
-}
-int port_grass_thin(void) {
-    load();
-    return s_grassThin;
 }
 float port_grass_distance(void) {
     load();

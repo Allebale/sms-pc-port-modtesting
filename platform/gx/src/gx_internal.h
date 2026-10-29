@@ -116,6 +116,9 @@ struct State {
     float shadowProj[7];
     bool shadowArmed, shadowMain, shadowTag;
     bool shadowNoReceive;  // GXPC_ShadowReceive(0): what is drawn now takes no sun shadow
+    // Round Shadows Under Characters (GXPC_ShadowRound): Mario and the characters cast none;
+    // shadowNoCast: a character's display list is drawn now
+    bool shadowRound, shadowNoCast;
     // Ambient Occlusion (gx_render.cpp aoApply): armed for the main camera's projection each frame
     float aoProj[7];
     bool aoArmed;
@@ -437,6 +440,7 @@ const ShaderProgram* shaderForCurrentState(int depthOnly = 0, bool lines = false
 // Ambient Occlusion: onto the main camera's scene, as it ends (gx_render.cpp, from GXSetProjectionv).
 void aoApply();
 bool swayLookup(const void* list, uint32_t size, float* minY, float* maxY);
+bool characterLookup(const void* list, uint32_t size);  // Round Shadows Under Characters
 // The texture unit the sun's shadow map is bound on (gx_render.cpp), past the game's eight.
 const int kShadowUnit = 10;
 void shaderPrepareStage(int stage);  // while a stage loads: its programs (the warm-up)

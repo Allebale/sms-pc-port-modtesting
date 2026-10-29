@@ -1570,11 +1570,9 @@ void main() {
   vec3 bp = a_blade.xyz;
   float h = a_blade.w * u_g[0].w;  // Cut / Wild Grass Height
   float d = length(bp.xz - u_g[3].xz);
-  float reach = u_g[2].w, whole = u_g[1].w;
-  float keep = floor(a_blade2.w / 256.0), shadeB = a_blade2.w - keep * 256.0;
-  float share = 1.0;
-  if (u_g[3].w > 0.5 && d > whole) share = (whole / d) * (whole / d);
-  if (d > reach || (keep + 0.5) / 256.0 >= share) { hide(); return; }
+  float reach = u_g[2].w;
+  float shadeB = a_blade2.w - floor(a_blade2.w / 256.0) * 256.0;
+  if (d > reach) { hide(); return; }
   float outv = d / reach;
   if (outv > 0.85) h *= (1.0 - outv) / 0.15;
   // the ground's colour under it (or beside it, where something hides it)
@@ -1634,8 +1632,7 @@ void main() {
   down = min(down, h * 0.8);
   // the vertex: which side, how high
   ivec2 vtx = u_gtile.y > 1.5 ? kV2[gl_VertexID % 9] : kV1[gl_VertexID % 3];
-  float widen = share < 1.0 ? min(1.0 / sqrt(share), 3.0) : 1.0;
-  vec2 across = a_blade2.xy * (u_g[0].z * 0.5 * widen);
+  vec2 across = a_blade2.xy * (u_g[0].z * 0.5);
   float topY = h - down;
   vec3 p;
   float level;

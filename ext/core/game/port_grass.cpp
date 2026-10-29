@@ -207,14 +207,12 @@ struct Tile {
 Tile s_tiles[kMostTiles];
 int s_bladeTotal;
 
-// Grass Distance: how far the blades go, times the kind's own reach. Thinned Far Away: whole
-// (every blade) to half the kind's reach, then thinning as the square of the distance, so that
-// the far ones cost little; else whole all the way.
+// Grass Distance: how far the blades go, times the kind's own reach; every blade all the way.
+// s_whole: within it, blades bend in two segments (farther, one).
 f32 s_reach, s_whole;
-bool s_thin;
 
-// The share of the blades drawn at distance d (blade.keep below 256 times it).
-f32 keepShare(f32 d) { return !s_thin || d <= s_whole ? 1.0f : (s_whole / d) * (s_whole / d); }
+// The share of the blades drawn at distance d (blade.keep below 256 times it): all of them.
+f32 keepShare(f32) { return 1.0f; }
 
 void dropTile(Tile& t)
 {
@@ -605,7 +603,6 @@ void afterMovement()
 	// they were made for; for at most 1.5 ms a tick
 	s_reach = s_style->reach * port_grass_distance();
 	s_whole = s_style->reach * 0.5f;
-	s_thin  = port_grass_thin() != 0;
 	const f32 reach = s_reach + kTile;
 	const int tx0 = (int)floorf((mx - reach) / kTile), tx1 = (int)floorf((mx + reach) / kTile);
 	const int tz0 = (int)floorf((mz - reach) / kTile), tz1 = (int)floorf((mz + reach) / kTile);
@@ -687,7 +684,7 @@ void drawGrass(float (*view)[4])
 		(f32)nowMs() * 0.001f, st.wind, st.width, port_grass_height(s_style == &kWild),
 		(f32)st.base[0], (f32)st.base[1], (f32)st.base[2], s_whole,
 		(f32)st.tip[0], (f32)st.tip[1], (f32)st.tip[2], reach,
-		mx, my, mz, s_thin ? 1.0f : 0.0f,
+		mx, my, mz, 0.0f,
 		0.8f, 0.6f, st.stripes ? 1.0f : 0.0f, st.clumps ? 1.0f : 0.0f,  // the breeze's way
 		0.0f, 0.0f, 0.0f, 0.0f,  // the renderer's
 	};

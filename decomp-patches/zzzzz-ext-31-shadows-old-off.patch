@@ -1,4 +1,4 @@
-Reason: Real Shadows (port_shadows.h): while on, the sun's shadows replace the game's own. TMBindShadowManager takes only round shadow requests (not trees', buildings' or boats'), and draws them lighter (half the alpha) with Round Shadows Under Characters on, or none at all with it off. Off, nothing changes.
+Reason: Real Shadows (port_shadows.h): while on, the sun's shadows replace the game's own. TMBindShadowManager takes only round shadow requests (not trees', buildings' or boats'), and draws them with Round Shadows Under Characters on (then Mario, the characters and enemies cast no sun shadow: their round one is theirs), or none at all with it off. Off, nothing changes.
 
 --- a/src/MarioUtil/ShadowUtil.cpp
 +++ b/src/MarioUtil/ShadowUtil.cpp
@@ -17,12 +17,12 @@ Reason: Real Shadows (port_shadows.h): while on, the sun's shadows replace the g
 +#ifdef TARGET_PC
 +		// port: Real Shadows (port_shadows.h) draws the sun's shadows of
 +		// everything. Of the game's own only the round ones under characters
-+		// are left (requested only, below), lighter, with Round Shadows Under
-+		// Characters on; none with it off
++		// are left (requested only, below), with Round Shadows Under
++		// Characters on (who then cast no sun shadow); none with it off
 +		const GXColor sms_port_color = mShadowColor;
 +		const bool sms_port_real     = port_shadows() != 0;
-+		if (sms_port_real)
-+			mShadowColor.a = (u8)(mShadowColor.a / 2);
++		// (at the game's own strength: who has one casts no sun shadow then)
++		(void)sms_port_color;
 +		if (!sms_port_real || port_shadows_round()) {
 +#endif
  		if (mDLSw)

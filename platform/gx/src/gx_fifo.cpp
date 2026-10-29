@@ -1245,6 +1245,15 @@ static void callDisplayListInner(const uint8_t* data, uint32_t size);
 // the sway on (its batch flushed before and after, so that nothing else sways with it).
 void callDisplayList(const uint8_t* data, uint32_t size) {
     float minY, maxY;
+    // Round Shadows Under Characters: a character's list on its own, casting no sun shadow
+    if (g.shadowRound && data && !s_dlRec && characterLookup(data, size)) {
+        flushBatch();
+        g.shadowNoCast = true;
+        callDisplayListInner(data, size);
+        flushBatch();
+        g.shadowNoCast = false;
+        return;
+    }
     if (g.swayOn && data && !s_dlRec && swayLookup(data, size, &minY, &maxY)) {
         flushBatch();
         g.swayDraw     = true;

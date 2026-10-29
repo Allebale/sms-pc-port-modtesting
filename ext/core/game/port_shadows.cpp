@@ -20,6 +20,12 @@
 #include <JSystem/J3D/J3DGraphBase/J3DMaterial.hpp>
 #include <JSystem/J3D/J3DGraphBase/J3DShape.hpp>
 #include <JSystem/JUtility/JUTNameTab.hpp>
+#include <Enemy/Conductor.hpp>
+#include <Enemy/Enemy.hpp>
+#include <M3DUtil/MActor.hpp>
+#include <NPC/NpcBase.hpp>
+#include <Strategic/LiveActor.hpp>
+#include <Strategic/LiveManager.hpp>
 #include <Player/Mario.hpp>
 #include <Player/MarioAccess.hpp>
 
@@ -73,8 +79,44 @@ void findBaked(J3DModel* model, int index)
 	fprintf(stderr, "%s\n", line);
 }
 
+// Round Shadows Under Characters: the characters' and enemies' models (their shapes' display
+// lists), which then cast no sun shadow (their round one is theirs); Mario's own draw is known to
+// the renderer already (GXPC_ShadowTag).
+void registerCharacters()
+{
+	if (!gpConductor)
+		return;
+	int models = 0, lists = 0;
+	for (JGadget::TList<TLiveManager*>::iterator it = gpConductor->unk10.begin(); it != gpConductor->unk10.end(); ++it)
+		for (int i = 0; *it && i < (*it)->getObjNum(); i++) {
+			TLiveActor* actor = (*it)->getObj(i);
+			if (!actor || !actor->getMActor() || !dynamic_cast<TSpineEnemy*>(actor))
+				continue;  // an NPC is a TSpineEnemy too
+			J3DModel* model = actor->getMActor()->getModel();
+			J3DModelData* data = model ? model->getModelData() : 0;
+			if (!data)
+				continue;
+			models++;
+			for (u16 m = 0; m < data->getMaterialNum(); m++) {
+				J3DMaterial* mat = data->getMaterialNodePointer(m);
+				J3DShape* shape  = mat ? mat->getShape() : 0;
+				if (!shape)
+					continue;
+				for (u32 g = 0; g < shape->getMtxGroupNum(); g++) {
+					J3DShapeDraw* draw = shape->getShapeDraw((u16)g);
+					if (draw && draw->getDisplayList()) {
+						GXPC_ShadowCharacter(draw->getDisplayList(), draw->getDisplayListSize());
+						lists++;
+					}
+				}
+			}
+		}
+	fprintf(stderr, "[shadows] %d characters and enemies known (%d parts)\n", models, lists);
+}
+
 void stageSetup()
 {
+	registerCharacters();
 	s_bakedCount  = 0;
 	s_bakedHidden = false;
 	if (!gpMap || !gpMap->getModelManager())
@@ -136,6 +178,8 @@ void port_shadows_main_view(void* camera, float (*view)[4])
 		GXPC_AOMario(0, 0, 0.0f, 1.0f);
 	const int level = port_shadows();
 	hideBaked(level > 0);
+	// Round Shadows Under Characters: then Mario, the characters and enemies cast no sun shadow
+	GXPC_ShadowRound(level > 0 && port_shadows_round());
 	if (level <= 0 || level > 2) {
 		static bool s_toldOff;
 		if (!s_toldOff)

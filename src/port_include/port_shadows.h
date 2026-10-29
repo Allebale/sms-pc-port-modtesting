@@ -64,6 +64,10 @@ extern "C" {
 void GXPC_ShadowFrame(const float view[3][4], const float sun[3], const float focus[3], float strength,
                       float half, float reach);
 void GXPC_ShadowNotMain(void);
+// Round Shadows Under Characters (with Real Shadows): a character's or enemy's display list (its
+// model's, registered as the stage is set up), and whether they and Mario cast no sun shadow now
+void GXPC_ShadowCharacter(const void* list, unsigned size);
+void GXPC_ShadowRound(int on);
 // Soft Shadow Edges: how wide a shadow's soft edge is, in units (0 sharp)
 void GXPC_ShadowSoftness(float units);
 float port_shadows_softness(void);

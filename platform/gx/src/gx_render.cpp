@@ -2502,7 +2502,7 @@ extern "C" unsigned GXPC_GrassBuffer(unsigned buf, const float* data, int blades
 }
 
 // params: 24 floats (u_g, 6 vec4s): time, wind, width, 0; base rgb, whole; tip rgb, reach; Mario
-// x y z, thinned far away; wind x z, stripes, clumps; fog type (set here), press count, 0, 0.
+// x y z, 0; wind x z, stripes, clumps; fog type (set here), press count, 0, 0.
 // press: count x (x, y, z, radius); strength: count.
 extern "C" void GXPC_GrassBegin(const float view[3][4], const float* params, const float* press,
                                 const float* strength, int count) {
@@ -3196,6 +3196,30 @@ extern "C" void GXPC_SwayRegister(const void* list, unsigned size, float minY, f
     l.minY  = minY;
     l.maxY  = maxY;
 }
+// Round Shadows Under Characters: the characters' and enemies' display lists (their round shadow
+// is theirs then: no sun shadow), checked as the plants' are
+static std::unordered_map<const void*, SwayList> s_charLists;
+extern "C" void GXPC_ShadowCharacter(const void* list, unsigned size) {
+    if (!list || !size) return;
+    SwayList& l = s_charLists[list];
+    l.size  = size;
+    l.check = swayCheck(static_cast<const uint8_t*>(list), size);
+}
+extern "C" void GXPC_ShadowRound(int on) {
+    if (g.shadowRound == (on != 0)) return;
+    flushBatch();
+    g.shadowRound = on != 0;
+}
+bool characterLookup(const void* list, uint32_t size) {
+    if (s_charLists.empty()) return false;
+    auto it = s_charLists.find(list);
+    if (it == s_charLists.end()) return false;
+    if (it->second.size != size || it->second.check != swayCheck(static_cast<const uint8_t*>(list), size)) {
+        s_charLists.erase(it);
+        return false;
+    }
+    return true;
+}
 bool swayLookup(const void* list, uint32_t size, float* minY, float* maxY) {
     if (s_swayLists.empty()) return false;
     auto it = s_swayLists.find(list);
@@ -3350,6 +3374,9 @@ static void shadowLightVP(const float* sun, const float* focus, float half, floa
 // glow (added onto what is behind it). Blended draws that write depth cast: Mario is drawn blended
 // (source alpha), solid all the same; see-through glass and water write no depth.
 static const char* shadowNoCast() {
+    // Round Shadows Under Characters: theirs is the round one
+    if (g.shadowRound && g.shadowTag) return "Mario's round shadow is his (Round Shadows Under Characters)";
+    if (g.shadowRound && g.shadowNoCast) return "a character's round shadow is theirs";
     const uint32_t z = g.bp[BP_ZMODE], cm = g.bp[BP_CMODE0];
     if (!(z & 1)) return "no depth test";
     if (!((z >> 4) & 1)) return "no depth write";
