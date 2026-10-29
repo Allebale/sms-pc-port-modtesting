@@ -99,6 +99,9 @@ Before-and-after sliders (drag to compare the original with Remastered) and shor
 [Video](https://streamable.com/euucwv) ·
 [Comparison](https://imgdiff.net/s/c3d98abcb8c9dab23cfa72bd2a21008c)
 
+Backup images:
+https://imgur.com/a/iyXCALX
+
 ## Good to know
 
 - Built on top of **Chase's latest version**, so you get all his updates and fixes too.
