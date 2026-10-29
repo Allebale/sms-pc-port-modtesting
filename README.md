@@ -6,6 +6,49 @@ Nothing is forced on you. Every addition starts **Off**, so the game looks exact
 
 Not sure where to start? Set **Preset** on the Reflections page and **Effects Preset** on the Graphics page to **Remastered**, and everything is set up for you. **Original** turns it all back off.
 
+## 📸 See it in action
+
+Before-and-after sliders (drag to compare the original with Remastered) and short videos.
+
+**☀️ Real Shadows and Ambient Occlusion.** The sun's shadows of buildings, trees and characters, with soft shade in corners, doorways and under things:
+[Comparison 1](https://imgdiff.net/s/d0bd17a4351d232ee898d7d25629611d) ·
+[Comparison 2](https://imgdiff.net/s/bd8872bbcefc33bee3e7bfb877efe78c) ·
+[Comparison 3](https://imgdiff.net/s/71298e13c11de4917a1179b435e81f6e) ·
+[Comparison 4](https://imgdiff.net/s/012b64b9e2573b837ce4112956448aaa) ·
+[Comparison 5](https://imgdiff.net/s/b65c72a666bbac1e276f6dcd6857e63b)
+
+**🧭 Keep the Original Shadow Direction, off and on.** Shadows cast from the sun in the sky, or falling where the game's own did:
+[Comparison](https://imgdiff.net/s/7ae62c8d089baa23355174232b3a6fe7)
+
+**💧 Puddles and reflections.** FLUDD's puddles last longer and reflect the world around them:
+[Video](https://streamable.com/fd2t87)
+
+**〰️ Ripples and wet footprints.** Puddles and the sea ripple as Mario runs through them, and he leaves damp footprints behind:
+[Video](https://streamable.com/t9tehe)
+
+**🌊 The sea.** Water reflections, with deeper water turning a darker blue-green:
+[Comparison](https://imgdiff.net/s/f8eb6066e8dd39ff0de1077080862a0c)
+
+**🚿 Wet Mario.** He gets darker and shinier where the water reached, and drips as he dries, with water reflections around him:
+[Video](https://streamable.com/7t16yp)
+
+**🏖️ Sandy Mario.** Sand sticks to his clothes on the beach and slowly falls off, with water reflections:
+[Video](https://streamable.com/1orkzh)
+
+**🌱 3D Grass and grass flattening.** Real blades of grass that bend and get flattened by FLUDD's spray and belly slides:
+[Video](https://streamable.com/xs2bym)
+
+**🟩 Grass stains.** Mario's overalls and shirt get green, dirty smudges after sliding in grass:
+[Pictures](https://imgur.com/a/dJt4sxM)
+
+**🌴 Moving vegetation.** Bushes, flowers and palm trees sway in the wind and push aside when hit:
+[Video 1](https://streamable.com/fzr3pm) ·
+[Video 2 (palm trees)](https://streamable.com/opuhkg)
+
+**🔥 Fire lights.** Flames light up the ground, walls and characters around them:
+[Video](https://streamable.com/euucwv) ·
+[Comparison](https://imgdiff.net/s/c3d98abcb8c9dab23cfa72bd2a21008c)
+
 ## 🎮 How to play it
 
 In the launcher, build this fork:
