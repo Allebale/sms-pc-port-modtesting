@@ -27,6 +27,7 @@
 #include <Strategic/LiveActor.hpp>
 #include <Strategic/LiveManager.hpp>
 #include <Player/Mario.hpp>
+#include <Player/Yoshi.hpp>
 #include <Player/MarioAccess.hpp>
 
 #include <math.h>
@@ -79,39 +80,48 @@ void findBaked(J3DModel* model, int index)
 	fprintf(stderr, "%s\n", line);
 }
 
-// Round Shadows Under Characters: the characters' and enemies' models (their shapes' display
-// lists), which then cast no sun shadow (their round one is theirs); Mario's own draw is known to
-// the renderer already (GXPC_ShadowTag).
-void registerCharacters()
+// Round Shadows Under Characters: the characters', enemies' and Yoshi's models (their shapes'
+// display lists), which then cast no sun shadow (their round one is theirs); Mario's own draw is
+// known to the renderer already (GXPC_ShadowTag).
+int registerModel(J3DModel* model)
 {
-	if (!gpConductor)
-		return;
-	int models = 0, lists = 0;
-	for (JGadget::TList<TLiveManager*>::iterator it = gpConductor->unk10.begin(); it != gpConductor->unk10.end(); ++it)
-		for (int i = 0; *it && i < (*it)->getObjNum(); i++) {
-			TLiveActor* actor = (*it)->getObj(i);
-			if (!actor || !actor->getMActor() || !dynamic_cast<TSpineEnemy*>(actor))
-				continue;  // an NPC is a TSpineEnemy too
-			J3DModel* model = actor->getMActor()->getModel();
-			J3DModelData* data = model ? model->getModelData() : 0;
-			if (!data)
-				continue;
-			models++;
-			for (u16 m = 0; m < data->getMaterialNum(); m++) {
-				J3DMaterial* mat = data->getMaterialNodePointer(m);
-				J3DShape* shape  = mat ? mat->getShape() : 0;
-				if (!shape)
-					continue;
-				for (u32 g = 0; g < shape->getMtxGroupNum(); g++) {
-					J3DShapeDraw* draw = shape->getShapeDraw((u16)g);
-					if (draw && draw->getDisplayList()) {
-						GXPC_ShadowCharacter(draw->getDisplayList(), draw->getDisplayListSize());
-						lists++;
-					}
-				}
+	J3DModelData* data = model ? model->getModelData() : 0;
+	if (!data)
+		return 0;
+	int lists = 0;
+	for (u16 m = 0; m < data->getMaterialNum(); m++) {
+		J3DMaterial* mat = data->getMaterialNodePointer(m);
+		J3DShape* shape  = mat ? mat->getShape() : 0;
+		if (!shape)
+			continue;
+		for (u32 g = 0; g < shape->getMtxGroupNum(); g++) {
+			J3DShapeDraw* draw = shape->getShapeDraw((u16)g);
+			if (draw && draw->getDisplayList()) {
+				GXPC_ShadowCharacter(draw->getDisplayList(), draw->getDisplayListSize());
+				lists++;
 			}
 		}
-	fprintf(stderr, "[shadows] %d characters and enemies known (%d parts)\n", models, lists);
+	}
+	return lists;
+}
+
+void registerCharacters()
+{
+	int models = 0, lists = 0;
+	if (gpConductor)
+		for (JGadget::TList<TLiveManager*>::iterator it = gpConductor->unk10.begin(); it != gpConductor->unk10.end(); ++it)
+			for (int i = 0; *it && i < (*it)->getObjNum(); i++) {
+				TLiveActor* actor = (*it)->getObj(i);
+				if (!actor || !actor->getMActor() || !dynamic_cast<TSpineEnemy*>(actor))
+					continue;  // an NPC is a TSpineEnemy too
+				const int n = registerModel(actor->getMActor()->getModel());
+				models += n > 0, lists += n;
+			}
+	// Yoshi, where he is
+	TMario* m = gpMarioOriginal;
+	const int yoshi = m && m->mYoshi && m->mYoshi->mActor ? registerModel(m->mYoshi->mActor->getModel()) : 0;
+	fprintf(stderr, "[shadows] %d characters and enemies known (%d parts)%s\n", models, lists,
+	        yoshi ? ", and Yoshi" : "");
 }
 
 void stageSetup()
