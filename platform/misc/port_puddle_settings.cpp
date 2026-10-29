@@ -1041,7 +1041,7 @@ int blurSet(int i) {
 
 // ------------------------------------------------------------------ the preset
 // One row that sets every reflection option at once: Original (the game as it was, these options'
-// defaults) or Recommended (the mod's own pick). It reads Custom when the options are neither.
+// defaults) or Remastered (the fork's own pick). It reads Custom when the options are neither.
 // Puddle Lifetime, on the Graphics page, is not part of it.
 struct Preset {
     int reflections, water, distanceTimes4, beatMirrors, level;
@@ -1053,10 +1053,10 @@ struct Preset {
 const Preset kPresets[2] = {
     // Original
     {0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, {1, 0, 0, 0, 0}, 0, {300, 500, 400, 330, 50, 60, 100, 550, 500, 450}},
-    // Recommended
+    // Remastered
     {1, 1, 20, 1, 1, 2, 2, 2, 1, 1, 5, 1, 1, {1, 1, 1, 1, 1}, 1, {300, 500, 400, 330, 50, 60, 100, 550, 500, 450}},
 };
-const char* const kPresetNames[] = {"Original", "Recommended", "Custom"};
+const char* const kPresetNames[] = {"Original", "Remastered", "Custom"};
 
 int distanceIndexOf(int times4) {  // 4 is 1x
     int i = (times4 * 250 - 500) / kDistanceStep;
@@ -1106,7 +1106,88 @@ int presetSet(int i) {
     for (int k = 0; k < PORT_REFLECT_KINDS; k++) s_show[k] = p.show[k];
     for (int k = 0; k < PORT_PUDDLE_SURFACES; k++) s_strength[k] = p.strength[k];
     save();
-    logSettings(i ? "Reflections set to Recommended" : "Reflections set to Original");
+    logSettings(i ? "Reflections set to Remastered" : "Reflections set to Original");
+    return 1;
+}
+
+// ------------------------------------------------------------------ the Graphics page's preset
+// Effects Preset: the fork's effects on the Graphics page (and the port's own Heat-Wave Effect and
+// HD texture rows beside them) at once: Original (the port as it comes, every one of the fork's
+// off) or Remastered (the fork's own pick). Custom when they are neither. Each row is found by its
+// label and set to the value named, through the menu (so that the launcher keeps the port's own).
+// Resolution, smoothing and the like stay the Graphics Preset's; Depth Buffer View is not in it.
+struct EffectValue {
+    const char* row;
+    const char* original;
+    const char* remastered;
+};
+const EffectValue kEffects[] = {
+    {"Heat-Wave Effect", "On", "Off"},
+    {"Puddle Lifetime", "Original", "8x"},
+    {"Real Shadows", "Off", "Strong"},
+    {"Round Shadows Under Characters", "Off", "Off"},
+    {"Shadow Distance", "Long", "Very Long"},
+    {"Keep the Original Shadow Direction", "Off", "Off"},
+    {"Soft Shadow Edges", "Off", "Mild"},
+    {"HD Textures", "On", "On"},
+    {"3D Grass", "Off", "By Location"},
+    {"Grass Distance", "High", "Very High"},
+    {"Grass Thinned Far Away", "Off", "Off"},
+    {"Cut Grass Height", "Normal", "Twice"},
+    {"Wild Grass Height", "Normal", "Twice"},
+    {"Grass Flattening", "High", "Very High"},
+    {"Mario Grass Flattening", "Landings and Slides", "Landings and Slides"},
+    {"Moving Vegetation", "Off", "Windy"},
+    {"Fire Lights", "Off", "On"},
+    {"Fire Light Intensity", "Normal", "Very Far"},
+    {"HD Texture Loading", "Per Stage", "Per Stage"},
+    {"Sandy Mario", "Off", "Heavy"},
+    {"Grass Stains", "Off", "Strong"},
+    {"Grass Stain Duration", "3 Minutes", "3 Minutes"},
+    {"Ambient Occlusion", "Off", "Large Shapes"},
+    {"Ambient Occlusion Strength", "Medium", "High"},
+    {"Ambient Occlusion Distance", "Medium", "Long"},
+    {"Ambient Occlusion Quality", "Medium", "High"},
+    {"Ambient Occlusion Update Rate", "Every Frame", "Every Other Frame"},
+    {"Mario Ambient Occlusion", "None", "Low"},
+    {"Shader Warm-up", "On", "On"},
+};
+const char* const kEffectPresetNames[] = {"Original", "Remastered", "Custom"};
+
+// A Graphics page row by its label, shown now (null: not on this machine, as HD Textures without the pack)
+const PortSetting* effectRow(const char* name) {
+    for (int i = 0, n = port_settings_count(PORT_SETTINGS_PAGE_GRAPHICS); i < n; i++) {
+        const PortSetting* s = port_settings_option(PORT_SETTINGS_PAGE_GRAPHICS, i);
+        if (s && s->name && !strcmp(s->name, name)) return s;
+    }
+    return nullptr;
+}
+int effectValue(const PortSetting* s, const char* text) {
+    for (int i = 0, n = s->count(); i < n; i++)
+        if (!strcmp(s->valueName(i), text)) return i;
+    return -1;
+}
+bool effectsAre(int preset) {
+    for (const EffectValue& e : kEffects) {
+        const PortSetting* s = effectRow(e.row);
+        if (!s) continue;
+        const int want = effectValue(s, preset ? e.remastered : e.original);
+        if (want >= 0 && s->get() != want) return false;
+    }
+    return true;
+}
+int effectPresetCount() { return 3; }
+const char* effectPresetName(int i) { return kEffectPresetNames[i < 0 || i > 2 ? 2 : i]; }
+int effectPresetGet() { return effectsAre(0) ? 0 : effectsAre(1) ? 1 : 2; }
+int effectPresetSet(int i) {
+    if (i < 0 || i > 1) return 1;  // Custom changes nothing
+    for (const EffectValue& e : kEffects) {
+        const PortSetting* s = effectRow(e.row);
+        if (!s) continue;
+        const int want = effectValue(s, i ? e.remastered : e.original);
+        if (want >= 0 && s->get() != want) port_settings_set(s, want);
+    }
+    port_log("[settings] Effects Preset set to %s\n", kEffectPresetNames[i]);
     return 1;
 }
 
@@ -1262,8 +1343,11 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 99, "Soft Shadow Edges",
      "Real Shadows' edges blend softly into the light. Off keeps them sharp.", 0, nullptr,
      shadowSoftCount, shadowSoftName, shadowSoftGet, shadowSoftSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 6, "Effects Preset",
+     "Original turns this fork's effects off. Remastered is its recommended look.", 1, nullptr,
+     effectPresetCount, effectPresetName, effectPresetGet, effectPresetSet},
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 0, "Preset",
-     "The original game, or the recommended look. Some apply from the next area.", 1, nullptr, presetCount,
+     "The original game, or the Remastered look. Some apply from the next area.", 1, nullptr, presetCount,
      presetName, presetGet, presetSet},
     {nullptr, PORT_SETTINGS_PAGE_REFLECTIONS, 1, "Puddle Reflections",
      "Characters and objects in FLUDD's puddles too, from the next area.", 1, nullptr, reflectionsCount,

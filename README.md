@@ -4,6 +4,8 @@
 
 Nothing is forced on you. Every addition starts **Off**, so the game looks exactly like the original until you choose otherwise. Open the pause menu, go to **Settings**, and turn on as much or as little as you like on the **Reflections** and **Graphics** pages.
 
+Not sure where to start? Set **Preset** on the Reflections page and **Effects Preset** on the Graphics page to **Remastered**, and everything is set up for you. **Original** turns it all back off.
+
 ## 🎮 How to play it
 
 In the launcher, build this fork:
@@ -21,11 +23,13 @@ Isle Delfino is full of water, and now it reflects the world around it.
 - **Every floor reflects differently**: wet stone shines more than sand or grass.
 - **Mario gets wet** up to where the water reached. He looks darker and shinier, drips as he dries, and leaves **damp footprints** after walking through puddles.
 
-Not sure where to start? Set **Preset** to **Recommended** and everything is set up for you.
-
 ## ☀️ Real Shadows
 
-The sun now casts real shadows of everything: buildings, trees, characters and Mario himself. Choose soft or strong shadows and how far they reach. You can also keep them falling straight down like the game's own shadows.
+The sun now casts real shadows of everything: buildings, trees, characters and Mario himself. Choose soft or strong shadows and how far they reach. You can also keep them falling straight down like the game's own shadows, and give their edges a soft blend with **Soft Shadow Edges**.
+
+## 🌓 Ambient Occlusion
+
+Soft shade where surfaces close in: corners, creases, doorways and the ground under things. Pick fine detail or large shapes, how strong and how far it reaches, and a quality and update rate to suit your PC. Grass never gets it, and you choose how much Mario gets, so there's no dark ring around him.
 
 ## 🌿 A Living World
 
