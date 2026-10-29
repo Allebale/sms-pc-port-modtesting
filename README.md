@@ -6,6 +6,56 @@ Nothing is forced on you. Every addition starts **Off**, so the game looks exact
 
 Not sure where to start? Set **Preset** on the Reflections page and **Effects Preset** on the Graphics page to **Remastered**, and everything is set up for you. **Original** turns it all back off.
 
+## 🎮 How to play it
+
+In the launcher, build this fork:
+
+- **Repository:** `https://github.com/Allebale/sms-pc-port-remastered`
+- **Branch:** `remastered`
+
+## 💧 Reflections
+
+Isle Delfino is full of water, and now it reflects the world around it.
+
+- **Puddles and water reflect** Mario, characters, enemies, buildings, trees and the sky.
+- **Ripples and waves** make reflections wobble, and **sun glints** sparkle on the surface.
+- **Deep water** turns a darker blue-green, like the real sea.
+- **Every floor reflects differently**: wet stone shines more than sand or grass.
+- **Mario gets wet** up to where the water reached. He looks darker and shinier, drips as he dries, and leaves **damp footprints** after walking through puddles.
+
+## ☀️ Real Shadows
+
+The sun now casts real shadows of everything: buildings, trees, characters and Mario himself. Choose soft or strong shadows and how far they reach. You can also keep them falling straight down like the game's own shadows, and give their edges a soft blend with **Soft Shadow Edges**.
+
+## 🌓 Ambient Occlusion
+
+Soft shade where surfaces close in: corners, creases, doorways and the ground under things. Pick fine detail or large shapes, how strong and how far it reaches, and a quality and update rate to suit your PC. Grass never gets it, and you choose how much Mario gets, so there's no dark ring around him.
+
+## 🌿 A Living World
+
+- **3D grass**: real blades of grass that sway in the breeze, bend as Mario runs through them, and get flattened by FLUDD's spray or a belly slide.
+- **Moving vegetation**: palm trees, bushes and flowers sway in the wind and push aside when Mario or FLUDD's water hits them.
+- **Fire lights**: torches and flames light up the ground, walls and characters around them, even in reflections.
+
+## 🧢 A Messier Mario
+
+- **Sandy Mario**: sand sticks to his clothes wherever he touches the beach, then slowly falls off.
+- **Grass stains**: dive, slide or fall on grass and his overalls and shirt get green, dirty smudges. Pick how long they last, or keep them until he jumps in the water.
+
+## 🚀 Runs Smoothly on high-end setups
+
+All of this is built to stay light, with extra work done to keep stutters away, even on big levels.
+
+My PC specs are:
+
+AMD Radeon RX 9070 XT
+AMD Ryzen 7 7800X3D
+32GB DDR5
+2 TB SSD
+Windows 11 Home
+
+I get around 100-120 fps in 4K with no frame generation.
+
 ## 📸 See it in action
 
 Before-and-after sliders (drag to compare the original with Remastered) and short videos.
@@ -49,51 +99,14 @@ Before-and-after sliders (drag to compare the original with Remastered) and shor
 [Video](https://streamable.com/euucwv) ·
 [Comparison](https://imgdiff.net/s/c3d98abcb8c9dab23cfa72bd2a21008c)
 
-## 🎮 How to play it
-
-In the launcher, build this fork:
-
-- **Repository:** `https://github.com/Allebale/sms-pc-port-remastered`
-- **Branch:** `remastered`
-
-## 💧 Reflections
-
-Isle Delfino is full of water, and now it reflects the world around it.
-
-- **Puddles and water reflect** Mario, characters, enemies, buildings, trees and the sky.
-- **Ripples and waves** make reflections wobble, and **sun glints** sparkle on the surface.
-- **Deep water** turns a darker blue-green, like the real sea.
-- **Every floor reflects differently**: wet stone shines more than sand or grass.
-- **Mario gets wet** up to where the water reached. He looks darker and shinier, drips as he dries, and leaves **damp footprints** after walking through puddles.
-
-## ☀️ Real Shadows
-
-The sun now casts real shadows of everything: buildings, trees, characters and Mario himself. Choose soft or strong shadows and how far they reach. You can also keep them falling straight down like the game's own shadows, and give their edges a soft blend with **Soft Shadow Edges**.
-
-## 🌓 Ambient Occlusion
-
-Soft shade where surfaces close in: corners, creases, doorways and the ground under things. Pick fine detail or large shapes, how strong and how far it reaches, and a quality and update rate to suit your PC. Grass never gets it, and you choose how much Mario gets, so there's no dark ring around him.
-
-## 🌿 A Living World
-
-- **3D grass**: real blades of grass that sway in the breeze, bend as Mario runs through them, and get flattened by FLUDD's spray or a belly slide.
-- **Moving vegetation**: palm trees, bushes and flowers sway in the wind and push aside when Mario or FLUDD's water hits them.
-- **Fire lights**: torches and flames light up the ground, walls and characters around them, even in reflections.
-
-## 🧢 A Messier Mario
-
-- **Sandy Mario**: sand sticks to his clothes wherever he touches the beach, then slowly falls off.
-- **Grass stains**: dive, slide or fall on grass and his overalls and shirt get green, dirty smudges. Pick how long they last, or keep them until he jumps in the water.
-
-## 🚀 Runs Smoothly
-
-All of this is built to stay light, with extra work done to keep stutters away, even on big levels.
-
 ## Good to know
 
 - Built on top of **Chase's latest version**, so you get all his updates and fixes too.
 - Pairs well with the **[First Person](https://github.com/Allebale/sms-first-person-mod)** mod, available in the launcher.
 - Mod makers can switch the reflection effects on and off from their own mods.
+- Takes a longer time to start the game than the original port.
+- Might stutter a little bit the first time you run it
+- Might also crash the first time you run it but run it again and it will not crash again.
 
 ---
 
