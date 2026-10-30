@@ -355,16 +355,6 @@ in vec4 v_c0; in vec4 v_c1;
 // sand's height, and how much of his feet's, front's and back's is left; [2] the way he faces, his
 // back's height
 uniform vec4 u_sand[3];
-// Grass Stains (GXPC_SetGrassStains): [0] the plane at Mario's feet (up, view space); [1] his
-// front's, back's and shoes' stains, 1 while he stands; [2] the way he faces
-uniform vec4 u_gstain[3];
-float gsHash(vec3 c) { return fract(sin(dot(c, vec3(12.9898, 78.233, 37.719))) * 43758.55); }
-float gsNoise(vec3 q) {
-  vec3 c = floor(q), f = fract(q);
-  f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(mix(gsHash(c), gsHash(c + vec3(1, 0, 0)), f.x), mix(gsHash(c + vec3(0, 1, 0)), gsHash(c + vec3(1, 1, 0)), f.x), f.y),
-             mix(mix(gsHash(c + vec3(0, 0, 1)), gsHash(c + vec3(1, 0, 1)), f.x), mix(gsHash(c + vec3(0, 1, 1)), gsHash(c + vec3(1, 1, 1)), f.x), f.y), f.z);
-}
 in vec3 v_wn; in vec3 v_wp; in vec3 v_wl; in vec3 v_wlc; in vec3 v_mp;
 uniform vec4 u_wet[2];
 uniform vec4 u_shadow[12];
@@ -665,7 +655,7 @@ static std::string genFS(const ShaderKey& k) {
     // Shadows: a blended draw's see-through parts (water's surface) cast no shadow into the sun's
     // map; a caster needs nothing more (its colour is not kept), so its program stays small
     if (k.depthOnly == 2) return s + "  if (u_shadow[11].y > 0.5 && color.a < 0.9) discard;\n  o_color = color;\n}\n";
-    // Mario's own draw only (depthOnly 3: GXPC_ShadowTag): Wet Mario, Sandy Mario, Grass Stains.
+    // Mario's own draw only (depthOnly 3: GXPC_ShadowTag): Wet Mario, Sandy Mario.
     // Every other program goes without them: smaller, quicker to compile (fewer stutters)
     std::string mario = ""
          // Wet Mario (u_wet[0].x, 0 dry; below the waterline u_wet[1], softly over 12 units; how dark
@@ -716,48 +706,6 @@ static std::string genFS(const ShaderKey& k) {
          "      float lum = dot(color.rgb, vec3(0.299, 0.587, 0.114));\n"
          "      vec3 sandy = vec3(0.88, 0.77, 0.56) * clamp(lum * 0.7 + 0.5, 0.45, 1.0) * (grain > 0.82 ? 0.72 : 1.0);\n"
          "      color.rgb = mix(color.rgb, sandy, clamp(cover * 0.9, 0.0, 0.9));\n"
-         "    }\n"
-         "  }\n"
-         // Grass Stains (u_gstain[1].xy, 0 none): where his clothes rubbed along grass, green
-         // streaks (along his length, as he slid; by the point in his model, so they stay on
-         // him). Only his overalls and his shirt, told by their colour: blue denim most, the red
-         // shirt about half (not his cap, above it while he stands; lying down, the red is left
-         // alone, as his cap could not be told from it). A stain is chlorophyll: it soaks in and
-         // darkens toward olive green
-         "  if (u_gstain[1].x + u_gstain[1].y > 0.0) {\n"
-         "    float h = dot(u_gstain[0].xyz, v_wp) + u_gstain[0].w;\n"
-         "    float fwd = dot(normalize(v_wn), u_gstain[2].xyz);\n"
-         "    bool up = u_gstain[1].w > 0.5;\n"
-         "    vec3 cc = color.rgb;\n"
-         "    float mx = max(cc.r, max(cc.g, cc.b));\n"
-         "    float gr = cc.g / max(cc.r, 1e-4), br = cc.b / max(cc.r, 1e-4);\n"
-         "    float rubbed = max(u_gstain[1].x * smoothstep(-0.15, 0.35, fwd), u_gstain[1].y * smoothstep(-0.15, 0.35, -fwd));\n"
-         "    float a = 0.0;\n"
-         "    if (mx > 0.04) {\n"
-         "      if (cc.b > cc.r * 1.15 && cc.b >= cc.g * 0.95)\n"
-         "        a = rubbed;\n"                                         // denim overalls
-         "      else if (up && h < 120.0 && cc.r >= cc.g && gr < 0.4 && br < 0.5)\n"
-         "        a = 0.55 * rubbed;\n"                                  // his red shirt
-         "    }\n"
-"    if (a > 0.0) {\n"
-         // scattered: streaks along his length, broken into blotches with clean cloth between
-         // them, and specks round them; dirty: bright grass green, some ground-in earth (browner in
-         // places), a little darker where it is rubbed in deepest
-         "      float streak = gsNoise(v_mp * vec3(0.3, 0.045, 0.3));\n"
-         "      float patches = gsNoise(v_mp * 0.09 + vec3(7.1, 3.3, 1.9));\n"
-         "      float fine = gsNoise(v_mp * 0.9 + vec3(2.7, 9.1, 4.4));\n"
-         "      float speck = gsNoise(v_mp * 2.2 + vec3(5.5, 1.2, 8.8));\n"
-         "      float n = streak * 0.6 + fine * 0.4;\n"
-         "      float blot = smoothstep(0.45 - 0.15 * a, 0.62 - 0.15 * a, patches);\n"
-         "      float cover = a * smoothstep(0.45, 0.6, n) * blot;\n"
-         "      cover = max(cover, a * 0.9 * smoothstep(0.78, 0.84, speck) * smoothstep(0.35, 0.5, patches));\n"
-         "      cover = clamp(cover * (0.7 + 0.6 * fine), 0.0, 1.0);\n"
-         "      float dirt = smoothstep(0.3, 0.7, gsNoise(v_mp * 0.25 + vec3(3.9, 6.2, 0.7)));\n"
-         "      float lum = dot(cc, vec3(0.299, 0.587, 0.114));\n"
-         "      vec3 green = cc * vec3(0.11, 0.16, 0.056) + vec3(0.288, 0.576, 0.112) * clamp(lum * 2.2 + 0.2, 0.6, 1.15);\n"
-         "      vec3 earth = lum * 0.5 * vec3(1.0, 0.8, 0.5) + vec3(0.07, 0.05, 0.025);\n"
-         "      vec3 stained = mix(green, earth, dirt * 0.35) * (1.0 - 0.15 * smoothstep(0.65, 0.9, n));\n"
-         "      color.rgb = mix(cc, stained, cover * 0.9);\n"
          "    }\n"
          "  }\n"
          "";
@@ -889,7 +837,6 @@ static void setupProgram(GLuint p, ShaderProgram& sp, bool aside = false) {
     sp.uPlight = glGetUniformLocation(p, "u_plight");
     sp.uSway = glGetUniformLocation(p, "u_sway");
     sp.uSand = glGetUniformLocation(p, "u_sand");
-    sp.uGStain = glGetUniformLocation(p, "u_gstain");
     GLint shadowMap = glGetUniformLocation(p, "u_shadowMap");
     if (shadowMap >= 0) glUniform1i(shadowMap, kShadowUnit);
     GLint loc = glGetUniformLocation(p, "u_tex");
@@ -1424,7 +1371,7 @@ const ShaderProgram* shaderForCurrentState(int depthOnly, bool lines) {
     ShaderKey& k = key.k;
     buildKey(k);
     k.depthOnly = uint32_t(depthOnly);
-    if (depthOnly == 0 && g.shadowTag) k.depthOnly = 3;  // Mario's own draw: his wet, sand, stains
+    if (depthOnly == 0 && g.shadowTag) k.depthOnly = 3;  // Mario's own draw: his wet, sand
     if (depthOnly == 2) k.earlyZ = 0;  // a shadow caster: its alpha test discards before depth
     key.indScale[0] = k.numInd ? g.bp[BP_RAS1_SS0] : 0;
     key.indScale[1] = k.numInd ? g.bp[BP_RAS1_SS0 + 1] : 0;

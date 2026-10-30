@@ -1,6 +1,6 @@
 # Super Mario Sunshine: Remastered
 
-**Remastered** is a version of [Chase's Super Mario Sunshine PC port](https://github.com/chasem-dev/sms-pc-port) with extra visual upgrades. It's the same game you know, with water that reflects, sun that casts real shadows, grass you can run through, and a Mario who gets wet, sandy and grass-stained as he plays.
+**Remastered** is a version of [Chase's Super Mario Sunshine PC port](https://github.com/chasem-dev/sms-pc-port) with extra visual upgrades. It's the same game you know, with water that reflects, sun that casts real shadows, grass you can run through, and a Mario who gets wet and sandy as he plays.
 
 Nothing is forced on you. Every addition starts **Off**, so the game looks exactly like the original until you choose otherwise. Open the pause menu, go to **Settings**, and turn on as much or as little as you like on the **Reflections** and **Graphics** pages.
 
@@ -40,7 +40,6 @@ Soft shade where surfaces close in: corners, creases, doorways and the ground un
 ## 🧢 A Messier Mario
 
 - **Sandy Mario**: sand sticks to his clothes wherever he touches the beach, then slowly falls off.
-- **Grass stains**: dive, slide or fall on grass and his overalls and shirt get green, dirty smudges. Pick how long they last, or keep them until he jumps in the water.
 
 ## 🚀 Runs Smoothly on high-end setups
 
@@ -87,9 +86,6 @@ Before-and-after sliders (drag to compare the original with Remastered) and shor
 
 **🌱 3D Grass and grass flattening.** Real blades of grass that bend and get flattened by FLUDD's spray and belly slides:
 [Video](https://streamable.com/xs2bym)
-
-**🟩 Grass stains.** Mario's overalls and shirt get green, dirty smudges after sliding in grass:
-[Pictures](https://imgur.com/a/dJt4sxM)
 
 **🌴 Moving vegetation.** Bushes, flowers and palm trees sway in the wind and push aside when hit:
 [Video 1](https://streamable.com/fzr3pm) ·

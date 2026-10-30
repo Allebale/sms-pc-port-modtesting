@@ -583,14 +583,6 @@ extern "C" void GXPC_SetSand(const float* sand) {
     flushBatch();  // what is batched so far is drawn as sandy as it was
     memcpy(g.sand, s, sizeof s);
 }
-// Grass Stains (ext/core/game/port_grass_stains.cpp), around Mario's own draw: 12 floats (u_gstain), null none.
-extern "C" void GXPC_SetGrassStains(const float* stains) {
-    float s[12] = {0};
-    if (stains) memcpy(s, stains, sizeof s);
-    if (!memcmp(s, g.gstain, sizeof s)) return;
-    flushBatch();  // what is batched so far is drawn as stained as it was
-    memcpy(g.gstain, s, sizeof s);
-}
 extern "C" void GXPC_SetWetness(float wet, const float* line) {
     wet = wet < 0.0f ? 0.0f : wet > 1.0f ? 1.0f : wet;
     static const float kNone[4] = {0.0f, 0.0f, 0.0f, -1.0f};  // no plane: wet all over

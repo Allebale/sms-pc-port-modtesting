@@ -74,7 +74,7 @@ Saves are never touched by the fork: no file it changes deals with the memory ca
 | Feature | Game side | Renderer side |
 | --- | --- | --- |
 | Puddle and water reflections, ripples, glints, water depth, wet footprints, Puddle Lifetime | `ext/core/game/port_reflections.cpp`, `port_water_reflections.cpp`, `platform/misc/port_puddle_options.cpp` | `platform/gx/src/gx_render.cpp`, `gx_shader.cpp` |
-| Wet Mario, Sandy Mario, Grass Stains (drawn on Mario only) | `port_water_reflections.cpp` (`port_wet_mario_draw`), `port_sandy.cpp`, `port_grass_stains.cpp` | `gx_shader.cpp`: only compiled into Mario's own program (`depthOnly == 3`, set by `GXPC_ShadowTag`) |
+| Wet Mario, Sandy Mario (drawn on Mario only) | `port_water_reflections.cpp` (`port_wet_mario_draw`), `port_sandy.cpp` | `gx_shader.cpp`: only compiled into Mario's own program (`depthOnly == 3`, set by `GXPC_ShadowTag`) |
 | Real Shadows, Soft Shadow Edges, Round Shadows Under Characters | `ext/core/game/port_shadows.cpp`, `decomp-patches/zzzzz-ext-31-shadows*.patch` | `gx_render.cpp` (`GXPC_ShadowFrame`, two 4096 cascades, `shadowNoCast`), `gx_shader.cpp` (`shadowLit`) |
 | Ambient Occlusion (+ Strength, Distance, Quality, Update Rate, Mario Ambient Occlusion), Depth Buffer View | `port_shadows.cpp` calls `GXPC_AOFrame` and `GXPC_AOMario` | `gx_render.cpp` (`kAoTraceFs`, `kAoApplyFs`, `kAoViewFs`, `aoApply`) |
 | 3D Grass and flattening | `ext/core/game/port_grass.cpp` | `gx_render.cpp` (`GXPC_Grass*`), `gx_shader.cpp` (`kGrassVs`, `kGrassFs`) |
@@ -115,5 +115,6 @@ Hooks into the game's own code are the `decomp-patches/*.patch` files, applied i
 
 ## Ideas tried and dropped (do not bring back unasked)
 
-God Rays, Cloud Shadows, Moving Clouds, Moving Cloth, Swaying Hanging Things, Grass Thinned Far Away,
+God Rays, Cloud Shadows, Moving Clouds, Moving Cloth, Swaying Hanging Things, Grass Stains (and Grass Stain
+Duration; removed on request), Grass Thinned Far Away,
 the Realistic Soft Shadow Edges option, and Softer and Very Soft Shadow Edges.
