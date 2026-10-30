@@ -28,7 +28,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include <unordered_set>
+#include <set>
 
 // The renderer's (platform/gx/src/gx_render.cpp).
 extern "C" void GXPC_SwayRegister(const void* list, unsigned size, float minY, float maxY);
@@ -259,7 +259,7 @@ void port_tree_sway(TMapObjTree* tree)
 // back at rest once. The swaying alone is only what is seen.
 bool port_tree_leaf_collides(TMapObjTree* tree, int index)
 {
-	static std::unordered_set<const TMapObjLeaf*> s_moved;  // fronds whose shape is not at rest
+	static std::set<const TMapObjLeaf*> s_moved;  // fronds whose shape is not at rest
 	if (!tree || !tree->mLeaves || index < 0 || index >= tree->mLeafNum)
 		return true;
 	TMapObjLeaf& leaf = tree->mLeaves[index];

@@ -103,9 +103,12 @@ Hooks into the game's own code are the `decomp-patches/*.patch` files, applied i
 
 ## Checking your work without running the game
 
-- **C++**: syntax-check the files you changed with `g++ -std=c++17 -fsyntax-only -Dfar= -Dnear=`
+- **C++**: syntax-check the files you changed with `g++ -fsyntax-only -Dfar= -Dnear=`
   and the include folders they need (`src/port_include`, `platform/gx/include`, `platform/gx/src`).
   Game files under `ext/` need the decomp's headers as well.
+  **Game files under `ext/` are built as `-std=gnu++03` (no C++11: no `unordered_set`, `auto`, `nullptr`, range-for)**,
+  so check them with `-std=gnu++03 -fno-gnu-keywords -fpermissive -DTARGET_PC -DVERSION_GMSE01 -include src/port_compat.h`.
+  The launcher log shows the exact compile line. The renderer under `platform/gx` is newer C++.
 - **Shaders**: copy the GLSL out of the `R"( ... )"` string (or generate a program's text by building a
   tiny program that includes `gx_shader.cpp`) and run `glslangValidator` on it.
 - **Patches**: apply them in order to a copy of the decomp file with `patch -p1 --dry-run`.
