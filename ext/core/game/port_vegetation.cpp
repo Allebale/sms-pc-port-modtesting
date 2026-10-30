@@ -18,6 +18,8 @@
 #include <JSystem/J3D/J3DGraphBase/J3DMaterial.hpp>
 #include <JSystem/J3D/J3DGraphBase/J3DShape.hpp>
 #include <JSystem/JUtility/JUTNameTab.hpp>
+#include <Map/MapCollisionEntry.hpp>
+#include <Map/MapData.hpp>
 #include <MoveBG/MapObjTree.hpp>
 #include <Player/MarioAccess.hpp>
 #include <Player/ModelWaterManager.hpp>
@@ -26,6 +28,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <unordered_set>
 
 // The renderer's (platform/gx/src/gx_render.cpp).
 extern "C" void GXPC_SwayRegister(const void* list, unsigned size, float minY, float maxY);
@@ -248,4 +251,31 @@ void port_tree_sway(TMapObjTree* tree)
 		// the spring's rest moved to the target: the game's own step pulls it there
 		leaf.mAngularVelocity += target * tree->mLeafStiffness;
 	}
+}
+
+// A frond's solid shape (TMapCollisionMove) is moved with the frond each tick. With Moving Vegetation
+// on the fronds never rest, so their shapes were moved all the time and left walls hanging in the
+// air. Now the shape follows the frond only while Mario is on this tree; when he leaves it, it is put
+// back at rest once. The swaying alone is only what is seen.
+bool port_tree_leaf_collides(TMapObjTree* tree, int index)
+{
+	static std::unordered_set<const TMapObjLeaf*> s_moved;  // fronds whose shape is not at rest
+	if (!tree || !tree->mLeaves || index < 0 || index >= tree->mLeafNum)
+		return true;
+	TMapObjLeaf& leaf = tree->mLeaves[index];
+	if (amount() <= 0.0f) {
+		s_moved.erase(&leaf);
+		return true;  // off: the game as it was
+	}
+	const TBGCheckData* ground = gpMarioGroundPlane ? SMS_GetMarioGroundPlane() : 0;
+	if (ground && ground->getActor() == tree) {
+		s_moved.insert(&leaf);
+		return true;
+	}
+	if (s_moved.erase(&leaf)) {
+		TMtx34f rest;
+		rest.set(leaf.mTransform);
+		leaf.mCollision->moveMtx(rest);
+	}
+	return false;
 }

@@ -1,4 +1,4 @@
-Reason: Moving Vegetation (port_vegetation.h, the pause menu's Settings, Graphics): each tick, before a palm tree's fronds move (TMapObjTree::perform), the wind and FLUDD's water push on them (port_tree_sway, ext/core/game/port_vegetation.cpp), and they are kept moving. Off, nothing changes.
+Reason: Moving Vegetation (port_vegetation.h, the pause menu's Settings, Graphics): each tick, before a palm tree's fronds move (TMapObjTree::perform), the wind and FLUDD's water push on them (port_tree_sway, ext/core/game/port_vegetation.cpp), and they are kept moving; their solid shapes stay at rest unless Mario is on the tree (port_tree_leaf_collides), so the swaying leaves no invisible walls. Off, nothing changes.
 
 --- a/src/MoveBG/MapObjTree.cpp
 +++ b/src/MoveBG/MapObjTree.cpp
@@ -10,7 +10,30 @@ Reason: Moving Vegetation (port_vegetation.h, the pause menu's Settings, Graphic
  #endif
  
  // .sdata order follows marioUS.MAP.
-@@ -110,6 +111,12 @@
+@@ -72,6 +73,11 @@
+ 		if (SMS_GetMarioSpeedY() <= 0.0f) {
+ 			TMtx34f mtx;
+ 			mtx.set(leaf.mTransform);
++#ifdef TARGET_PC
++			// port: Moving Vegetation (port_vegetation.h): the shape stays at rest
++			// while the frond only sways by itself
++			if (port_tree_leaf_collides(this, index))
++#endif
+ 			leaf.mCollision->moveMtx(mtx);
+ 		}
+ 		return 1;
+@@ -93,6 +99,10 @@
+ 	getModel()->setAnmMtx(mLeafNum - index, mtx);
+ 
+ 	if (SMS_GetMarioSpeedY() <= 0.0f)
++#ifdef TARGET_PC
++		// port: Moving Vegetation: see above
++		if (port_tree_leaf_collides(this, index))
++#endif
+ 		leaf.mCollision->moveMtx(mtx);
+ 
+ 	// BUG: they probably meant to compare both angle and velocity here, but
+@@ -110,6 +120,12 @@
  
  void TMapObjTree::perform(u32 cue, JDrama::TGraphics* graphics)
  {
