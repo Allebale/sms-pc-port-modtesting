@@ -2657,6 +2657,23 @@ vec3 posAt(vec2 uv, float d) {
   return vec3((ndc.x + u_pm.y) / u_pm.x * -z, (ndc.y + u_pm.w) / u_pm.z * -z, z);
 }
 vec3 posUV(vec2 uv) { return posAt(uv, sceneDepth(uv)); }
+// A grass blade can leave the underlying ground visible in nearby pixels. Keep AO off that
+// ground too, so dense 3D grass does not make its floor look dirty between the blades.
+bool grassNearby(vec2 uv) {
+  if (u_g.x < 0.5) return false;
+  vec2 t = u_f.zw * 3.0;
+  vec2 offsets[4] = vec2[4](vec2(-t.x, -t.y), vec2(t.x, -t.y),
+                            vec2(-t.x, t.y), vec2(t.x, t.y));
+  for (int i = 0; i < 4; i++) {
+    vec2 q = uv + offsets[i];
+    if (any(lessThan(q, vec2(0.0))) || any(greaterThan(q, vec2(1.0)))) continue;
+    float d = textureLod(u_depth, q, 0.0).r;
+    float g = textureLod(u_ground, q, 0.0).r;
+    float a = textureLod(u_after, q, 0.0).r;
+    if (a < g && abs(d - a) < 1e-7) return true;
+  }
+  return false;
+}
 vec2 toUV(vec3 p) {
   vec2 ndc = vec2(u_pm.x * p.x / -p.z - u_pm.y, u_pm.z * p.y / -p.z - u_pm.w);
   return (u_vm.zw + u_vm.xy * ndc) / u_es;
@@ -2706,6 +2723,8 @@ float occlusion(vec3 P, vec3 N, vec3 T, vec3 B, float R, float jit, float ez, fl
   return min(sum / float(n) * 2.2, 1.0);
 }
 void main() {
+  // Leave the grass blades and the ground immediately around them free of AO.
+  if (grassNearby(v_uv)) { o_color = vec4(1.0); return; }
   float d = sceneDepth(v_uv);
   if (d >= 0.999999) { o_color = vec4(1.0); return; }
   vec3 P = posAt(v_uv, d);
