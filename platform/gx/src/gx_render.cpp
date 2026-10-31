@@ -2761,44 +2761,16 @@ bool blade(vec2 uv, float d) {
   float g = textureLod(u_ground, uv, 0.0).r, a = textureLod(u_after, uv, 0.0).r;
   return a < g && abs(d - a) < 1e-7;
 }
-// Suppress AO around grass after blur. Three rings catch blades at different
-// distances without the expensive 4x16 sampling grid used in the previous version.
-bool grassNearby(vec2 uv, float centerDepth) {
-  if (u_g.x < 0.5 || u_g.y < 0.5) return false;
-  // Only suppress AO on surfaces at roughly the grass-root depth. A character
-  // in front of grass must keep its AO instead of inheriting the ground's mask.
-  float centerZ = viewZ(centerDepth);
-  float depthTolerance = max(0.75, abs(centerZ) * 0.025);
-  // Four rings at 16, 32, 48 and 64 full-resolution pixels.
-  vec2 t = u_half.zw * 64.0;
-  const vec2 dirs[8] = vec2[8](
-    vec2(1.0, 0.0), vec2(0.70711, 0.70711),
-    vec2(0.0, 1.0), vec2(-0.70711, 0.70711),
-    vec2(-1.0, 0.0), vec2(-0.70711, -0.70711),
-    vec2(0.0, -1.0), vec2(0.70711, -0.70711));
-  for (int ring = 1; ring <= 4; ring++) {
-    for (int i = 0; i < 8; i++) {
-      vec2 q = uv + dirs[i] * t * (float(ring) * 0.25);
-      if (any(lessThan(q, vec2(0.0))) || any(greaterThan(q, vec2(1.0)))) continue;
-      float d = textureLod(u_depth, q, 0.0).r;
-      if (blade(q, d)) {
-        float groundDepth = textureLod(u_ground, q, 0.0).r;
-        float groundZ = viewZ(groundDepth);
-        if (abs(groundZ - centerZ) <= depthTolerance) return true;
-      }
-    }
-  }
-  return false;
-}
 float sceneZ(vec2 uv) {
   float d = textureLod(u_depth, uv, 0.0).r;
   if (blade(uv, d)) d = textureLod(u_ground, uv, 0.0).r;
   return d >= 0.999999 ? 1e9 : viewZ(d);
 }
 void main() {
-  // Keep the final, blurred AO from bleeding back onto grass and its surroundings.
+  // Exclude only the grass blades themselves. Keep AO on the ground and
+  // characters among the grass, rather than suppressing a wide area around it.
   float centerDepth = textureLod(u_depth, v_uv, 0.0).r;
-  if (grassNearby(v_uv, centerDepth)) { o_color = vec4(1.0); return; }
+  if (blade(v_uv, centerDepth)) { o_color = vec4(1.0); return; }
   float z0 = sceneZ(v_uv);
   if (z0 > 1e8) { o_color = vec4(1.0); return; }
   // the surface's slope across the screen (the side nearer in depth, so as not to cross an edge):
