@@ -65,7 +65,6 @@ const PortSetting* port_audio_settings(int* count);
 const PortSetting* port_runtime_settings(int* count);
 const PortSetting* port_hud_settings(int* count);      // the HUD page (port_hud_settings.cpp)
 const PortSetting* port_puddle_settings(int* count);   // Puddle Lifetime, the Reflections page (port_puddle_settings.cpp)
-int port_ao_grass_exclusion(void);  // Ambient Occlusion: suppress AO near 3D grass
 const PortSetting* mp_port_settings(int* count);       // the multiplayer host's (ext/multiplayer/sync/mp_settings.cpp)
 
 // The menu's view (platform/port_settings.cpp): the pages in order, and on each the available
