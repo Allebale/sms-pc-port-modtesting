@@ -116,6 +116,10 @@ Hooks into the game's own code are the `decomp-patches/*.patch` files, applied i
 - Depth Buffer View (Graphics page) shows depth, normals, the AO shade alone and depth edges: ask for
   screenshots of it when AO or depth looks wrong.
 
+## Planned features
+
+- **AO Near Grass**: exclude Ambient Occlusion from the ground among and around 3D grass, while keeping AO on Mario, NPCs and enemies standing in or near the grass. This needs reliable per-pixel character identification; it is not implemented and must not be exposed as a setting until that works.
+
 ## Ideas tried and dropped (do not bring back unasked)
 
 God Rays, Cloud Shadows, Moving Clouds, Moving Cloth, Swaying Hanging Things, Grass Stains (and Grass Stain
