@@ -1,17 +1,21 @@
-// Fire Lights (the pause menu's Settings, Graphics; off is the original): the fires burning near
+// Global Illumination (the pause menu's Settings, Graphics; off is the original; it was Fire Lights,
+// and the Shine Sprites are lights now too): the fires burning near
 // Mario light up what is round them. Each fire the game's particles draw (torches, burning goop,
 // Bowser's flames, the hot plates...) is a warm light where it burns, as bright as it is big (how
 // many flames it has), flickering, fading to nothing a few hundred units away; the ground and the
 // walls round it, and characters coming by, are lit, in the puddles' and the water's reflections
 // too (gx_shader.cpp: each light's own view is taken as each camera sets its projection: the main
 // camera's, port_shadows_main_view; a mirror's, port_mirror_clip). The fire itself is not lit:
-// it is the light.
+// it is the light. A Shine Sprite floating in the world is a light as well: a soft golden one that
+// pulses slowly (taken or not yet there, it gives none).
 #include "port_ext.h"
 #include "port_shadows.h"
 
 #include <JSystem/JParticle/JPAEmitter.hpp>
 #include <JSystem/JParticle/JPAEmitterManager.hpp>
 #include <JSystem/JParticle/JPAResourceManager.hpp>
+#include <MoveBG/Item.hpp>
+#include <MoveBG/ItemManager.hpp>
 #include <Player/MarioAccess.hpp>
 #include <System/EmitterViewObj.hpp>
 #include <dolphin/os.h>
@@ -45,6 +49,7 @@ const int kMostLights = 8;
 const f32 kRadius     = 750.0f;   // where a fire's light fades to nothing (a big one, more)
 const f32 kMerge      = 160.0f;   // fires this close are one light
 const f32 kSeen       = 4000.0f;  // only fires this near Mario
+const f32 kShineRadius = 650.0f;  // where a Shine Sprite's light fades to nothing
 
 // What a fire's emitters are made from (its data, the particles' resource 0), found once a
 // manager is known: an emitter made from one is a fire.
@@ -80,6 +85,7 @@ int s_told = -1;  // how many lights the log was last told of
 
 struct Light {
 	f32 x, y, z, flames;
+	bool shine;  // a Shine Sprite, not a fire
 };
 
 void afterMovement()
@@ -87,7 +93,7 @@ void afterMovement()
 	static bool s_wasOn;
 	const bool on = port_fire_lights() != 0;
 	if (on != s_wasOn)
-		fprintf(stderr, "[lights] Fire Lights %s\n", on ? "on" : "off");
+		fprintf(stderr, "[lights] Global Illumination %s\n", on ? "on" : "off");
 	s_wasOn = on;
 	TMarioParticleManager* particles = gpMarioParticleManager;
 	JPAEmitterManager* manager       = particles ? particles->unk3B8 : 0;
@@ -120,7 +126,7 @@ void afterMovement()
 			int k = 0;
 			while (k < count) {
 				const f32 ex = found[k].x - p.x, ey = found[k].y - p.y, ez = found[k].z - p.z;
-				if (ex * ex + ey * ey + ez * ez < kMerge * kMerge)
+				if (!found[k].shine && ex * ex + ey * ey + ez * ez < kMerge * kMerge)
 					break;
 				k++;
 			}
@@ -128,9 +134,27 @@ void afterMovement()
 				if (count == 32)
 					continue;
 				found[count].x = p.x, found[count].y = p.y, found[count].z = p.z, found[count].flames = 0.0f;
+				found[count].shine = false;
 				count++;
 			}
 			found[k].flames += (f32)flames;
+		}
+
+	// the Shine Sprites in the world near Mario (not taken, not hidden): each its own light
+	if (gpItemManager)
+		for (int i = 0; i < gpItemManager->getObjNum() && count < 32; i++) {
+			TShine* shine = dynamic_cast<TShine*>(gpItemManager->getObj(i));
+			if (!shine || shine->checkLiveFlag(LIVE_FLAG_DEAD | LIVE_FLAG_HIDDEN))
+				continue;
+			const JGeometry::TVec3<f32>& p = shine->mPosition;
+			if (!(fabsf(p.x) < 1e6f && fabsf(p.y) < 1e6f && fabsf(p.z) < 1e6f))
+				continue;
+			const f32 dx = p.x - mx, dy = p.y - my, dz = p.z - mz;
+			if (dx * dx + dy * dy + dz * dz > kSeen * kSeen)
+				continue;
+			found[count].x = p.x, found[count].y = p.y, found[count].z = p.z, found[count].flames = 0.0f;
+			found[count].shine = true;
+			count++;
 		}
 
 	// the nearest 8
@@ -149,11 +173,23 @@ void afterMovement()
 				bestD = d, best = k;
 		}
 		const Light& l = found[best];
+		f32* o = lights + n * 8;
+		if (l.shine) {
+			// golden, a slow pulse of its own
+			const f32 seed  = l.x * 0.011f + l.z * 0.017f;
+			const f32 pulse = 0.9f + 0.1f * sinf(t * 2.4f + seed);
+			o[0] = l.x, o[1] = l.y + 30.0f, o[2] = l.z;
+			o[3] = kShineRadius * port_fire_light_reach();
+			o[4] = 1.0f, o[5] = 0.84f, o[6] = 0.32f;
+			o[7] = 0.85f * pulse;
+			n++;
+			found[best] = found[--count];
+			continue;
+		}
 		// as bright as it is big; a flicker of its own (from where it is)
 		const f32 size    = l.flames < 40.0f ? l.flames / 40.0f : 1.0f;
 		const f32 seed    = l.x * 0.013f + l.z * 0.021f;
 		const f32 flicker = 0.85f + 0.09f * sinf(t * 13.0f + seed) + 0.06f * sinf(t * 23.7f + seed * 1.7f);
-		f32* o = lights + n * 8;
 		o[0] = l.x, o[1] = l.y + 40.0f, o[2] = l.z;  // the light from the flames, a little above where they start
 		o[3] = kRadius * port_fire_light_reach() * (0.7f + 0.6f * size);
 		o[4] = 1.0f, o[5] = 0.55f, o[6] = 0.22f;  // warm: orange
@@ -166,10 +202,10 @@ void afterMovement()
 	GXPC_SetLights(lights, n);
 	if (n != s_told) {
 		if (n)
-			fprintf(stderr, "[lights] %d fire lights near Mario (%.0f %.0f %.0f); the nearest at %.0f %.0f %.0f, reaching %.0f, strength %.2f\n",
+			fprintf(stderr, "[lights] %d lights near Mario (%.0f %.0f %.0f); the nearest at %.0f %.0f %.0f, reaching %.0f, strength %.2f\n",
 			        n, mx, my, mz, lights[0], lights[1], lights[2], lights[3], lights[7]);
 		else
-			fprintf(stderr, "[lights] no fires near Mario\n");
+			fprintf(stderr, "[lights] no fires or Shine Sprites near Mario\n");
 		s_told = n;
 	}
 }
@@ -187,7 +223,7 @@ struct Register {
 	Register()
 	{
 		memset(&s_extension, 0, sizeof s_extension);
-		s_extension.name          = "fire lights";
+		s_extension.name          = "global illumination";
 		s_extension.stageSetup    = stageSetup;
 		s_extension.afterMovement = afterMovement;
 		port_ext_register(&s_extension);

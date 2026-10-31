@@ -39,11 +39,15 @@ int port_ao_quality(void);
 int port_ao_half_rate(void);
 // Mario Ambient Occlusion: how much of his own shade Mario keeps, 0 (at first: none, no halo) to 1
 float port_ao_mario(void);
+// AO On Grass Ground: 1 takes the shade off the ground among and around 3D Grass (characters keep theirs)
+int port_ao_grass(void);
 // The renderer's: armed for the main camera's view this frame (applied as its 3D scene ends).
 void GXPC_AOFrame(int mode, float strength, float distance, int view, int quality, int halfRate);
 // Ambient Occlusion: Mario's place this frame, in the main camera's view (from his feet to over his
 // cap, and how far round), so that he casts no shade round him (null or 0: none)
 void GXPC_AOMario(const float* bottom, const float* top, float radius, float keep);
+// Ambient Occlusion: AO On Grass Ground (on), and the world's up in the main camera's view (3 floats)
+void GXPC_AOGrass(int on, const float* up);
 // Sandy Mario (ext/core/game/port_sandy.cpp; the setting in platform/misc/port_puddle_settings.cpp:
 // 0 off, 1 light, 2 normal, 3 heavy): around Mario's own draw (port_wet_mario_draw), the sand on him.
 int port_sandy_mario(void);

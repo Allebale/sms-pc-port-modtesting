@@ -78,8 +78,8 @@ Saves are never touched by the fork: no file it changes deals with the memory ca
 | Real Shadows, Soft Shadow Edges, Round Shadows Under Characters | `ext/core/game/port_shadows.cpp`, `decomp-patches/zzzzz-ext-31-shadows*.patch` | `gx_render.cpp` (`GXPC_ShadowFrame`, two 4096 cascades, `shadowNoCast`), `gx_shader.cpp` (`shadowLit`) |
 | Ambient Occlusion (+ Strength, Distance, Quality, Update Rate, Mario Ambient Occlusion), Depth Buffer View | `port_shadows.cpp` calls `GXPC_AOFrame` and `GXPC_AOMario` | `gx_render.cpp` (`kAoTraceFs`, `kAoApplyFs`, `kAoViewFs`, `aoApply`) |
 | 3D Grass and flattening | `ext/core/game/port_grass.cpp` | `gx_render.cpp` (`GXPC_Grass*`), `gx_shader.cpp` (`kGrassVs`, `kGrassFs`) |
-| Moving Vegetation | `ext/core/game/port_vegetation.cpp` | `gx_render.cpp` (`GXPC_SwayRegister`), `gx_fifo.cpp` (`callDisplayList`) |
-| Fire Lights | `ext/core/game/port_lights.cpp` | `gx_shader.cpp` (`u_plight`) |
+| Moving Vegetation (Off to Stormy; palm fronds are solid only while a tree is touched: `port_tree_touched`) | `ext/core/game/port_vegetation.cpp`, `decomp-patches/zzzzz-ext-32-vegetation-trees.patch` | `gx_render.cpp` (`GXPC_SwayRegister`), `gx_fifo.cpp` (`callDisplayList`) |
+| Global Illumination (was Fire Lights; fires and Shine Sprites are the lights, `Fire Light Intensity` sets their reach; the saved key is still `firelights`) | `ext/core/game/port_lights.cpp` | `gx_shader.cpp` (`u_plight`) |
 
 Hooks into the game's own code are the `decomp-patches/*.patch` files, applied in name order with
 `patch -p1` (`cmake/patches.cmake`). When editing one, keep each hunk's line counts right.
@@ -93,6 +93,9 @@ Hooks into the game's own code are the `decomp-patches/*.patch` files, applied i
 - AO runs once a frame when the main camera's 3D scene ends (the first orthographic projection after it).
   The game's depth is stored in steps, so slopes and normals use points **3 pixels apart**, not the next pixel.
 - 3D Grass blades are known per pixel (depth before and after the blades), so AO never shades them.
+- AO On Grass Ground (Kept or Removed): `grassGround()` in `kAoTraceFs` skips the shade on up-facing, wide flat ground with
+  blades within about 19 pixels. The grass ground copy holds characters too, so they are told apart by shape (a character is not
+  a wide flat piece) and by Mario's capsule, not by depth. `GXPC_AOGrass` passes the setting and the world's up in view space.
 - Mario's AO is limited with a capsule around him (`u_mario`), not his exact shape. Doing his exact
   shape would need a stencil buffer or two extra depth copies a frame (slower, riskier).
 - Round Shadows Under Characters: characters', enemies' and Yoshi's display lists are registered at

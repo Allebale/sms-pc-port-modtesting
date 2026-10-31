@@ -27,7 +27,7 @@ void port_veg_model_named(J3DModelData* data, const char* path);
 extern "C" {
 #endif
 
-// The setting (the pause menu's Settings, Graphics): 0 off, 1 gentle, 2 breezy, 3 windy.
+// The setting (the pause menu's Settings, Graphics): 0 off, 1 gentle, 2 breezy, 3 windy, 4 stormy.
 int port_vegetation(void);
 
 #ifdef __cplusplus

@@ -76,16 +76,17 @@ int s_grass = 0;          // 3D Grass: 0 off, 1 by location, 2 always cut, 3 alw
 int s_grassDistance = 2;  // Grass Distance: into kGrassDistances
 int s_grassFlatten = 2;   // Grass Flattening: 0 low .. 4 insane
 int s_grassMario = 0;     // Mario Grass Flattening: 0 dives and landings, 1 always, 2 never
-int s_fireLights = 0;     // Fire Lights
+int s_fireLights = 0;     // Global Illumination (was Fire Lights; the fires and the Shine Sprites light up what is round them)
 int s_fireReach = 2;      // Fire Light Intensity: into kFireReaches
 int s_ao = 0;             // Ambient Occlusion: 0 off, 1 fine detail, 2 large shapes, 3 both
 int s_aoStrength = 1;     // Ambient Occlusion Strength: into kAoStrengths
 int s_aoDistance = 1;     // Ambient Occlusion Distance: into kAoDistances
 int s_aoQuality = 1;      // Ambient Occlusion Quality: 0 low, 1 medium, 2 high
 int s_aoMario = 0;        // Mario Ambient Occlusion: into kAoMarios (0 none at first: no halo)
+int s_aoGrass = 0;        // AO On Grass Ground: 0 kept (as it was), 1 removed among and around 3D Grass
 int s_aoHalfRate = 0;     // Ambient Occlusion Update Rate: 0 every frame, 1 every other frame
 int s_depthView = 0;      // Depth Buffer View: 0 off, 1 depth, 2 faces, 3 both, 4 the shade alone
-int s_vegetation = 0;     // Moving Vegetation: 0 off, 1 gentle, 2 breezy, 3 windy
+int s_vegetation = 0;     // Moving Vegetation: 0 off, 1 gentle, 2 breezy, 3 windy, 4 stormy
 int s_sandy = 0;          // Sandy Mario: 0 off, 1 light, 2 normal, 3 heavy
 int s_grassCutHeight = 2, s_grassWildHeight = 2;  // into kGrassHeights
 int s_shadows = 0;        // Real Shadows: 0 off (the game's own), 1 soft, 2 strong
@@ -266,7 +267,7 @@ void load() {
         } else if (sscanf(line, " sandymario = %d", &value) == 1) {
             s_sandy = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " vegetation = %d", &value) == 1) {
-            s_vegetation = value < 0 ? 0 : value > 3 ? 3 : value;
+            s_vegetation = value < 0 ? 0 : value > 4 ? 4 : value;
         } else if (sscanf(line, " ambientocclusion = %d", &value) == 1) {
             s_ao = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " ambientocclusionstrength = %d", &value) == 1) {
@@ -275,6 +276,8 @@ void load() {
             s_aoMario = value ? 0 : 3;  // the setting before (On: none of his)
         } else if (sscanf(line, " ambientocclusionmario = %d", &value) == 1) {
             s_aoMario = value < 0 ? 0 : value > 3 ? 3 : value;
+        } else if (sscanf(line, " ambientocclusiongrass = %d", &value) == 1) {
+            s_aoGrass = value != 0;
         } else if (sscanf(line, " ambientocclusionrate = %d", &value) == 1) {
             s_aoHalfRate = value != 0;
         } else if (sscanf(line, " ambientocclusionquality = %d", &value) == 1) {
@@ -386,9 +389,9 @@ void save() {
     fprintf(f, "grassflatten = %d\n", s_grassFlatten);
     fprintf(f, "# grassmario: Mario flattens grass: 0 where he lands, dives, slides or skids, 1 always (his steps too), 2 never.\n");
     fprintf(f, "grassmario = %d\n", s_grassMario);
-    fprintf(f, "# firelights: 1 fires light up what is around them (and in reflections), 0 not.\n");
+    fprintf(f, "# firelights: Global Illumination: 1 fires and Shine Sprites light up what is around them (and in reflections), 0 not.\n");
     fprintf(f, "firelights = %d\n", s_fireLights);
-    fprintf(f, "# firelightreach: how far a fire's light goes: 0 very short, 1 short, 2 normal, 3 far, 4 very far.\n");
+    fprintf(f, "# firelightreach: how far a fire's or a Shine Sprite's light goes: 0 very short, 1 short, 2 normal, 3 far, 4 very far.\n");
     fprintf(f, "firelightreach = %d\n", s_fireReach);
     fprintf(f, "# ambientocclusion: shade where surfaces close in: 0 off, 1 fine detail, 2 large shapes, 3 both.\n");
     fprintf(f, "ambientocclusion = %d\n", s_ao);
@@ -402,7 +405,9 @@ void save() {
     fprintf(f, "ambientocclusionrate = %d\n", s_aoHalfRate);
     fprintf(f, "# ambientocclusionmario: how much Mario shades round him: 0 none (no halo), 1 low, 2 medium, 3 full.\n");
     fprintf(f, "ambientocclusionmario = %d\n", s_aoMario);
-    fprintf(f, "# vegetation: plants sway, bend from Mario and FLUDD's water: 0 off, 1 gentle, 2 breezy, 3 windy.\n");
+    fprintf(f, "# ambientocclusiongrass: the shade on the ground among and around 3D Grass: 0 kept, 1 removed (characters keep theirs).\n");
+    fprintf(f, "ambientocclusiongrass = %d\n", s_aoGrass);
+    fprintf(f, "# vegetation: plants sway, bend from Mario and FLUDD's water: 0 off, 1 gentle, 2 breezy, 3 windy, 4 stormy.\n");
     fprintf(f, "vegetation = %d\n", s_vegetation);
     fprintf(f, "# sandymario: sand sticks to Mario where he touches it, falling away over 20 seconds: 0 off, 1 light, 2 normal, 3 heavy.\n");
     fprintf(f, "sandymario = %d\n", s_sandy);
@@ -517,15 +522,15 @@ int fireReachSet(int i) {
     return 1;
 }
 
-const char* const kVegetationNames[] = {"Off", "Gentle", "Breezy", "Windy"};
-int vegetationCount() { return 4; }
-const char* vegetationName(int i) { return kVegetationNames[i < 0 || i > 3 ? 0 : i]; }
+const char* const kVegetationNames[] = {"Off", "Gentle", "Breezy", "Windy", "Stormy"};
+int vegetationCount() { return 5; }
+const char* vegetationName(int i) { return kVegetationNames[i < 0 || i > 4 ? 0 : i]; }
 int vegetationGet() {
     load();
     return s_vegetation;
 }
 int vegetationSet(int i) {
-    if (i < 0 || i > 3) return 0;
+    if (i < 0 || i > 4) return 0;
     load();
     s_vegetation = i;
     save();
@@ -613,6 +618,21 @@ int aoMarioSet(int i) {
     port_log("[ao] Mario Ambient Occlusion changed: %s\n", kAoMarioNames[i]);
     return 1;
 }
+const char* const kAoGrassNames[] = {"Kept", "Removed"};
+int aoGrassCount() { return 2; }
+const char* aoGrassName(int i) { return kAoGrassNames[i < 0 || i > 1 ? 0 : i]; }
+int aoGrassGet() {
+    load();
+    return s_aoGrass;
+}
+int aoGrassSet(int i) {
+    if (i < 0 || i > 1) return 0;
+    load();
+    s_aoGrass = i;
+    save();
+    port_log("[ao] AO On Grass Ground changed: %s\n", kAoGrassNames[i]);
+    return 1;
+}
 const char* const kAoRateNames[] = {"Every Frame", "Every Other Frame"};
 int aoRateCount() { return 2; }
 const char* aoRateName(int i) { return kAoRateNames[i == 1 ? 1 : 0]; }
@@ -664,7 +684,7 @@ int fireLightsSet(int i) {
     load();
     s_fireLights = i;
     save();
-    port_log("[lights] Fire Lights changed: %s\n", i ? "on" : "off");
+    port_log("[lights] Global Illumination changed: %s\n", i ? "on" : "off");
     return 1;
 }
 
@@ -1075,7 +1095,7 @@ const EffectValue kEffects[] = {
     {"Grass Flattening", "High", "Very High"},
     {"Mario Grass Flattening", "Landings and Slides", "Landings and Slides"},
     {"Moving Vegetation", "Off", "Windy"},
-    {"Fire Lights", "Off", "On"},
+    {"Global Illumination", "Off", "On"},
     {"Fire Light Intensity", "Normal", "Very Far"},
     {"HD Texture Loading", "Per Stage", "Per Stage"},
     {"Sandy Mario", "Off", "Heavy"},
@@ -1085,6 +1105,7 @@ const EffectValue kEffects[] = {
     {"Ambient Occlusion Quality", "Medium", "High"},
     {"Ambient Occlusion Update Rate", "Every Frame", "Every Other Frame"},
     {"Mario Ambient Occlusion", "None", "Low"},
+    {"AO On Grass Ground", "Kept", "Removed"},
     {"Shader Warm-up", "On", "On"},
 };
 const char* const kEffectPresetNames[] = {"Original", "Remastered", "Custom"};
@@ -1221,11 +1242,11 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 106, "Mario Grass Flattening",
      "Where Mario presses the grass flat, landing, diving and sliding in it, always, or never.", 0, nullptr,
      grassMarioCount, grassMarioName, grassMarioGet, grassMarioSet},
-    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 108, "Fire Lights",
-     "Fires light up the ground and walls around them, in reflections too.", 0, nullptr, offOnCount,
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 108, "Global Illumination",
+     "Fires and Shine Sprites light up the ground and walls around them, in reflections too.", 0, nullptr, offOnCount,
      offOnName, fireLightsGet, fireLightsSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 109, "Fire Light Intensity",
-     "How far a fire's light reaches round it, with Fire Lights on.", 0, nullptr, fireReachCount,
+     "How far a fire's or a Shine Sprite's light reaches, with Global Illumination on.", 0, nullptr, fireReachCount,
      fireReachName, fireReachGet, fireReachSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 111, "Sandy Mario",
      "Sand sticks to Mario where he touches it (shoes, a belly slide, a fall) and falls away over 20 seconds.",
@@ -1251,6 +1272,9 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 118, "Mario Ambient Occlusion",
      "How much shade Mario makes round him and on himself. None has no dark ring. Others keep their own.", 0, nullptr,
      aoMarioCount, aoMarioName, aoMarioGet, aoMarioSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 120, "AO On Grass Ground",
+     "Removed takes the shade off the ground among 3D Grass. Characters keep theirs.", 0, nullptr,
+     aoGrassCount, aoGrassName, aoGrassGet, aoGrassSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 119, "Depth Buffer View",
      "For troubleshooting, as ReShade's DisplayDepth. Shows the depth, the normals, or the shade alone (grass in green).", 0,
      nullptr, depthViewCount, depthViewName, depthViewGet, depthViewSet},
@@ -1395,7 +1419,7 @@ int port_sandy_mario(void) {
     load();
     return s_sandy;
 }
-// Moving Vegetation (ext/core/game/port_vegetation.cpp): 0 off, 1 gentle, 2 breezy, 3 windy.
+// Moving Vegetation (ext/core/game/port_vegetation.cpp): 0 off, 1 gentle, 2 breezy, 3 windy, 4 stormy.
 int port_vegetation(void) {
     load();
     return s_vegetation;
@@ -1420,6 +1444,11 @@ float port_ao_mario(void) {
     load();
     return kAoMarios[s_aoMario < 0 || s_aoMario > 3 ? 0 : s_aoMario];
 }
+// AO On Grass Ground (the renderer's ambient occlusion): 1 removed among and around 3D Grass.
+int port_ao_grass(void) {
+    load();
+    return s_aoGrass;
+}
 int port_ao_half_rate(void) {
     load();
     return s_aoHalfRate;
@@ -1428,12 +1457,12 @@ int port_ao_quality(void) {
     load();
     return s_aoQuality;
 }
-// Fire Light Intensity: how far a fire's light reaches, times the normal reach.
+// Fire Light Intensity: how far a fire's or a Shine Sprite's light reaches, times the normal reach.
 float port_fire_light_reach(void) {
     load();
     return kFireReaches[s_fireReach < 0 || s_fireReach > 4 ? 2 : s_fireReach];
 }
-// Fire Lights (ext/core/game/port_lights.cpp): 1 on.
+// Global Illumination (ext/core/game/port_lights.cpp): 1 on.
 int port_fire_lights(void) {
     load();
     return s_fireLights;

@@ -34,8 +34,8 @@ Soft shade where surfaces close in: corners, creases, doorways and the ground un
 ## 🌿 A Living World
 
 - **3D grass**: real blades of grass that sway in the breeze, bend as Mario runs through them, and get flattened by FLUDD's spray or a belly slide.
-- **Moving vegetation**: palm trees, bushes and flowers sway in the wind and push aside when Mario or FLUDD's water hits them.
-- **Fire lights**: torches and flames light up the ground, walls and characters around them, even in reflections.
+- **Moving vegetation**: palm trees, bushes and flowers sway in the wind (up to Stormy) and push aside when Mario or FLUDD's water hits them.
+- **Global Illumination**: torches, flames and Shine Sprites light up the ground, walls and characters around them, even in reflections.
 
 ## 🧢 A Messier Mario
 
@@ -91,7 +91,7 @@ Before-and-after sliders (drag to compare the original with Remastered) and shor
 [Video 1](https://streamable.com/fzr3pm) ·
 [Video 2 (palm trees)](https://streamable.com/opuhkg)
 
-**🔥 Fire lights.** Flames light up the ground, walls and characters around them:
+**🔥 Global Illumination.** Flames (and Shine Sprites) light up the ground, walls and characters around them:
 [Video](https://streamable.com/euucwv) ·
 [Comparison](https://imgdiff.net/s/c3d98abcb8c9dab23cfa72bd2a21008c)
 

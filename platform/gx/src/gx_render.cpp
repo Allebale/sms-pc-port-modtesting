@@ -2625,6 +2625,8 @@ uniform vec4 u_vm;   // the viewport: x scale, y scale, x centre, y centre (EFB 
 uniform vec2 u_es;   // the EFB's size: the picture's own mapping, widescreen and all
 uniform vec4 u_ao;   // fine strength, large strength, fade start, fade end (units from the camera)
 uniform vec4 u_q;    // x: samples for each (4 to 8: Ambient Occlusion Quality)
+uniform vec4 u_gr;   // x: 1 takes the shade off the ground among and around 3D Grass (AO On Grass Ground);
+                     // yzw: the world's up, in view space
 uniform vec4 u_mario[2];  // Mario: from his feet (xyz, w how far round him) to over his cap (view
                           // space; w how much of his shade is kept: Mario Ambient Occlusion)
 // whether a point is within Mario (FLUDD and all): what is there shades only as much as kept
@@ -2660,6 +2662,33 @@ vec3 posUV(vec2 uv) { return posAt(uv, sceneDepth(uv)); }
 vec2 toUV(vec3 p) {
   vec2 ndc = vec2(u_pm.x * p.x / -p.z - u_pm.y, u_pm.z * p.y / -p.z - u_pm.w);
   return (u_vm.zw + u_vm.xy * ndc) / u_es;
+}
+// AO On Grass Ground: whether a point is ground among or around the blades (it is not shaded then).
+// A surface that faces up and is part of a wide flat piece (most of the points round it, a few
+// pixels off and farther, lie in its plane), with blades somewhere close. A character, a wall or a
+// trunk is not (it ends, or turns, within those pixels): what stands in the grass keeps its shade.
+bool grassGround(vec2 uv, vec3 P, vec3 N) {
+  if (u_gr.x < 0.5 || u_g.x < 0.5) return false;
+  if (dot(N, u_gr.yzw) < 0.55 || inMario(P)) return false;
+  float tol = -P.z * 0.02 + 4.0;
+  int total = 0, onFace = 0, blades = 0;
+  for (int ring = 0; ring < 2; ring++) {
+    float r = ring == 0 ? 7.0 : 19.0;
+    for (int k = 0; k < 8; k++) {
+      float a = (float(k) + 0.5 * float(ring)) * 0.7853982;
+      vec2 u2 = uv + vec2(cos(a), sin(a)) * r * u_f.zw;
+      if (any(lessThan(u2, vec2(0.0))) || any(greaterThan(u2, vec2(1.0)))) continue;
+      float d = textureLod(u_depth, u2, 0.0).r;
+      float g = textureLod(u_ground, u2, 0.0).r, af = textureLod(u_after, u2, 0.0).r;
+      bool blade = af < g && abs(d - af) < 1e-7;
+      float dg = blade ? g : d;
+      if (dg >= 0.999999) continue;
+      total++;
+      if (blade) blades++;
+      if (abs(dot(posAt(u2, dg) - P, N)) < tol) onFace++;
+    }
+  }
+  return total >= 8 && onFace * 4 >= total * 3 && blades >= 1;
 }
 const vec3 K[8] = vec3[8](
   vec3( 0.36,  0.00, 0.21), vec3(-0.17,  0.38, 0.27), vec3(-0.30, -0.36, 0.33),
@@ -2722,6 +2751,8 @@ void main() {
   if (dot(N, N) < 1e-12) { o_color = vec4(1.0); return; }
   N = normalize(N);
   if (dot(N, P) > 0.0) N = -N;
+  // AO On Grass Ground: none on the ground among and around the blades
+  if (grassGround(v_uv, P, N)) { o_color = vec4(1.0); return; }
   // a turn for each pixel of a 4 by 4 tile (the blur's 4 by 4 averages them out)
   ivec2 ip = ivec2(gl_FragCoord.xy) & 3;
   const float bayer[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0,
@@ -2869,7 +2900,7 @@ void main() {
 )";
 static GLuint s_aoTraceProg, s_aoApplyProg, s_aoViewProg, s_aoVao;
 static GLint s_aoTLin, s_aoTF, s_aoTAo, s_aoTG, s_aoALin, s_aoAHalf, s_aoAG, s_aoVLin, s_aoVF, s_aoVView, s_aoVG;
-static GLint s_aoTPm, s_aoTVm, s_aoTEs, s_aoVPm, s_aoVVm, s_aoVEs, s_aoTQ, s_aoTMario;
+static GLint s_aoTPm, s_aoTVm, s_aoTEs, s_aoVPm, s_aoVVm, s_aoVEs, s_aoTQ, s_aoTMario, s_aoTGr;
 
 static GLuint s_aoDepthTex, s_aoDepthFbo, s_aoTex, s_aoFbo;
 static int s_aoW, s_aoH, s_aoDiv;
@@ -2894,6 +2925,13 @@ extern "C" void GXPC_AOMario(const float* bottom, const float* top, float radius
     s_aoMario[3] = radius;
     memcpy(s_aoMario + 4, top, 3 * sizeof(float));
     s_aoMario[7] = keep > 0.0f ? keep : 0.0f;
+}
+
+static int s_aoGrassOn;      // AO On Grass Ground (GXPC_AOGrass)
+static float s_aoUp[3] = {0.0f, 1.0f, 0.0f};  // the world's up in the main camera's view
+extern "C" void GXPC_AOGrass(int on, const float* up) {
+    s_aoGrassOn = on != 0 && up != nullptr;
+    if (up) memcpy(s_aoUp, up, sizeof s_aoUp);
 }
 
 extern "C" void GXPC_AOFrame(int mode, float strength, float distance, int view, int quality, int halfRate) {
@@ -2969,6 +3007,7 @@ void aoApply() {
         s_aoTEs  = glGetUniformLocation(s_aoTraceProg, "u_es");
         s_aoTQ   = glGetUniformLocation(s_aoTraceProg, "u_q");
         s_aoTMario = glGetUniformLocation(s_aoTraceProg, "u_mario");
+        s_aoTGr    = glGetUniformLocation(s_aoTraceProg, "u_gr");
         glUniform1i(glGetUniformLocation(s_aoTraceProg, "u_ground"), kGrassDepthUnit);
         glUniform1i(glGetUniformLocation(s_aoTraceProg, "u_after"), kGrassAfterUnit);
         glUseProgram(s_aoApplyProg);
@@ -3130,6 +3169,8 @@ void aoApply() {
     const float q[4] = {float(kAoSamples[s_aoQuality]), 0.0f, 0.0f, 0.0f};
     glUniform4fv(s_aoTQ, 1, q);
     glUniform4fv(s_aoTMario, 2, s_aoMario);
+    const float gr[4] = {s_aoGrassOn ? 1.0f : 0.0f, s_aoUp[0], s_aoUp[1], s_aoUp[2]};
+    glUniform4fv(s_aoTGr, 1, gr);
     glUniform4fv(s_aoTG, 1, gu);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }
