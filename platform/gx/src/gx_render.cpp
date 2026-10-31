@@ -2670,7 +2670,6 @@ bool grassNearby(vec2 uv) {
     vec2(0.0, -1.0), vec2(0.38268, -0.92388), vec2(0.70711, -0.70711), vec2(0.92388, -0.38268));
   for (int i = 0; i < 16; i++) {
     vec2 q = uv + dirs[i] * t;
-    vec2 q = uv + offsets[i];
     if (any(lessThan(q, vec2(0.0))) || any(greaterThan(q, vec2(1.0)))) continue;
     float d = textureLod(u_depth, q, 0.0).r;
     float g = textureLod(u_ground, q, 0.0).r;
