@@ -28,7 +28,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include <set>
+#include <map>
 
 // The renderer's (platform/gx/src/gx_render.cpp).
 extern "C" void GXPC_SwayRegister(const void* list, unsigned size, float minY, float maxY);
@@ -226,12 +226,22 @@ void port_veg_model_named(J3DModelData* data, const char* path)
 	fprintf(stderr, "[vegetation] %s: a plant, all %d of its parts (%.0f high)\n", base, parts, hi - lo);
 }
 
+namespace {
+const int kTouchedTicks = 240;                      // about as long as the game's fronds take to settle
+std::map<const TMapObjTree*, int> s_sinceTouch;     // ticks since Mario last touched each tree
+}
+
 void port_tree_sway(TMapObjTree* tree)
 {
 	const f32 a = amount();
 	if (a <= 0.0f || !tree || !tree->mLeaves || tree->mLeafNum <= 0)
 		return;
 	tree->mFreezeLeaves = false;  // kept moving
+	{
+		std::map<const TMapObjTree*, int>::iterator it = s_sinceTouch.find(tree);
+		if (it != s_sinceTouch.end() && it->second < kTouchedTicks)
+			it->second++;
+	}
 	const f32 t = seconds();
 	for (int i = 0; i < tree->mLeafNum; i++) {
 		TMapObjLeaf& leaf = tree->mLeaves[i];
@@ -253,29 +263,25 @@ void port_tree_sway(TMapObjTree* tree)
 	}
 }
 
-// A frond's solid shape (TMapCollisionMove) is moved with the frond each tick. With Moving Vegetation
-// on the fronds never rest, so their shapes were moved all the time and left walls hanging in the
-// air. Now the shape follows the frond only while Mario is on this tree; when he leaves it, it is put
-// back at rest once. The swaying alone is only what is seen.
+// In the game a frond's solid shape (TMapCollisionMove) is only in the world on the ticks when the
+// tree moves it, and a tree rests (is frozen) until Mario touches it. With Moving Vegetation on the
+// fronds never rest, so every palm kept solid fronds all the time: walls in the air where there was
+// only a thin leaf. Now the shapes follow the fronds only while the tree was touched lately (Mario's
+// touch, or standing on it), like the game; the swaying alone is only what is seen.
+
+void port_tree_touched(TMapObjTree* tree)
+{
+	if (tree && amount() > 0.0f)
+		s_sinceTouch[tree] = 0;
+}
+
 bool port_tree_leaf_collides(TMapObjTree* tree, int index)
 {
-	static std::set<const TMapObjLeaf*> s_moved;  // fronds whose shape is not at rest
-	if (!tree || !tree->mLeaves || index < 0 || index >= tree->mLeafNum)
-		return true;
-	TMapObjLeaf& leaf = tree->mLeaves[index];
-	if (amount() <= 0.0f) {
-		s_moved.erase(&leaf);
+	if (amount() <= 0.0f)
 		return true;  // off: the game as it was
-	}
 	const TBGCheckData* ground = gpMarioGroundPlane ? SMS_GetMarioGroundPlane() : 0;
-	if (ground && ground->getActor() == tree) {
-		s_moved.insert(&leaf);
-		return true;
-	}
-	if (s_moved.erase(&leaf)) {
-		TMtx34f rest;
-		rest.set(leaf.mTransform);
-		leaf.mCollision->moveMtx(rest);
-	}
-	return false;
+	if (ground && ground->getActor() == tree)
+		s_sinceTouch[tree] = 0;  // he stands on one of its fronds
+	std::map<const TMapObjTree*, int>::iterator it = s_sinceTouch.find(tree);
+	return it != s_sinceTouch.end() && it->second < kTouchedTicks;
 }

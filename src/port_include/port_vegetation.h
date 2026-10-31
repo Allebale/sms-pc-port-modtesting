@@ -12,9 +12,11 @@ class J3DModelData;
 // From TMapObjTree::perform (zzzzz-ext-32-vegetation-trees), each tick before its leaves move: the
 // wind's and the spray's push on them.
 void port_tree_sway(TMapObjTree* tree);
-// From TMapObjTree::controlLeaf (zzzzz-ext-32-vegetation-trees), where a frond's solid shape would
-// follow the frond: false while the frond only sways by itself (its shape stays at rest, so that
-// no invisible walls are left in the air), true when the game's own call should go ahead.
+// From TMapObjTree::touchPlayer and ::controlLeaf (zzzzz-ext-32-vegetation-trees). In the game a
+// frond's solid shape is only in the world while the tree is being touched; the fronds that sway by
+// themselves must not be solid (they were invisible walls). port_tree_touched: Mario touches the tree.
+// port_tree_leaf_collides: false while the tree is not touched, so the game's own call is skipped.
+void port_tree_touched(TMapObjTree* tree);
 bool port_tree_leaf_collides(TMapObjTree* tree, int index);
 // From J3DModelLoaderDataBase::load (zzzzz-ext-32-vegetation-models), each model as it loads: its
 // leafy materials' display lists, for the renderer.
