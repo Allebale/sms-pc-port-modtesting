@@ -1257,7 +1257,7 @@ const PortSetting kPuddleSettings[] = {
      "How far from the camera Ambient Occlusion reaches. Farther costs a little more.", 0, nullptr,
      aoDistanceCount, aoDistanceName, aoDistanceGet, aoDistanceSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 117, "AO Near Grass",
-      "Keep Ambient Occlusion off near 3D grass. Off by default.", 0, nullptr, offOnCount,
+      "Keep Ambient Occlusion off the 3D grass blades, not the ground around them.", 0, nullptr, offOnCount,
       offOnName, aoGrassExclusionGet, aoGrassExclusionSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 117, "Ambient Occlusion Quality",
      "How finely Ambient Occlusion is worked out. Lower is faster and a little softer.", 0, nullptr,
