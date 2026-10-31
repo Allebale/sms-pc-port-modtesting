@@ -2763,7 +2763,7 @@ bool blade(vec2 uv, float d) {
 // Suppress AO around grass after blur. Three rings catch blades at different
 // distances without the expensive 4x16 sampling grid used in the previous version.
 bool grassNearby(vec2 uv) {
-  if (u_g.x < 0.5) return false;
+  if (u_g.x < 0.5 || u_g.y < 0.5) return false;
   // Four rings at 16, 32, 48 and 64 full-resolution pixels.
   vec2 t = u_half.zw * 64.0;
   const vec2 dirs[8] = vec2[8](
@@ -3091,7 +3091,7 @@ void aoApply() {
     glActiveTexture(GL_TEXTURE0 + kGrassAfterUnit);
     glBindTexture(GL_TEXTURE_2D, s_grassAfterTex);
     glBindSampler(kGrassAfterUnit, 0);
-    const float gu[4] = {grass ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
+    const float gu[4] = {grass ? 1.0f : 0.0f, port_ao_grass_exclusion() ? 1.0f : 0.0f, 0.0f, 0.0f};
     glBindVertexArray(s_aoVao);
     // view z from the depth: d * 16777215 = vz1 - vz0 * A - vz0 * B / z (gx_shader.cpp's mapping)
     const float lin[4] = {-vz0 * B, 16777215.0f, vz0 * A - vz1, 0.0f};
