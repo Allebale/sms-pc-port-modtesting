@@ -530,7 +530,7 @@ int vegetationGet() {
     return s_vegetation;
 }
 int vegetationSet(int i) {
-    if (i < 0 || i > 3) return 0;
+    if (i < 0 || i > 4) return 0;
     load();
     s_vegetation = i;
     save();
