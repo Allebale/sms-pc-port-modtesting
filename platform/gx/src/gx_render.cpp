@@ -2764,15 +2764,16 @@ bool blade(vec2 uv, float d) {
 // distances without the expensive 4x16 sampling grid used in the previous version.
 bool grassNearby(vec2 uv) {
   if (u_g.x < 0.5) return false;
-  vec2 t = u_half.zw * 48.0;
+  // Four rings at 16, 32, 48 and 64 full-resolution pixels.
+  vec2 t = u_half.zw * 64.0;
   const vec2 dirs[8] = vec2[8](
     vec2(1.0, 0.0), vec2(0.70711, 0.70711),
     vec2(0.0, 1.0), vec2(-0.70711, 0.70711),
     vec2(-1.0, 0.0), vec2(-0.70711, -0.70711),
     vec2(0.0, -1.0), vec2(0.70711, -0.70711));
-  for (int ring = 1; ring <= 3; ring++) {
+  for (int ring = 1; ring <= 4; ring++) {
     for (int i = 0; i < 8; i++) {
-      vec2 q = uv + dirs[i] * t * (float(ring) / 3.0);
+      vec2 q = uv + dirs[i] * t * (float(ring) * 0.25);
       if (any(lessThan(q, vec2(0.0))) || any(greaterThan(q, vec2(1.0)))) continue;
       float d = textureLod(u_depth, q, 0.0).r;
       if (blade(q, d)) return true;
