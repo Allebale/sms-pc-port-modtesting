@@ -82,6 +82,7 @@ int s_ao = 0;             // Ambient Occlusion: 0 off, 1 fine detail, 2 large sh
 int s_aoStrength = 1;     // Ambient Occlusion Strength: into kAoStrengths
 int s_aoDistance = 1;     // Ambient Occlusion Distance: into kAoDistances
 int s_aoQuality = 1;      // Ambient Occlusion Quality: 0 low, 1 medium, 2 high
+int s_aoGrassExclusion = 0; // Exclude AO around grass: 0 off (default), 1 on
 int s_aoMario = 0;        // Mario Ambient Occlusion: into kAoMarios (0 none at first: no halo)
 int s_aoHalfRate = 0;     // Ambient Occlusion Update Rate: 0 every frame, 1 every other frame
 int s_depthView = 0;      // Depth Buffer View: 0 off, 1 depth, 2 faces, 3 both, 4 the shade alone
@@ -277,6 +278,8 @@ void load() {
             s_aoMario = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " ambientocclusionrate = %d", &value) == 1) {
             s_aoHalfRate = value != 0;
+        } else if (sscanf(line, " ambientocclusiongrassexclusion = %d", &value) == 1) {
+            s_aoGrassExclusion = value != 0;
         } else if (sscanf(line, " ambientocclusionquality = %d", &value) == 1) {
             s_aoQuality = value < 0 ? 0 : value > 2 ? 2 : value;
         } else if (sscanf(line, " ambientocclusiondistance = %d", &value) == 1) {
@@ -398,6 +401,8 @@ void save() {
     fprintf(f, "ambientocclusiondistance = %d\n", s_aoDistance);
     fprintf(f, "# ambientocclusionquality: 0 low (fastest), 1 medium, 2 high.\n");
     fprintf(f, "ambientocclusionquality = %d\n", s_aoQuality);
+    fprintf(f, "# ambientocclusiongrassexclusion: 1 suppress AO near 3D grass, 0 off (default).\n");
+    fprintf(f, "ambientocclusiongrassexclusion = %d\n", s_aoGrassExclusion);
     fprintf(f, "# ambientocclusionrate: 0 every frame, 1 every other frame (faster).\n");
     fprintf(f, "ambientocclusionrate = %d\n", s_aoHalfRate);
     fprintf(f, "# ambientocclusionmario: how much Mario shades round him: 0 none (no halo), 1 low, 2 medium, 3 full.\n");
@@ -626,6 +631,15 @@ int aoRateSet(int i) {
     s_aoHalfRate = i;
     save();
     port_log("[ao] Ambient Occlusion Update Rate changed: %s\n", kAoRateNames[i]);
+    return 1;
+}
+int aoGrassExclusionGet() { load(); return s_aoGrassExclusion; }
+int aoGrassExclusionSet(int i) {
+    if (i < 0 || i > 1) return 0;
+    load();
+    s_aoGrassExclusion = i;
+    save();
+    port_log("[ao] Grass AO Exclusion changed: %s\\n", i ? "on" : "off");
     return 1;
 }
 const char* const kAoQualityNames[] = {"Low", "Medium", "High"};
@@ -1242,6 +1256,9 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 116, "Ambient Occlusion Distance",
      "How far from the camera Ambient Occlusion reaches. Farther costs a little more.", 0, nullptr,
      aoDistanceCount, aoDistanceName, aoDistanceGet, aoDistanceSet},
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 117, "AO Near Grass",
+      "Keep Ambient Occlusion off near 3D grass. Off by default.", 0, nullptr, offOnCount,
+      offOnName, aoGrassExclusionGet, aoGrassExclusionSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 117, "Ambient Occlusion Quality",
      "How finely Ambient Occlusion is worked out. Lower is faster and a little softer.", 0, nullptr,
      aoQualityCount, aoQualityName, aoQualityGet, aoQualitySet},
@@ -1423,6 +1440,10 @@ float port_ao_mario(void) {
 int port_ao_half_rate(void) {
     load();
     return s_aoHalfRate;
+}
+int port_ao_grass_exclusion(void) {
+    load();
+    return s_aoGrassExclusion;
 }
 int port_ao_quality(void) {
     load();
