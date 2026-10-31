@@ -2661,20 +2661,23 @@ vec3 posUV(vec2 uv) { return posAt(uv, sceneDepth(uv)); }
 // area around the blades too, so it does not dirty the ground immediately beside the grass.
 bool grassNearby(vec2 uv) {
   if (u_g.x < 0.5) return false;
-  // Check 16 directions, 28 full-resolution pixels out from this AO sample.
+  // Sample four rings (7, 14, 21 and 28 pixels) in 16 directions.
+  // A single outer ring can miss blades that are closer to this pixel.
   vec2 t = u_f.zw * 28.0;
   const vec2 dirs[16] = vec2[16](
     vec2(1.0, 0.0), vec2(0.92388, 0.38268), vec2(0.70711, 0.70711), vec2(0.38268, 0.92388),
     vec2(0.0, 1.0), vec2(-0.38268, 0.92388), vec2(-0.70711, 0.70711), vec2(-0.92388, 0.38268),
     vec2(-1.0, 0.0), vec2(-0.92388, -0.38268), vec2(-0.70711, -0.70711), vec2(-0.38268, -0.92388),
     vec2(0.0, -1.0), vec2(0.38268, -0.92388), vec2(0.70711, -0.70711), vec2(0.92388, -0.38268));
-  for (int i = 0; i < 16; i++) {
-    vec2 q = uv + dirs[i] * t;
-    if (any(lessThan(q, vec2(0.0))) || any(greaterThan(q, vec2(1.0)))) continue;
-    float d = textureLod(u_depth, q, 0.0).r;
-    float g = textureLod(u_ground, q, 0.0).r;
-    float a = textureLod(u_after, q, 0.0).r;
-    if (a < g && abs(d - a) < 1e-7) return true;
+  for (int ring = 1; ring <= 4; ring++) {
+    for (int i = 0; i < 16; i++) {
+      vec2 q = uv + dirs[i] * t * (float(ring) * 0.25);
+      if (any(lessThan(q, vec2(0.0))) || any(greaterThan(q, vec2(1.0)))) continue;
+      float d = textureLod(u_depth, q, 0.0).r;
+      float g = textureLod(u_ground, q, 0.0).r;
+      float a = textureLod(u_after, q, 0.0).r;
+      if (a < g && abs(d - a) < 1e-7) return true;
+    }
   }
   return false;
 }
@@ -2787,17 +2790,20 @@ bool blade(vec2 uv, float d) {
 // pass rejected those pixels. Apply the same wider exclusion after the blur.
 bool grassNearby(vec2 uv) {
   if (u_g.x < 0.5) return false;
+  // Match the trace pass: check four concentric rings in 16 directions.
   vec2 t = u_half.zw * 28.0;
   const vec2 dirs[16] = vec2[16](
     vec2(1.0, 0.0), vec2(0.92388, 0.38268), vec2(0.70711, 0.70711), vec2(0.38268, 0.92388),
     vec2(0.0, 1.0), vec2(-0.38268, 0.92388), vec2(-0.70711, 0.70711), vec2(-0.92388, 0.38268),
     vec2(-1.0, 0.0), vec2(-0.92388, -0.38268), vec2(-0.70711, -0.70711), vec2(-0.38268, -0.92388),
     vec2(0.0, -1.0), vec2(0.38268, -0.92388), vec2(0.70711, -0.70711), vec2(0.92388, -0.38268));
-  for (int i = 0; i < 16; i++) {
-    vec2 q = uv + dirs[i] * t;
-    if (any(lessThan(q, vec2(0.0))) || any(greaterThan(q, vec2(1.0)))) continue;
-    float d = textureLod(u_depth, q, 0.0).r;
-    if (blade(q, d)) return true;
+  for (int ring = 1; ring <= 4; ring++) {
+    for (int i = 0; i < 16; i++) {
+      vec2 q = uv + dirs[i] * t * (float(ring) * 0.25);
+      if (any(lessThan(q, vec2(0.0))) || any(greaterThan(q, vec2(1.0)))) continue;
+      float d = textureLod(u_depth, q, 0.0).r;
+      if (blade(q, d)) return true;
+    }
   }
   return false;
 }
