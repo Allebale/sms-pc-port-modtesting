@@ -2767,10 +2767,6 @@ float sceneZ(vec2 uv) {
   return d >= 0.999999 ? 1e9 : viewZ(d);
 }
 void main() {
-  // Exclude only the grass blades themselves. Keep AO on the ground and
-  // characters among the grass, rather than suppressing a wide area around it.
-  float centerDepth = textureLod(u_depth, v_uv, 0.0).r;
-  if (u_g.y > 0.5 && blade(v_uv, centerDepth)) { o_color = vec4(1.0); return; }
   float z0 = sceneZ(v_uv);
   if (z0 > 1e8) { o_color = vec4(1.0); return; }
   // the surface's slope across the screen (the side nearer in depth, so as not to cross an edge):
@@ -3073,7 +3069,7 @@ void aoApply() {
     glActiveTexture(GL_TEXTURE0 + kGrassAfterUnit);
     glBindTexture(GL_TEXTURE_2D, s_grassAfterTex);
     glBindSampler(kGrassAfterUnit, 0);
-    const float gu[4] = {grass ? 1.0f : 0.0f, port_ao_grass_exclusion() ? 1.0f : 0.0f, 0.0f, 0.0f};
+    const float gu[4] = {grass ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
     glBindVertexArray(s_aoVao);
     // view z from the depth: d * 16777215 = vz1 - vz0 * A - vz0 * B / z (gx_shader.cpp's mapping)
     const float lin[4] = {-vz0 * B, 16777215.0f, vz0 * A - vz1, 0.0f};
