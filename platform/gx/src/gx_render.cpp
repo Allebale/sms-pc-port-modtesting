@@ -2657,14 +2657,17 @@ vec3 posAt(vec2 uv, float d) {
   return vec3((ndc.x + u_pm.y) / u_pm.x * -z, (ndc.y + u_pm.w) / u_pm.z * -z, z);
 }
 vec3 posUV(vec2 uv) { return posAt(uv, sceneDepth(uv)); }
-// A grass blade can leave the underlying ground visible in nearby pixels. Keep AO off that
-// ground too, so dense 3D grass does not make its floor look dirty between the blades.
+// A grass blade can leave the underlying ground visible nearby. Keep AO off a wider
+// area around the blades too, so it does not dirty the ground immediately beside the grass.
 bool grassNearby(vec2 uv) {
   if (u_g.x < 0.5) return false;
-  vec2 t = u_f.zw * 3.0;
-  vec2 offsets[4] = vec2[4](vec2(-t.x, -t.y), vec2(t.x, -t.y),
+  // Check in all directions, 12 full-resolution pixels out from this AO sample.
+  vec2 t = u_f.zw * 12.0;
+  vec2 offsets[8] = vec2[8](vec2(-t.x, 0.0), vec2(t.x, 0.0),
+                            vec2(0.0, -t.y), vec2(0.0, t.y),
+                            vec2(-t.x, -t.y), vec2(t.x, -t.y),
                             vec2(-t.x, t.y), vec2(t.x, t.y));
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 8; i++) {
     vec2 q = uv + offsets[i];
     if (any(lessThan(q, vec2(0.0))) || any(greaterThan(q, vec2(1.0)))) continue;
     float d = textureLod(u_depth, q, 0.0).r;
