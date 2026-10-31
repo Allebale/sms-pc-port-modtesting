@@ -2661,8 +2661,8 @@ vec3 posUV(vec2 uv) { return posAt(uv, sceneDepth(uv)); }
 // area around the blades too, so it does not dirty the ground immediately beside the grass.
 bool grassNearby(vec2 uv) {
   if (u_g.x < 0.5) return false;
-  // Check in all directions, 12 full-resolution pixels out from this AO sample.
-  vec2 t = u_f.zw * 12.0;
+  // Check in all directions, 20 full-resolution pixels out from this AO sample.
+  vec2 t = u_f.zw * 20.0;
   vec2 offsets[8] = vec2[8](vec2(-t.x, 0.0), vec2(t.x, 0.0),
                             vec2(0.0, -t.y), vec2(0.0, t.y),
                             vec2(-t.x, -t.y), vec2(t.x, -t.y),
@@ -2782,14 +2782,31 @@ bool blade(vec2 uv, float d) {
   float g = textureLod(u_ground, uv, 0.0).r, a = textureLod(u_after, uv, 0.0).r;
   return a < g && abs(d - a) < 1e-7;
 }
+// The AO blur can spread shade back onto ground next to grass even when the trace
+// pass rejected those pixels. Apply the same wider exclusion after the blur.
+bool grassNearby(vec2 uv) {
+  if (u_g.x < 0.5) return false;
+  vec2 t = u_half.zw * 20.0;
+  vec2 offsets[8] = vec2[8](vec2(-t.x, 0.0), vec2(t.x, 0.0),
+                            vec2(0.0, -t.y), vec2(0.0, t.y),
+                            vec2(-t.x, -t.y), vec2(t.x, -t.y),
+                            vec2(-t.x, t.y), vec2(t.x, t.y));
+  for (int i = 0; i < 8; i++) {
+    vec2 q = uv + offsets[i];
+    if (any(lessThan(q, vec2(0.0))) || any(greaterThan(q, vec2(1.0)))) continue;
+    float d = textureLod(u_depth, q, 0.0).r;
+    if (blade(q, d)) return true;
+  }
+  return false;
+}
 float sceneZ(vec2 uv) {
   float d = textureLod(u_depth, uv, 0.0).r;
   if (blade(uv, d)) d = textureLod(u_ground, uv, 0.0).r;
   return d >= 0.999999 ? 1e9 : viewZ(d);
 }
 void main() {
-  // 3D Grass's blades: none
-  if (blade(v_uv, textureLod(u_depth, v_uv, 0.0).r)) { o_color = vec4(1.0); return; }
+  // Keep the final, blurred AO from bleeding back onto grass and its surroundings.
+  if (grassNearby(v_uv)) { o_color = vec4(1.0); return; }
   float z0 = sceneZ(v_uv);
   if (z0 > 1e8) { o_color = vec4(1.0); return; }
   // the surface's slope across the screen (the side nearer in depth, so as not to cross an edge):
