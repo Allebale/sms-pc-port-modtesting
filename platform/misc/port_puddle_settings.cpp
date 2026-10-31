@@ -85,7 +85,7 @@ int s_aoQuality = 1;      // Ambient Occlusion Quality: 0 low, 1 medium, 2 high
 int s_aoMario = 0;        // Mario Ambient Occlusion: into kAoMarios (0 none at first: no halo)
 int s_aoHalfRate = 0;     // Ambient Occlusion Update Rate: 0 every frame, 1 every other frame
 int s_depthView = 0;      // Depth Buffer View: 0 off, 1 depth, 2 faces, 3 both, 4 the shade alone
-int s_vegetation = 0;     // Moving Vegetation: 0 off, 1 gentle, 2 breezy, 3 windy
+int s_vegetation = 0;     // Moving Vegetation: 0 off through 4 very windy
 int s_sandy = 0;          // Sandy Mario: 0 off, 1 light, 2 normal, 3 heavy
 int s_grassCutHeight = 2, s_grassWildHeight = 2;  // into kGrassHeights
 int s_shadows = 0;        // Real Shadows: 0 off (the game's own), 1 soft, 2 strong
@@ -266,7 +266,7 @@ void load() {
         } else if (sscanf(line, " sandymario = %d", &value) == 1) {
             s_sandy = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " vegetation = %d", &value) == 1) {
-            s_vegetation = value < 0 ? 0 : value > 3 ? 3 : value;
+            s_vegetation = value < 0 ? 0 : value > 4 ? 4 : value;
         } else if (sscanf(line, " ambientocclusion = %d", &value) == 1) {
             s_ao = value < 0 ? 0 : value > 3 ? 3 : value;
         } else if (sscanf(line, " ambientocclusionstrength = %d", &value) == 1) {
@@ -402,7 +402,7 @@ void save() {
     fprintf(f, "ambientocclusionrate = %d\n", s_aoHalfRate);
     fprintf(f, "# ambientocclusionmario: how much Mario shades round him: 0 none (no halo), 1 low, 2 medium, 3 full.\n");
     fprintf(f, "ambientocclusionmario = %d\n", s_aoMario);
-    fprintf(f, "# vegetation: plants sway, bend from Mario and FLUDD's water: 0 off, 1 gentle, 2 breezy, 3 windy.\n");
+    fprintf(f, "# vegetation: plants sway, bend from Mario and FLUDD's water: 0 off through 4 very windy.\n");
     fprintf(f, "vegetation = %d\n", s_vegetation);
     fprintf(f, "# sandymario: sand sticks to Mario where he touches it, falling away over 20 seconds: 0 off, 1 light, 2 normal, 3 heavy.\n");
     fprintf(f, "sandymario = %d\n", s_sandy);
@@ -517,9 +517,9 @@ int fireReachSet(int i) {
     return 1;
 }
 
-const char* const kVegetationNames[] = {"Off", "Gentle", "Breezy", "Windy"};
-int vegetationCount() { return 4; }
-const char* vegetationName(int i) { return kVegetationNames[i < 0 || i > 3 ? 0 : i]; }
+const char* const kVegetationNames[] = {"Off", "Gentle", "Breezy", "Windy", "Very Windy"};
+int vegetationCount() { return 5; }
+const char* vegetationName(int i) { return kVegetationNames[i < 0 || i > 4 ? 0 : i]; }
 int vegetationGet() {
     load();
     return s_vegetation;
@@ -1395,7 +1395,7 @@ int port_sandy_mario(void) {
     load();
     return s_sandy;
 }
-// Moving Vegetation (ext/core/game/port_vegetation.cpp): 0 off, 1 gentle, 2 breezy, 3 windy.
+// Moving Vegetation (ext/core/game/port_vegetation.cpp): 0 off through 4 very windy.
 int port_vegetation(void) {
     load();
     return s_vegetation;
