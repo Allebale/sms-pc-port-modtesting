@@ -34,7 +34,7 @@ Soft shade where surfaces close in: corners, creases, doorways and the ground un
 ## 🌿 A Living World
 
 - **3D grass**: real blades of grass that sway in the breeze, bend as Mario runs through them, and get flattened by FLUDD's spray or a belly slide.
-- **Moving vegetation**: palm trees, bushes and flowers sway in the wind (up to Stormy) and push aside when Mario or FLUDD's water hits them.
+- **Moving vegetation**: palm trees, bushes and flowers sway in the wind (up to Very Windy) and push aside when Mario or FLUDD's water hits them.
 - **Global Illumination**: torches, flames and Shine Sprites light up the ground, walls and characters around them, even in reflections.
 
 ## 🧢 A Messier Mario

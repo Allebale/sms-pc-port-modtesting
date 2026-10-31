@@ -7,6 +7,7 @@
 #include "gx_glthread.h"
 #include "gx_nis_coef.h"
 #include "sms_gx/gx_pc.h"
+#include "port_settings.h"
 
 #include <math.h>
 #include <algorithm>
@@ -2625,7 +2626,7 @@ uniform vec4 u_vm;   // the viewport: x scale, y scale, x centre, y centre (EFB 
 uniform vec2 u_es;   // the EFB's size: the picture's own mapping, widescreen and all
 uniform vec4 u_ao;   // fine strength, large strength, fade start, fade end (units from the camera)
 uniform vec4 u_q;    // x: samples for each (4 to 8: Ambient Occlusion Quality)
-uniform vec4 u_gr;   // x: 1 takes the shade off the ground among and around 3D Grass (AO On Grass Ground);
+uniform vec4 u_gr;   // x: 1 takes the shade off the ground among and around 3D Grass (AO Near Grass);
                      // yzw: the world's up, in view space
 uniform vec4 u_mario[2];  // Mario: from his feet (xyz, w how far round him) to over his cap (view
                           // space; w how much of his shade is kept: Mario Ambient Occlusion)
@@ -2663,7 +2664,7 @@ vec2 toUV(vec3 p) {
   vec2 ndc = vec2(u_pm.x * p.x / -p.z - u_pm.y, u_pm.z * p.y / -p.z - u_pm.w);
   return (u_vm.zw + u_vm.xy * ndc) / u_es;
 }
-// AO On Grass Ground: whether a point is ground among or around the blades (it is not shaded then).
+// AO Near Grass: whether a point is ground among or around the blades (it is not shaded then).
 // A surface that faces up and is part of a wide flat piece (most of the points round it, a few
 // pixels off and farther, lie in its plane), with blades somewhere close. A character, a wall or a
 // trunk is not (it ends, or turns, within those pixels): what stands in the grass keeps its shade.
@@ -2751,7 +2752,7 @@ void main() {
   if (dot(N, N) < 1e-12) { o_color = vec4(1.0); return; }
   N = normalize(N);
   if (dot(N, P) > 0.0) N = -N;
-  // AO On Grass Ground: none on the ground among and around the blades
+  // AO Near Grass: none on the ground among and around the blades
   if (grassGround(v_uv, P, N)) { o_color = vec4(1.0); return; }
   // a turn for each pixel of a 4 by 4 tile (the blur's 4 by 4 averages them out)
   ivec2 ip = ivec2(gl_FragCoord.xy) & 3;
@@ -2927,7 +2928,7 @@ extern "C" void GXPC_AOMario(const float* bottom, const float* top, float radius
     s_aoMario[7] = keep > 0.0f ? keep : 0.0f;
 }
 
-static int s_aoGrassOn;      // AO On Grass Ground (GXPC_AOGrass)
+static int s_aoGrassOn;      // AO Near Grass (GXPC_AOGrass)
 static float s_aoUp[3] = {0.0f, 1.0f, 0.0f};  // the world's up in the main camera's view
 extern "C" void GXPC_AOGrass(int on, const float* up) {
     s_aoGrassOn = on != 0 && up != nullptr;

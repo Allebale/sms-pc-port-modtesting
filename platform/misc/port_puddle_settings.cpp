@@ -83,10 +83,10 @@ int s_aoStrength = 1;     // Ambient Occlusion Strength: into kAoStrengths
 int s_aoDistance = 1;     // Ambient Occlusion Distance: into kAoDistances
 int s_aoQuality = 1;      // Ambient Occlusion Quality: 0 low, 1 medium, 2 high
 int s_aoMario = 0;        // Mario Ambient Occlusion: into kAoMarios (0 none at first: no halo)
-int s_aoGrass = 0;        // AO On Grass Ground: 0 kept (as it was), 1 removed among and around 3D Grass
+int s_aoGrass = 0;        // AO Near Grass: 0 kept (as it was), 1 removed among and around 3D Grass
 int s_aoHalfRate = 0;     // Ambient Occlusion Update Rate: 0 every frame, 1 every other frame
 int s_depthView = 0;      // Depth Buffer View: 0 off, 1 depth, 2 faces, 3 both, 4 the shade alone
-int s_vegetation = 0;     // Moving Vegetation: 0 off, 1 gentle, 2 breezy, 3 windy, 4 stormy
+int s_vegetation = 0;     // Moving Vegetation: 0 off through 4 very windy
 int s_sandy = 0;          // Sandy Mario: 0 off, 1 light, 2 normal, 3 heavy
 int s_grassCutHeight = 2, s_grassWildHeight = 2;  // into kGrassHeights
 int s_shadows = 0;        // Real Shadows: 0 off (the game's own), 1 soft, 2 strong
@@ -407,7 +407,7 @@ void save() {
     fprintf(f, "ambientocclusionmario = %d\n", s_aoMario);
     fprintf(f, "# ambientocclusiongrass: the shade on the ground among and around 3D Grass: 0 kept, 1 removed (characters keep theirs).\n");
     fprintf(f, "ambientocclusiongrass = %d\n", s_aoGrass);
-    fprintf(f, "# vegetation: plants sway, bend from Mario and FLUDD's water: 0 off, 1 gentle, 2 breezy, 3 windy, 4 stormy.\n");
+    fprintf(f, "# vegetation: plants sway, bend from Mario and FLUDD's water: 0 off through 4 very windy.\n");
     fprintf(f, "vegetation = %d\n", s_vegetation);
     fprintf(f, "# sandymario: sand sticks to Mario where he touches it, falling away over 20 seconds: 0 off, 1 light, 2 normal, 3 heavy.\n");
     fprintf(f, "sandymario = %d\n", s_sandy);
@@ -522,7 +522,7 @@ int fireReachSet(int i) {
     return 1;
 }
 
-const char* const kVegetationNames[] = {"Off", "Gentle", "Breezy", "Windy", "Stormy"};
+const char* const kVegetationNames[] = {"Off", "Gentle", "Breezy", "Windy", "Very Windy"};
 int vegetationCount() { return 5; }
 const char* vegetationName(int i) { return kVegetationNames[i < 0 || i > 4 ? 0 : i]; }
 int vegetationGet() {
@@ -630,7 +630,7 @@ int aoGrassSet(int i) {
     load();
     s_aoGrass = i;
     save();
-    port_log("[ao] AO On Grass Ground changed: %s\n", kAoGrassNames[i]);
+    port_log("[ao] AO Near Grass changed: %s\n", kAoGrassNames[i]);
     return 1;
 }
 const char* const kAoRateNames[] = {"Every Frame", "Every Other Frame"};
@@ -1105,7 +1105,7 @@ const EffectValue kEffects[] = {
     {"Ambient Occlusion Quality", "Medium", "High"},
     {"Ambient Occlusion Update Rate", "Every Frame", "Every Other Frame"},
     {"Mario Ambient Occlusion", "None", "Low"},
-    {"AO On Grass Ground", "Kept", "Removed"},
+    {"AO Near Grass", "Kept", "Removed"},
     {"Shader Warm-up", "On", "On"},
 };
 const char* const kEffectPresetNames[] = {"Original", "Remastered", "Custom"};
@@ -1272,7 +1272,7 @@ const PortSetting kPuddleSettings[] = {
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 118, "Mario Ambient Occlusion",
      "How much shade Mario makes round him and on himself. None has no dark ring. Others keep their own.", 0, nullptr,
      aoMarioCount, aoMarioName, aoMarioGet, aoMarioSet},
-    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 120, "AO On Grass Ground",
+    {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 120, "AO Near Grass",
      "Removed takes the shade off the ground among 3D Grass. Characters keep theirs.", 0, nullptr,
      aoGrassCount, aoGrassName, aoGrassGet, aoGrassSet},
     {nullptr, PORT_SETTINGS_PAGE_GRAPHICS, 119, "Depth Buffer View",
@@ -1419,7 +1419,7 @@ int port_sandy_mario(void) {
     load();
     return s_sandy;
 }
-// Moving Vegetation (ext/core/game/port_vegetation.cpp): 0 off, 1 gentle, 2 breezy, 3 windy, 4 stormy.
+// Moving Vegetation (ext/core/game/port_vegetation.cpp): 0 off through 4 very windy.
 int port_vegetation(void) {
     load();
     return s_vegetation;
@@ -1444,7 +1444,7 @@ float port_ao_mario(void) {
     load();
     return kAoMarios[s_aoMario < 0 || s_aoMario > 3 ? 0 : s_aoMario];
 }
-// AO On Grass Ground (the renderer's ambient occlusion): 1 removed among and around 3D Grass.
+// AO Near Grass (the renderer's ambient occlusion): 1 removed among and around 3D Grass.
 int port_ao_grass(void) {
     load();
     return s_aoGrass;

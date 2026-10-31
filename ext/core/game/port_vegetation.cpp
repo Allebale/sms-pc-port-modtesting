@@ -36,7 +36,7 @@ extern "C" void GXPC_SwayFrame(const float* world, const float* pushers, int cou
 
 namespace {
 
-const f32 kAmounts[] = {0.0f, 0.6f, 1.0f, 1.8f, 3.2f};  // Off, Gentle, Breezy, Windy, Stormy
+const f32 kAmounts[] = {0.0f, 0.6f, 1.0f, 1.8f, 2.7f};  // Off through Very Windy
 const f32 kWind[3]   = {0.8f, 0.0f, 0.6f};        // the way the breeze blows (unit)
 
 f32 amount()

@@ -174,7 +174,7 @@ void port_shadows_main_view(void* camera, float (*view)[4])
 	// Ambient Occlusion: how much Mario (and FLUDD on his back) shades round him and himself (Mario
 	// Ambient Occlusion: none at first, no halo): where he stands, from his feet to over his cap,
 	// in the camera's view
-	// AO On Grass Ground: which way is up in the camera's view (the world's y)
+	// AO Near Grass: which way is up in the camera's view (the world's y)
 	{
 		float up[3] = {view[0][1], view[1][1], view[2][1]};
 		const float len = sqrtf(up[0] * up[0] + up[1] * up[1] + up[2] * up[2]);
