@@ -55,9 +55,7 @@ before it goes to `remastered`.
 
 Windows (usually the antivirus scanning new files, or an Explorer window) held the launcher's download
 folder. Close Explorer windows there, delete leftover `*.download-*` folders in
-`%AppData%\sms-launcher\sms-pc-port.releases`, and build again. Adding `%AppData%\sms-launcher` as a
-Windows Security exclusion helps. Last time Allebale had to delete the release folders and let the
-launcher download everything again. Memory cards are backed up first (`SMS Launcher Backups`).
+`%AppData%\\sms-launcher\\sms-pc-port.releases`, and build again. Last time Allebale had to delete the release folders and let the launcher download everything again. Memory cards are backed up first (`SMS Launcher Backups`).
 
 ## What the fork adds, and where it lives
 
@@ -101,24 +99,12 @@ Hooks into the game's own code are the `decomp-patches/*.patch` files, applied i
 - A texture that is uploaded again gets a fresh GL texture (that fixed stutters too).
 - Long frames (45 ms or more) are logged by default as `hitchFrame`, useful for stutter reports.
 
-## Checking your work without running the game
-
-- **C++**: syntax-check the files you changed with `g++ -fsyntax-only -Dfar= -Dnear=`
-  and the include folders they need (`src/port_include`, `platform/gx/include`, `platform/gx/src`).
-  Game files under `ext/` need the decomp's headers as well.
-  **Game files under `ext/` are built as `-std=gnu++03` (no C++11: no `unordered_set`, `auto`, `nullptr`, range-for)**,
-  so check them with `-std=gnu++03 -fno-gnu-keywords -fpermissive -DTARGET_PC -DVERSION_GMSE01 -include src/port_compat.h`.
-  The launcher log shows the exact compile line. The renderer under `platform/gx` is newer C++.
-- **Shaders**: copy the GLSL out of the `R"( ... )"` string (or generate a program's text by building a
-  tiny program that includes `gx_shader.cpp`) and run `glslangValidator` on it.
-- **Patches**: apply them in order to a copy of the decomp file with `patch -p1 --dry-run`.
-- Then push to `remastered-test` and ask Allebale to build it. Tell him what to look at and where.
-- Depth Buffer View (Graphics page) shows depth, normals, the AO shade alone and depth edges: ask for
-  screenshots of it when AO or depth looks wrong.
-
 ## Planned features
 
 - **AO Near Grass**: exclude Ambient Occlusion from the ground among and around 3D grass, while keeping AO on Mario, NPCs and enemies standing in or near the grass. This needs reliable per-pixel character identification; it is not implemented and must not be exposed as a setting until that works.
+- **3D Ladders**: add 3D ladder geometry to replace or enhance the flat ladder visuals.
+- **Puddles Around Fountains**: add puddles around fountains.
+- **Shine Sprites Global Illumination**: use light from Shine Sprites to illuminate the surrounding environment.
 
 ## Ideas tried and dropped (do not bring back unasked)
 
