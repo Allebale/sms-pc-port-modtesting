@@ -2770,7 +2770,7 @@ void main() {
   // Exclude only the grass blades themselves. Keep AO on the ground and
   // characters among the grass, rather than suppressing a wide area around it.
   float centerDepth = textureLod(u_depth, v_uv, 0.0).r;
-  if (blade(v_uv, centerDepth)) { o_color = vec4(1.0); return; }
+  if (u_g.y > 0.5 && blade(v_uv, centerDepth)) { o_color = vec4(1.0); return; }
   float z0 = sceneZ(v_uv);
   if (z0 > 1e8) { o_color = vec4(1.0); return; }
   // the surface's slope across the screen (the side nearer in depth, so as not to cross an edge):
