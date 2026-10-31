@@ -105,6 +105,8 @@ Hooks into the game's own code are the `decomp-patches/*.patch` files, applied i
 - **3D Ladders**: add 3D ladder geometry to replace or enhance the flat ladder visuals.
 - **Puddles Around Fountains**: add puddles around fountains.
 - **Shine Sprites Global Illumination**: use light from Shine Sprites to illuminate the surrounding environment.
+- **Code Quality Review**: review the codebase for correctness, maintainability, performance issues, and unnecessary complexity; fix issues where appropriate.
+- **Faster Game Start**: investigate and reduce game startup time without changing gameplay or introducing regressions.
 
 ## Ideas tried and dropped (do not bring back unasked)
 
