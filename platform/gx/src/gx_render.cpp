@@ -7,6 +7,7 @@
 #include "gx_glthread.h"
 #include "gx_nis_coef.h"
 #include "sms_gx/gx_pc.h"
+#include "port_settings.h"
 
 #include <math.h>
 #include <algorithm>
